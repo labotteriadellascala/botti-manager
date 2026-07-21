@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.1 — 21/07/2026 · ricerca accessori</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.2 — 21/07/2026 · duplica materiali</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -4582,6 +4582,7 @@ function buildGiacenzaRow(m, i, fabbQta) {
       <input type="number" min="0" value="${g}" title="Giacenza a magazzino — modificabile" style="width:60px;text-align:right;font-family:var(--mono)" onchange="aggiornaGiacenzaPerNome('${nomeEsc}',this.value)">
       <span style="font-size:11px;color:var(--ink3);min-width:20px">${m.um}</span>
       <button class="btn btn-sm btn-ghost" style="padding:2px 6px;font-size:11px" onclick="showModalModificaMaterialePerNome('${nomeEsc}')">✏</button>
+      <button class="btn btn-sm btn-ghost" title="Duplica: stesse caratteristiche, nuovo codice" style="padding:2px 6px;font-size:11px" onclick="duplicaMaterialePerNome('${nomeEsc}')">⧉</button>
       <button class="btn btn-sm btn-danger" style="padding:2px 6px;font-size:11px" onclick="eliminaMaterialePerNome('${nomeEsc}')">×</button>
     </div>
   </div>`;
@@ -4676,6 +4677,26 @@ function showModalNuovoMateriale() {
     {label:'Aggiungi', action:'salvaNuovoMateriale()', primary:true},
   ]);
 }
+
+// Duplica un materiale: apre il modulo "Nuovo materiale" precompilato con le
+// caratteristiche del sorgente. La GIACENZA parte da 0 (è un articolo nuovo:
+// copiare la giacenza conterebbe due volte gli stessi pezzi a scaffale).
+window.duplicaMaterialePerNome = function(nome){
+  const m = (DB.get('materiali')||[]).find(x=>x.nome===nome); if(!m) return;
+  showModalNuovoMateriale();
+  const t = m.tipo||{};
+  const set = (id,val)=>{ const el=document.getElementById(id); if(el) el.value=val; };
+  const setChk = (id,val)=>{ const el=document.getElementById(id); if(el) el.checked=!!val; };
+  // um e materia prima: se il valore del sorgente non è tra le opzioni, lo aggiungo (mai perderlo in silenzio)
+  const setSel = (id,val)=>{ const el=document.getElementById(id); if(!el) return;
+    if(val && ![...el.options].some(o=>o.value===val)){ const o=document.createElement('option'); o.value=val; o.textContent=val; el.appendChild(o); }
+    el.value = val||''; };
+  set('nm-nome', m.nome+' (copia)');
+  setChk('nm-tipo-mp', t.materiaPrima); setChk('nm-tipo-sl', t.semilavorato); setChk('nm-tipo-ac', t.acquisto);
+  setSel('nm-um', m.um||'pz');
+  setSel('nm-mp', m.materiaPrima||'');
+  const inp=document.getElementById('nm-nome'); if(inp){ inp.focus(); inp.select(); }   // scrivi subito il codice nuovo
+};
 
 function salvaNuovoMateriale() {
   const nome = (document.getElementById('nm-nome').value||'').trim();
