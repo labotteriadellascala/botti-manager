@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.2 — 21/07/2026 · duplica materiali</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.3 — 21/07/2026 · scheda: qtà a sinistra</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -5356,16 +5356,16 @@ function materiaPrimaDi(nomeComponente) {
 function _rigaComponente(c) {
   const mp = materiaPrimaDi(c.nome);
   return `<tr>
+    <td style="width:56px;white-space:nowrap;text-align:right;font-weight:700;font-family:monospace;padding-right:10px">${c.qty} ${c.um}</td>
     <td>${c.nome}${mp?` <span style="font-size:11px;color:#8C8578">— ${mp}</span>`:''}</td>
-    <td style="text-align:right;font-weight:600;font-family:monospace">${c.qty} ${c.um}</td>
   </tr>`;
 }
 
 // Riga per i materiali di acquisto (senza suffisso "— acquisto": lo dice già l'intestazione della sezione)
 function _rigaAcquisto(c) {
   return `<tr>
+    <td style="width:56px;white-space:nowrap;text-align:right;font-weight:700;font-family:monospace;padding-right:10px">${c.qty} ${c.um}</td>
     <td>${c.nome}</td>
-    <td style="text-align:right;font-weight:600;font-family:monospace">${c.qty} ${c.um}</td>
   </tr>`;
 }
 
@@ -5454,7 +5454,7 @@ function corpoSchedaHTML(o) {
     if(gruppiMP[SENZA_MP]) chiaviMP.push(SENZA_MP);   // eventuali "orfani" in fondo
     const componentiSection = botteComp.length ? `
       <div class="section">
-        <div class="section-title">Componenti — ${riga.prodottoNome||riga.prodotto}</div>
+        <div class="section-title">Componenti — ${riga.prodottoNome ? `${riga.prodotto} — ${riga.prodottoNome}` : (riga.prodotto||'')}</div>
         ${chiaviMP.map(mp=>`<div class="mp-gruppo">
           <div class="mp-titolo">${mp}</div>
           <table class="comp-table">${gruppiMP[mp].map(c=>_rigaAcquisto(c)).join('')}</table>
@@ -5482,7 +5482,7 @@ function corpoSchedaHTML(o) {
     const riepilogoAccessori = nomiAcc.length ? `
       <div class="section" style="background:#FBF7EC;border:1px solid #E8DC9C;border-radius:8px;padding:10px 14px">
         <div class="section-title" style="color:#7A5C00;border-bottom:1px solid #E0D4A8">Riepilogo accessori del prodotto</div>
-        <table class="comp-table">${nomiAcc.sort().map(n=>`<tr><td>${n}</td><td style="text-align:right;font-weight:700;font-family:monospace">${accConteggio[n]} pz</td></tr>`).join('')}</table>
+        <table class="comp-table">${nomiAcc.sort().map(n=>`<tr><td style="width:56px;white-space:nowrap;text-align:right;font-weight:700;font-family:monospace;padding-right:10px">${accConteggio[n]} pz</td><td>${n}</td></tr>`).join('')}</table>
       </div>` : '';
 
     const etichettaProdotto = totProdotti>1
@@ -5511,7 +5511,7 @@ function corpoSchedaHTML(o) {
       </div>
       <div class="section">
         <div class="section-title">Modello</div>
-        <div class="row"><span class="key">Nome</span><span class="val">${riga.prodottoNome||riga.prodotto}</span></div>
+        <div class="row"><span class="key">Nome</span><span class="val">${riga.prodottoNome ? `${riga.prodotto} — ${riga.prodottoNome}` : (riga.prodotto||'—')}</span></div>
         ${riga.colore?`<div class="row"><span class="key">Finitura</span><span class="val" style="color:#8B3A1A">🎨 ${riga.colore}</span></div>`:''}
         ${riga.incisioni?`<div class="row"><span class="key">Incisioni</span><span class="val" style="color:#8B3A1A">✏ ${riga.incisioni}</span></div>`:''}
         ${riga.fuoriStandard?`<div class="row"><span class="key">Tipo</span><span class="val urg">⚠ FUORI STANDARD</span></div>`:''}
