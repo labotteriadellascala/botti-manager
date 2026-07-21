@@ -827,6 +827,9 @@ td.fin-in{color:var(--green);font-weight:500}
 
 <!-- ACCESSORI LISTINO -->
 <div class="page" id="page-accessori-listino">
+  <div style="margin-bottom:12px">
+    <input type="text" id="acc-listino-search" placeholder="🔍 Cerca per nome, note o componente…" oninput="renderAccessoriListino()" style="width:100%;max-width:420px">
+  </div>
   <div class="card" style="padding:0">
     <div class="table-wrap"><table>
       <thead><tr><th>Nome accessorio</th><th>Prezzo €</th><th>Note</th><th>Componenti</th><th></th></tr></thead>
@@ -5131,7 +5134,15 @@ function saveNuovoProdotto() {
 // ─── ACCESSORI LISTINO ────────────────────────────────────────────────────────
 function renderAccessoriListino() {
   const acc = DB.get('accessori')||[];
-  document.getElementById('acc-listino-table').innerHTML = acc.map((a,i)=>`<tr>
+  const q = ((document.getElementById('acc-listino-search')||{}).value||'').toLowerCase().trim();
+  // Filtro su nome, note e nomi dei componenti in distinta; gli indici restano quelli
+  // dell'archivio completo, così Modifica/Elimina agiscono sull'accessorio giusto.
+  const visibili = acc.map((a,i)=>({a,i})).filter(({a})=>{
+    if(!q) return true;
+    const pagliaio = (a.nome||'')+' '+(a.note||'')+' '+(a.componenti||[]).map(c=>c.nome||'').join(' ');
+    return pagliaio.toLowerCase().includes(q);
+  });
+  document.getElementById('acc-listino-table').innerHTML = (visibili.length ? visibili : null)?.map(({a,i})=>`<tr>
     <td>${a.nome}</td>
     <td class="text-mono">${fmt(a.prezzo)} €</td>
     <td style="color:var(--ink3)">${a.note||'—'}</td>
@@ -5141,7 +5152,7 @@ function renderAccessoriListino() {
       <button class="btn btn-sm btn-ghost" onclick="editAccessorio(${i})">Modifica</button>
       <button class="btn btn-sm btn-danger" onclick="deleteAccessorio(${i})">×</button>
     </td>
-  </tr>`).join('');
+  </tr>`).join('') ?? `<tr><td colspan="5" style="text-align:center;color:var(--ink3);padding:20px">Nessun accessorio corrisponde a "${_esc(q)}"</td></tr>`;
 }
 
 function showModalNuovoAccessorio(i) {
