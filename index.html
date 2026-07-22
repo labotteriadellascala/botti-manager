@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.9 — 22/07/2026 · allegati ordine (foto/PDF)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.10 — 22/07/2026 · promemoria: tasto Fatto</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -3305,9 +3305,12 @@ function renderPromemoria() {
   };
   const righe = lista.map(p => {
     const st = statoPromemoria(p.data);
+    const rif = p.tipo==='ordine' ? p.id : (p.tipo==='libero' ? p.id : p.idx);
+    const notaJs = String(p.nota||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').slice(0,120);
+    const fattoBtn = `<button class="btn btn-sm" style="color:var(--green);border-color:var(--green);font-weight:700" onclick="event.stopPropagation();completaPromemoria('${p.tipo}','${rif}','${notaJs}')" title="Segna come fatto">✓ Fatto</button>`;
     const azioni = p.tipo==='libero'
-      ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();apriPromemoriaLibero('${p.id}')">Modifica</button> <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="event.stopPropagation();eliminaPromemoriaLibero('${p.id}')">Elimina</button>`
-      : `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();${apriCmd(p)}">Apri</button>`;
+      ? `${fattoBtn} <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();apriPromemoriaLibero('${p.id}')">Modifica</button> <button class="btn btn-sm btn-ghost" style="color:var(--red)" onclick="event.stopPropagation();eliminaPromemoriaLibero('${p.id}')">Elimina</button>`
+      : `${fattoBtn} <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();${apriCmd(p)}">Apri</button>`;
     return `<tr style="cursor:pointer" onclick="${apriCmd(p)}">
       <td class="text-mono text-sm" style="color:${colore[st]};font-weight:600">${fmtDate(p.data)}${etichetta[st]?` <span style="font-size:10px;background:${colore[st]};color:#fff;border-radius:4px;padding:1px 6px;margin-left:4px">${etichetta[st]}</span>`:''}</td>
       <td><span class="badge badge-gray" style="font-size:10px">${tipoLabel[p.tipo]||''}</span> ${p.num?`<span class="text-mono text-sm">${p.num}</span>`:''}</td>
@@ -3413,6 +3416,38 @@ function eliminaPromemoriaLibero(id) {
   aggiornaBadgePromemoria();
   renderPromemoria();
 }
+
+// ─── ✓ FATTO: segna un promemoria come completato (di qualunque tipo) ────────
+// Completato = il promemoria viene TOLTO dalla scheda di origine (data e nota
+// sparsicono anche dal form dell'ordine/contatto, pronto per un promemoria nuovo).
+// Non esiste un archivio dei promemoria fatti: fatto = risolto = via.
+window.completaPromemoria = async function(tipo, rif, nota){
+  if(!confirm('Segnare come FATTO?\n\n"'+(nota||'(senza nota)')+'"\n\nIl promemoria verrà rimosso.')) return;
+  if (tipo === 'ordine') {
+    const o = (DB.get('ordini')||[]).find(x=>x.id===rif);
+    if(!o) return;
+    delete o.promemoriaData; delete o.promemoriaNota; delete o.promemoriaDest;
+    try { await salvaOrdineSingolo(o); } catch(e){}
+  } else if (tipo === 'ordineEvento') {
+    const lista = DB.get('ordiniEvento')||[];
+    const o = lista[Number(rif)];
+    if(!o) return;
+    delete o.promemoriaData; delete o.promemoriaNota; delete o.promemoriaDest;
+    DB.set('ordiniEvento', lista);
+  } else if (tipo === 'contatto') {
+    const lista = DB.get('contatti')||[];
+    const c = lista[Number(rif)];
+    if(!c) return;
+    delete c.promemoriaData; delete c.promemoriaNota; delete c.promemoriaDest;
+    DB.set('contatti', lista);
+  } else if (tipo === 'libero') {
+    let lista = DB.get('promemoriaLiberi')||[];
+    lista = lista.filter(p => p.id !== rif);
+    DB.set('promemoriaLiberi', lista);
+  }
+  aggiornaBadgePromemoria();
+  renderPromemoria();
+};
 
 // ─── ORDINAMENTO TABELLE (clic sull'intestazione) ───────────────────────────
 // Memorizza per ogni tabella quale colonna e in che verso (asc/desc).
