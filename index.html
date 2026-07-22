@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.4 — 22/07/2026 · stampa presenze: riquadro semplificato</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.5 — 22/07/2026 · magazzino: salvataggi mirati</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -2155,7 +2155,7 @@ var DB = {
       } else if (SEZIONI_IMPOSTAZIONI.includes(k)) {
         salvaImpostazione(k, v);                  // salvo questa lista nel cassetto "impostazioni"
       } else if (k === 'materiali') {
-        sincronizzaMateriali(v);                  // salvo tutta la lista materiali (li gestisce solo Andrea)
+        sincronizzaMateriali(v);                  // salvataggio MIRATO: scrive solo ciò che è cambiato
       } else if (k === 'prodotti') {
         sincronizzaProdotti(v);                   // salvo tutto il catalogo prodotti (lo gestisce solo Andrea)
       } else if (k === 'accessori') {
@@ -2205,26 +2205,89 @@ async function caricaImpostazioniDaCloud(defaults) {
   console.log('✔ Impostazioni caricate dal cloud (canali/famiglie/colori)');
 }
 
-// ─── MATERIALI ⇄ Supabase (tutta la lista; li gestisce solo Andrea) ──────────
-let _syncMaterialiInCorso = false;
-async function sincronizzaMateriali(lista) {
-  if (_syncMaterialiInCorso) return;
-  _syncMaterialiInCorso = true;
-  try {
-    // strategia semplice: svuoto e riscrivo l'elenco (i materiali si ricalcolano spesso in blocco)
-    const { error: errDel } = await sb.from('materiali').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    if (errDel) { console.error('✖ Errore pulizia materiali:', errDel.message); return; }
-    if (lista && lista.length) {
-      const righe = lista.map(m => ({ nome: m.nome || '', dati: m }));
-      const { error: errIns } = await sb.from('materiali').insert(righe);
-      if (errIns) { console.error('✖ Errore salvataggio materiali:', errIns.message); return; }
-    }
-    console.log('✔ Materiali sincronizzati col cloud:', (lista||[]).length);
-  } catch (e) {
-    console.error('✖ Sincronizzazione materiali fallita:', e);
-  } finally {
-    _syncMaterialiInCorso = false;
+// ─── MATERIALI ⇄ Supabase — SALVATAGGI MIRATI riga per riga ──────────────────
+// PRIMA: si svuotava tutta la tabella e la si riscriveva. Pericoloso: se nello stesso
+// istante l'officina scaricava una giacenza (QR apertura commessa / conta magazzino),
+// quel movimento poteva andare perso o finire su una riga appena cancellata.
+// ADESSO: ogni materiale ha il suo id cloud (_id) e una "fotografia" dell'ultimo stato
+// salvato (_matBaseline). Al salvataggio si confronta: si INSERISCE solo il nuovo,
+// si AGGIORNA solo il modificato, si CANCELLA solo il rimosso. La tabella non viene
+// mai svuotata, e i movimenti dell'officina non vengono mai travolti.
+// GIACENZA: se NON l'hai toccata tu (identica alla fotografia), prima di salvare si
+// rilegge quella del cloud — così una modifica di nome/um non riporta indietro una
+// giacenza scaricata dall'officina nel frattempo.
+var _matBaseline = {};                       // id cloud → fotografia (JSON) dell'ultimo stato salvato
+function _datiMat(m){ const d = Object.assign({}, m); delete d._id; return d; }
+function _fotoMat(m){ return JSON.stringify({ nome: m.nome || '', dati: _datiMat(m) }); }
+
+let _syncMatCatena = Promise.resolve();      // i salvataggi si mettono in fila, mai in parallelo
+function sincronizzaMateriali(lista) {
+  _syncMatCatena = _syncMatCatena
+    .then(() => _syncMaterialiMirata(lista))
+    .catch(e => console.error('✖ Sincronizzazione materiali fallita:', e));
+  return _syncMatCatena;
+}
+
+async function _syncMaterialiMirata(lista) {
+  lista = lista || [];
+
+  // Adozione per NOME: righe locali senza id (es. import) agganciano la riga cloud omonima,
+  // così un import diventa una serie di aggiornamenti mirati, non cancella-e-ricrea.
+  const idPerNome = {};
+  for (const id of Object.keys(_matBaseline)) {
+    try { idPerNome[JSON.parse(_matBaseline[id]).nome] = id; } catch(e){}
   }
+  const idUsati = new Set(lista.filter(m => m._id).map(m => m._id));
+  for (const m of lista) {
+    if (!m._id && idPerNome[m.nome] && !idUsati.has(idPerNome[m.nome])) {
+      m._id = idPerNome[m.nome];
+      idUsati.add(m._id);
+    }
+    // id "orfano" (es. da un backup vecchio): la riga cloud non esiste più → tratto come nuovo
+    if (m._id && !(m._id in _matBaseline)) delete m._id;
+  }
+
+  // 1) INSERISCO i nuovi
+  for (const m of lista) {
+    if (m._id) continue;
+    const { data, error } = await sb.from('materiali').insert({ nome: m.nome || '', dati: _datiMat(m) }).select('id').single();
+    if (error) { console.error('✖ Inserimento materiale fallito:', m.nome, error.message); continue; }
+    m._id = data.id;
+    _matBaseline[m._id] = _fotoMat(m);
+  }
+
+  // 2) AGGIORNO solo i modificati
+  for (const m of lista) {
+    if (!m._id) continue;
+    const foto = _fotoMat(m);
+    if (_matBaseline[m._id] === foto) continue;          // invariato: non scrivo nulla
+    const dati = _datiMat(m);
+    try {
+      // giacenza non toccata da te? → tengo quella del cloud (l'officina può averla mossa)
+      const base = JSON.parse(_matBaseline[m._id]);
+      if (base && base.dati && dati.giacenza === base.dati.giacenza) {
+        const { data: cur } = await sb.from('materiali').select('dati').eq('id', m._id).single();
+        if (cur && cur.dati && cur.dati.giacenza !== undefined && cur.dati.giacenza !== dati.giacenza) {
+          dati.giacenza = cur.dati.giacenza;
+          m.giacenza    = cur.dati.giacenza;             // allineo anche la copia locale
+        }
+      }
+    } catch(e){}
+    const { error } = await sb.from('materiali').update({ nome: m.nome || '', dati: dati }).eq('id', m._id);
+    if (error) { console.error('✖ Aggiornamento materiale fallito:', m.nome, error.message); continue; }
+    _matBaseline[m._id] = JSON.stringify({ nome: m.nome || '', dati: dati });
+  }
+
+  // 3) CANCELLO solo i rimossi
+  const presenti = new Set(lista.filter(m => m._id).map(m => m._id));
+  const daCancellare = Object.keys(_matBaseline).filter(id => !presenti.has(id));
+  if (daCancellare.length) {
+    const { error } = await sb.from('materiali').delete().in('id', daCancellare);
+    if (error) { console.error('✖ Cancellazione materiali fallita:', error.message); }
+    else daCancellare.forEach(id => { delete _matBaseline[id]; });
+  }
+
+  console.log('✔ Materiali sincronizzati (mirato):', lista.length);
 }
 
 async function caricaMaterialiDaCloud(defaults) {
@@ -2237,9 +2300,16 @@ async function caricaMaterialiDaCloud(defaults) {
   if (!data || data.length === 0) {
     // cloud vuoto la prima volta → uso i default e li salvo
     _cache.materiali = defaults || [];
+    _matBaseline = {};
     await sincronizzaMateriali(_cache.materiali);
   } else {
-    _cache.materiali = data.map(r => r.dati || { nome: r.nome });
+    _matBaseline = {};
+    _cache.materiali = data.map(r => {
+      const m = r.dati || { nome: r.nome };
+      m._id = r.id;                       // id cloud: serve ai salvataggi mirati
+      _matBaseline[r.id] = _fotoMat(m);   // fotografia dell'ultimo stato conosciuto
+      return m;
+    });
   }
   console.log('✔ Materiali caricati dal cloud:', _cache.materiali.length);
 }
