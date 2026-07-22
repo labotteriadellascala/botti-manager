@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.8 — 22/07/2026 · dashboard: da consegnare per mese</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.9 — 22/07/2026 · allegati ordine (foto/PDF)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -3569,6 +3569,114 @@ window.toggleDataConsegnatoForm = function(){
   if(on && inp && !inp.value) inp.value=new Date().toISOString().slice(0,10);   // precompilo con oggi
 };
 
+// ─── ALLEGATI ORDINE (Supabase Storage, bucket pubblico "allegati") ──────────
+// Sull'ordine viaggia solo l'ELENCO (nome, percorso, tipo, peso, data); i file
+// veri stanno nello Storage. Immagini: compresse a max 2000px lato lungo, JPEG.
+// PDF: così come sono, tetto 10 MB. Percorsi con codici casuali non indovinabili.
+const ALLEGATI_MAX_PDF = 10 * 1024 * 1024;   // 10 MB
+function _sanNomeFile(n){ return String(n||'file').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(-80); }
+function _urlAllegato(path){ try { return sb.storage.from('allegati').getPublicUrl(path).data.publicUrl; } catch(e){ return '#'; } }
+function _fmtPeso(b){ b=Number(b)||0; return b>=1048576 ? (b/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(b/1024))+' KB'; }
+
+// Ridimensiona/comprime un'immagine sul telefono/PC PRIMA di caricarla (max 2000px, JPEG q.85)
+function _comprimiImmagine(file){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      try{
+        const MAX = 2000;
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if (w > MAX || h > MAX){ const k = MAX / Math.max(w,h); w = Math.round(w*k); h = Math.round(h*k); }
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        cv.toBlob(b => { URL.revokeObjectURL(url); b ? resolve(b) : reject(new Error('compressione fallita')); }, 'image/jpeg', 0.85);
+      }catch(e){ URL.revokeObjectURL(url); reject(e); }
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('immagine non leggibile')); };
+    img.src = url;
+  });
+}
+
+function _listaAllegatiHTML(o){
+  const lista = (o && Array.isArray(o.allegati)) ? o.allegati : [];
+  if(!lista.length) return '<div style="color:var(--ink3);font-size:13px;padding:10px 0">Nessun allegato.</div>';
+  return '<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">' + lista.map(a=>{
+    const url = _urlAllegato(a.path);
+    const icona = a.tipo==='img'
+      ? `<img src="${url}" style="width:52px;height:52px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex:0 0 auto" loading="lazy">`
+      : `<div style="width:52px;height:52px;display:flex;align-items:center;justify-content:center;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:22px;flex:0 0 auto">📄</div>`;
+    return `<div style="display:flex;align-items:center;gap:10px">
+      <a href="${url}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;text-decoration:none;color:var(--ink)">
+        ${icona}
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px">${_esc(a.nome||'file')}<br><span style="color:var(--ink3);font-size:11px;font-family:var(--mono)">${_fmtPeso(a.dim)} · ${a.ts?fmtDate(a.ts):''}</span></span>
+      </a>
+      <button class="btn btn-sm btn-danger" onclick="rimuoviAllegato('${o.id}','${a.path}')" title="Elimina allegato" style="font-size:11px">🗑</button>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+window.apriAllegati = function(id){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===id);
+  if(!o){ alert('Ordine non trovato.'); return; }
+  const html = `
+    <div style="font-size:13px;color:var(--ink2);margin-bottom:10px">Foto, reference e documenti del cliente per questo ordine.<br>
+    <span style="font-size:11px;color:var(--ink3)">Immagini: compresse automaticamente · PDF: max 10 MB</span></div>
+    <input type="file" id="alleg-input" multiple accept="image/*,application/pdf" style="font-size:13px">
+    <div id="alleg-stato" style="font-size:12px;color:var(--accent);margin-top:8px;font-family:var(--mono)"></div>
+    <div id="alleg-lista">${_listaAllegatiHTML(o)}</div>`;
+  showModal('📎 Allegati — ordine '+(o.num||''), html, [
+    {label:'Chiudi', action:'closeModal()'},
+    {label:'⬆ Carica selezionati', action:`caricaAllegati('${id}')`, primary:true}
+  ]);
+};
+
+window.caricaAllegati = async function(id){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===id);
+  const input = document.getElementById('alleg-input');
+  const stato = document.getElementById('alleg-stato');
+  if(!o || !input || !input.files || !input.files.length){ if(stato) stato.textContent='Seleziona prima uno o più file.'; return; }
+  const files = Array.from(input.files);
+  o.allegati = Array.isArray(o.allegati) ? o.allegati : [];
+  let caricati = 0, errori = [];
+  for (let i=0; i<files.length; i++){
+    const f = files[i];
+    if(stato) stato.textContent = 'Carico '+(i+1)+' di '+files.length+' — '+f.name+'…';
+    try{
+      let blob, tipo, contentType, nomeFinale = f.name;
+      if (f.type === 'application/pdf'){
+        if (f.size > ALLEGATI_MAX_PDF){ errori.push(f.name+' (oltre 10 MB)'); continue; }
+        blob = f; tipo = 'pdf'; contentType = 'application/pdf';
+      } else if (f.type && f.type.startsWith('image/')){
+        blob = await _comprimiImmagine(f); tipo = 'img'; contentType = 'image/jpeg';
+        nomeFinale = f.name.replace(/\.[^.]+$/,'') + '.jpg';
+      } else { errori.push(f.name+' (tipo non supportato)'); continue; }
+      const path = o.id + '/' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8) + '-' + _sanNomeFile(nomeFinale);
+      const { error } = await sb.storage.from('allegati').upload(path, blob, { contentType, upsert: false });
+      if (error){ errori.push(f.name+' ('+error.message+')'); continue; }
+      o.allegati.push({ nome: nomeFinale, path: path, tipo: tipo, dim: blob.size, ts: new Date().toISOString() });
+      caricati++;
+    }catch(e){ errori.push(f.name+' ('+((e&&e.message)||e)+')'); }
+  }
+  if (caricati) { try { await salvaOrdineSingolo(o); } catch(e){} }
+  input.value = '';
+  const lista = document.getElementById('alleg-lista');
+  if(lista) lista.innerHTML = _listaAllegatiHTML(o);
+  if(stato) stato.textContent = (caricati? '✓ '+caricati+' file caricat'+(caricati===1?'o':'i')+'. ':'') + (errori.length? '⚠ Non caricati: '+errori.join(', '):'');
+};
+
+window.rimuoviAllegato = async function(id, path){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===id);
+  if(!o) return;
+  const a = (o.allegati||[]).find(x=>x.path===path);
+  if(!confirm('Eliminare l\'allegato "'+((a&&a.nome)||'file')+'"?\n\nIl file verrà cancellato definitivamente.')) return;
+  try{ await sb.storage.from('allegati').remove([path]); }catch(e){}
+  o.allegati = (o.allegati||[]).filter(x=>x.path!==path);
+  try { await salvaOrdineSingolo(o); } catch(e){}
+  const lista = document.getElementById('alleg-lista');
+  if(lista) lista.innerHTML = _listaAllegatiHTML(o);
+};
+
 function renderFormOrdineHTML(ord) {
   const canali = DB.get('canali')||['Instagram','Facebook','WhatsApp','Telefono','Fiera/Diretto'];
   const stati = ['Inserito','Bloccato','Da sviluppare','In lavorazione 1','In lavorazione 2','Completato','Saldato','Consegnato'];
@@ -3584,6 +3692,7 @@ function renderFormOrdineHTML(ord) {
     <div style="font-family:var(--serif);font-weight:600;font-size:15px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
       ${_editId ? ('Ordine '+((ord&&ord.num)||'')+((ord&&ord.cliente)?' — '+_esc(ord.cliente):'')) : 'Nuovo ordine'}
     </div>
+    ${_editId?`<button class="btn btn-sm" onclick="apriAllegati('${_editId}')">📎 Allegati${(ord&&ord.allegati&&ord.allegati.length)?' ('+ord.allegati.length+')':''}</button>`:`<button class="btn btn-sm" disabled title="Salva prima l'ordine per poter allegare file" style="opacity:.5">📎 Allegati</button>`}
     ${_editId?`<button class="btn btn-sm btn-danger" onclick="deleteOrdine('${_editId}')">Elimina</button>`:''}
     <button class="btn btn-sm" onclick="nav('ordini',document.querySelectorAll('.nav-item')[1])">Annulla</button>
     <button class="btn btn-sm btn-primary" onclick="salvaOrdine()">${_editId?'Salva modifiche':'Conferma ordine'}</button>
@@ -4037,6 +4146,10 @@ async function deleteOrdine(id) {
   if(!confirm('Eliminare questo ordine?')) return;
   let ordini = DB.get('ordini')||[];
   const ord = ordini.find(o=>o.id===id);
+  // Elimino anche gli allegati dallo Storage (se fallisce, pazienza: restano orfani ma innocui)
+  if (ord && ord.allegati && ord.allegati.length) {
+    try { await sb.storage.from('allegati').remove(ord.allegati.map(a=>a.path)); } catch(e){}
+  }
   // Cancello PRIMA dal cloud: se fallisce, non tolgo nulla dallo schermo (evito disallineamenti).
   if (ord && ord._id) {
     const { error } = await sb.from('ordini').delete().eq('id', ord._id);
@@ -4722,6 +4835,15 @@ function showSchedaModal(id) {
       <div style="font-size:13px;color:var(--ink);white-space:pre-line">${o.noteOrdine}</div>
     </div>`:''}
     ${prodottiHtml}
+    ${(o.allegati&&o.allegati.length)?`<div class="scheda-section">
+      <div class="scheda-section-title">📎 Allegati (${o.allegati.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">${o.allegati.map(a=>{
+        const url=_urlAllegato(a.path);
+        return a.tipo==='img'
+          ? `<a href="${url}" target="_blank" rel="noopener" title="${_esc(a.nome||'')}"><img src="${url}" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)" loading="lazy"></a>`
+          : `<a href="${url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;text-decoration:none;color:var(--ink);font-size:12px">📄 ${_esc(a.nome||'PDF')}</a>`;
+      }).join('')}</div>
+    </div>`:''}
     <div class="scheda-section">
       <div class="scheda-section-title">Sposta in</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${tastiStato}</div>
