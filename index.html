@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.6 — 22/07/2026 · QR apri/chiudi prodotto + scarico magazzino</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.7 — 22/07/2026 · priorità colonna Inserito</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -4532,7 +4532,20 @@ function renderProduzione() {
   board.style.gridTemplateColumns = 'repeat(7,1fr)';
   board.innerHTML = colonne.map(stato=>{
     const cards = ordini.filter(o=>o.stato===stato && passaFiltri(o)).sort((a,b)=>{
-      // Opzione 2: ordini SENZA data di consegna in cima; quelli con data, ordinati per consegna più vicina
+      if (stato === 'Inserito') {
+        // Priorità Inserito: 1) SCADUTI  2) in scadenza entro 15 gg  3) SENZA data  4) il resto per data crescente
+        // Confronto su stringhe aaaa-mm-gg (il formato del campo consegna): niente sorprese di fuso orario.
+        const _pad = n => String(n).padStart(2,'0');
+        const _ymd = d => d.getFullYear()+'-'+_pad(d.getMonth()+1)+'-'+_pad(d.getDate());
+        const oggi  = _ymd(new Date());
+        const entro = _ymd(new Date(Date.now() + 15*86400000));
+        const gruppo = c => !c ? 3 : (c < oggi ? 1 : (c <= entro ? 2 : 4));
+        const ga = gruppo(a.consegna), gb = gruppo(b.consegna);
+        if (ga !== gb) return ga - gb;
+        if (!a.consegna && !b.consegna) return 0;   // entrambi senza data: restano come sono
+        return a.consegna < b.consegna ? -1 : (a.consegna > b.consegna ? 1 : 0);   // dentro al gruppo: data crescente
+      }
+      // Altre colonne: ordini SENZA data di consegna in cima; quelli con data, ordinati per consegna più vicina
       const da = a.consegna ? new Date(a.consegna).getTime() : null;
       const db = b.consegna ? new Date(b.consegna).getTime() : null;
       if (da === null && db === null) return 0;   // entrambi senza data: restano come sono
