@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.5 — 22/07/2026 · magazzino: salvataggi mirati</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.6 — 22/07/2026 · QR apri/chiudi prodotto + scarico magazzino</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -995,6 +995,7 @@ window.qrSVG=function(text,ecc){try{var qr=qrcode(0,ecc||'M');qr.addData(String(
 window.__CONF__ = (function(){ var m=(location.hash||'').match(/^#c=(.+)$/); return m?m[1]:null; })();
 window.__TV__ = (location.hash === '#tv');   // schermo d'officina in sola lettura (vedi DASHBOARD TV)
 window.__CHIUDI__ = (function(){ var m=(location.hash||'').match(/^#chiudi=(.+)$/); return m?m[1]:null; })();   // pagina chiusura ordine da QR scheda
+window.__PROD__ = (function(){ var m=(location.hash||'').match(/^#prod=(.+)$/); return m?m[1]:null; })();   // pagina APRI/CHIUDI singolo prodotto da QR scheda
 window.__TIMBRA__ = (function(){ var m=(location.hash||'').match(/^#timbra=(.+)$/); return m?m[1]:null; })();   // kiosk timbrature officina (token nell'URL)
 window.__MAG__ = (function(){ var m=(location.hash||'').match(/^#mag=([^&]+)(?:&m=(.+))?$/); return m?{token:m[1], nome:m[2]?decodeURIComponent(m[2]):null}:null; })();   // conta magazzino da QR etichetta
 
@@ -1191,6 +1192,42 @@ if(window.__CHIUDI__){
   })();
 }
 
+// ─── Pagina QR PRODOTTO (#prod=...): APRI (scarica materiali) / CHIUDI il singolo prodotto ───
+window.renderProdotto = function(payload){
+  function _esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  var obj=null;
+  try{ obj=JSON.parse(LZString.decompressFromEncodedURIComponent(payload)); }catch(e){ obj=null; }
+  if(!obj || !obj.i || !obj.r || !obj.t){ document.body.innerHTML='<div style="font-family:sans-serif;max-width:480px;margin:60px auto;padding:24px;text-align:center;color:#8B1A1A">QR non valido o danneggiato.<br>Riprova a inquadrarlo.</div>'; return; }
+  window.__PROD_DATA__ = { i:obj.i, r:obj.r, t:obj.t, n:obj.n, c:obj.c, p:obj.p };
+  document.title='Prodotto — ordine '+(obj.n||'');
+  document.body.innerHTML =
+    '<style>*{box-sizing:border-box;margin:0;padding:0}html,body{background:#F5F0E8}body{font-family:Segoe UI,Arial,sans-serif;color:#1C1A16}'+
+    '.wrap{max-width:520px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:28px 22px;text-align:center}'+
+    '.bigbtn{display:block;width:100%;margin-top:22px;padding:22px;border:none;border-radius:14px;color:#fff;font-size:21px;font-weight:700;cursor:pointer}'+
+    '.bigbtn:disabled{opacity:0.6}'+
+    '.b-apri{background:#2D6A4F}.b-chiudi{background:#8B3A1A}'+
+    '.msg{margin-top:20px;padding:16px;border-radius:12px;font-size:17px;font-weight:600}'+
+    '.m-ok{background:#EAF4EE;color:#2D6A4F}.m-info{background:#FFF8E6;color:#8C6A00}.m-err{background:#FFF0F0;color:#8B1A1A}'+
+    '.m-warn{background:#FFF8E6;color:#8C6A00;font-size:14px;font-weight:500;text-align:left}</style>'+
+    '<div class="wrap">'+
+      '<div style="font-size:13px;color:#5C5648;text-transform:uppercase;letter-spacing:0.1em;font-family:monospace">Steel Head · officina</div>'+
+      '<div style="font-size:15px;color:#8C8578;margin-top:24px">Ordine</div>'+
+      '<div style="font-size:52px;font-weight:800;color:#8B3A1A;font-family:monospace;line-height:1">'+_esc(obj.n||'—')+'</div>'+
+      '<div style="font-size:21px;font-weight:700;margin-top:10px">'+_esc(obj.p||'')+'</div>'+
+      '<div style="font-size:16px;color:#5C5648;margin-top:4px">'+_esc(obj.c||'')+'</div>'+
+      '<div id="prod-area"><div class="msg m-info">Verifico lo stato…</div></div>'+
+    '</div>';
+  // il collegamento al database vive nel blocco successivo: appena è pronto, chiedo lo stato
+  (function attendi(){ if(window.avviaStatoProdotto) window.avviaStatoProdotto(); else setTimeout(attendi, 60); })();
+};
+
+if(window.__PROD__){
+  (function(){
+    function _go(){ try{ window.renderProdotto(window.__PROD__); }catch(e){ document.body.innerHTML='<div style="font-family:sans-serif;text-align:center;margin-top:60px;color:#8B1A1A">Errore nell\'aprire la pagina prodotto.</div>'; } }
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_go); else _go();
+  })();
+}
+
 </script>
 <script>
 // ─── COLLEGAMENTO SUPABASE ──────────────────────────────────────────────────
@@ -1224,6 +1261,104 @@ window.eseguiChiusura = async function(){
 };
 
 // ─── KIOSK TIMBRATURE: chiamata RPC (sta qui perché qui c'è 'sb') ────────────
+// ─── PAGINA QR PRODOTTO: stato / apri / chiudi (sta qui perché qui c'è 'sb') ──
+function _prodArea(html){ var a=document.getElementById('prod-area'); if(a) a.innerHTML=html; }
+function _prodEsc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function _prodAvvisi(data){
+  var out='';
+  var man=(data&&data.mancanti)||[], neg=(data&&data.negativi)||[];
+  if(man.length) out+='<div class="msg m-warn">⚠ Non trovati a magazzino (non scaricati):<br>'+man.map(_prodEsc).join('<br>')+'</div>';
+  if(neg.length) out+='<div class="msg m-warn">⚠ Giacenza sotto zero per:<br>'+neg.map(_prodEsc).join('<br>')+'</div>';
+  return out;
+}
+function _prodMostraStato(st){
+  if(st.chiuso){ _prodArea('<div class="msg m-info">Questo prodotto risulta già COMPLETATO</div>'); return; }
+  if(st.aperto){ _prodArea('<button class="bigbtn b-chiudi" onclick="eseguiChiudiProdotto()">Segna COMPLETATO</button>'); return; }
+  _prodArea('<button class="bigbtn b-apri" onclick="eseguiApriProdotto()">APRI — preleva materiali</button>'+
+            '<div style="margin-top:12px;font-size:13px;color:#8C8578">L\'apertura scarica dal magazzino i materiali della scheda</div>');
+}
+window.avviaStatoProdotto = async function(){
+  var d = window.__PROD_DATA__ || {};
+  if(!d.i || !d.r || !d.t){ _prodArea('<div class="msg m-err">Dati mancanti. Riapri il QR.</div>'); return; }
+  try{
+    const { data, error } = await sb.rpc('stato_prodotto', { p_id: d.i, p_rid: d.r, p_token: d.t });
+    if(error){ _prodArea('<div class="msg m-err">Errore di collegamento.<br><button class="bigbtn b-apri" onclick="avviaStatoProdotto()">Riprova</button></div>'); return; }
+    if(!data || data.esito!=='OK'){
+      _prodArea('<div class="msg m-err">'+(data&&data.esito==='TOKEN_ERRATO'?'QR non valido per questo prodotto':'Prodotto non trovato (la scheda potrebbe essere vecchia: chiedi una ristampa)')+'</div>');
+      return;
+    }
+    _prodMostraStato(data);
+  }catch(e){ _prodArea('<div class="msg m-err">Errore: '+_prodEsc((e&&e.message)||e)+'</div>'); }
+};
+window.eseguiApriProdotto = async function(){
+  var d = window.__PROD_DATA__ || {};
+  _prodArea('<div class="msg m-info">Apro e scarico i materiali…</div>');
+  try{
+    const { data, error } = await sb.rpc('apri_prodotto', { p_id: d.i, p_rid: d.r, p_token: d.t });
+    if(error){ _prodArea('<div class="msg m-err">Errore di collegamento.<br><button class="bigbtn b-apri" onclick="eseguiApriProdotto()">Riprova</button></div>'); return; }
+    var esito = data && data.esito;
+    if(esito==='OK'){
+      _prodArea('<div class="msg m-ok">\u2713 Prodotto APERTO — materiali scaricati</div>'+_prodAvvisi(data)+
+                '<button class="bigbtn b-chiudi" onclick="eseguiChiudiProdotto()">Segna COMPLETATO</button>');
+    } else if(esito==='GIA_APERTO'){
+      _prodArea('<div class="msg m-info">Era già aperto (nessun doppio scarico)</div>'+
+                '<button class="bigbtn b-chiudi" onclick="eseguiChiudiProdotto()">Segna COMPLETATO</button>');
+    } else if(esito==='TOKEN_ERRATO' || esito==='NON_TROVATO'){
+      _prodArea('<div class="msg m-err">QR non valido per questo prodotto</div>');
+    } else {
+      _prodArea('<div class="msg m-err">Non è stato possibile aprire ('+_prodEsc(esito)+')</div>');
+    }
+  }catch(e){ _prodArea('<div class="msg m-err">Errore: '+_prodEsc((e&&e.message)||e)+'</div>'); }
+};
+window.eseguiChiudiProdotto = async function(){
+  var d = window.__PROD_DATA__ || {};
+  _prodArea('<div class="msg m-info">Invio…</div>');
+  try{
+    const { data, error } = await sb.rpc('chiudi_prodotto', { p_id: d.i, p_rid: d.r, p_token: d.t });
+    if(error){ _prodArea('<div class="msg m-err">Errore di collegamento.<br><button class="bigbtn b-chiudi" onclick="eseguiChiudiProdotto()">Riprova</button></div>'); return; }
+    var esito = data && data.esito;
+    if(esito==='OK'){
+      _prodArea('<div class="msg m-ok">\u2713 Prodotto COMPLETATO'+(data.ordineCompletato?'<br>Tutto l\'ordine '+_prodEsc(d.n||'')+' è COMPLETO!':'')+'</div>');
+    } else if(esito==='NON_APERTO'){
+      _prodArea('<div class="msg m-info">Questo prodotto non è mai stato APERTO.<br>Prima aprilo (scarica i materiali), poi chiudilo.</div>'+
+                '<button class="bigbtn b-apri" onclick="eseguiApriProdotto()">APRI ora — preleva materiali</button>');
+    } else if(esito==='GIA_CHIUSO'){
+      _prodArea('<div class="msg m-info">Questo prodotto risulta già completato</div>');
+    } else if(esito==='TOKEN_ERRATO' || esito==='NON_TROVATO'){
+      _prodArea('<div class="msg m-err">QR non valido per questo prodotto</div>');
+    } else {
+      _prodArea('<div class="msg m-err">Non è stato possibile completare ('+_prodEsc(esito)+')</div>');
+    }
+  }catch(e){ _prodArea('<div class="msg m-err">Errore: '+_prodEsc((e&&e.message)||e)+'</div>'); }
+};
+
+// ─── ANNULLA APERTURA (da gestionale): ricarica il magazzino e toglie l'apertura ───
+window.annullaAperturaProdotto = async function(idOrdine, rid){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===idOrdine);
+  const riga = o && (o.righe||[]).find(r=>r.rid===rid);
+  if(!o || !riga || !riga.qrToken){ alert('Riga prodotto non trovata.'); return; }
+  if(!confirm('Annullare l\'apertura di "'+(riga.prodottoNome||riga.prodotto)+'"?\n\nI materiali scaricati verranno RICARICATI a magazzino.')) return;
+  try{
+    const { data, error } = await sb.rpc('annulla_apertura_prodotto', { p_id: idOrdine, p_rid: rid, p_token: riga.qrToken });
+    if(error){ alert('Errore di collegamento: '+error.message); return; }
+    var esito = data && data.esito;
+    if(esito==='OK'){
+      var man=(data.mancanti||[]);
+      // riporto la copia in memoria alla verità del cloud (l'apertura annullata + updated_at nuovo)
+      try{ await caricaOrdiniDaCloud(); }catch(e){}
+      try{ closeModal(); showSchedaModal(idOrdine); }catch(e){}
+      alert('\u2713 Apertura annullata: materiali ricaricati a magazzino.'+(man.length?'\n\n⚠ Non trovati (non ricaricati): '+man.join(', '):''));
+    } else if(esito==='GIA_CHIUSO'){
+      alert('Questo prodotto è già stato COMPLETATO: il materiale è consumato, non si ricarica.');
+    } else if(esito==='NON_APERTO'){
+      alert('Questo prodotto non risulta aperto.');
+      try{ await caricaOrdiniDaCloud(); closeModal(); showSchedaModal(idOrdine); }catch(e){}
+    } else {
+      alert('Non è stato possibile annullare ('+esito+')');
+    }
+  }catch(e){ alert('Errore: '+((e&&e.message)||e)); }
+};
+
 window.eseguiTimbratura = async function(tipo){
   var pin = window.__TK_PIN__ || '';
   if(pin.length < 4){ window.tkEsito('errore','Inserisci il PIN (4 cifre)'); return; }
@@ -3760,7 +3895,7 @@ function salvaOrdine() {
   const righePulite = _righe.map(riga=>{
     const prod = prodotti.find(p=>p.id===riga.prodotto);
     const accSel = accessori.filter(a=>riga._accSel&&riga._accSel[a.id]);
-    return {
+    const pulita = {
       prodotto: riga.prodotto,
       prodottoNome: prod ? prod.nome : '',
       accessori: accSel,
@@ -3770,6 +3905,10 @@ function salvaOrdine() {
       fuoriStandard: riga.fuoriStandard||false,
       prezzoRiga: (prod?prod.prezzoBase:0) + accSel.reduce((s,a)=>s+a.prezzo,0)
     };
+    // Campi di tracciamento QR/officina: vanno CONSERVATI, altrimenti una modifica
+    // dell'ordine ucciderebbe i QR già stampati e cancellerebbe aperture/chiusure.
+    ['rid','qrToken','fabbisogno','apertoTs','chiusoTs'].forEach(k=>{ if(riga[k]!==undefined) pulita[k]=riga[k]; });
+    return pulita;
   });
 
   const prezzoCalcolato = righePulite.reduce((s,r)=>s+r.prezzoRiga,0);
@@ -4479,6 +4618,16 @@ function showSchedaModal(id) {
   // RIEPILOGO prodotti (solo nomi) + accessori (solo nomi)
   const prodottiHtml = righe.map((riga, ri) => {
     const nomiAcc = (riga.accessori||[]).map(a=>a.nome||a.id).filter(Boolean);
+    // Stato officina della riga (dai QR di apertura/chiusura sui fogli)
+    let statoOfficina = '';
+    if (riga.chiusoTs) {
+      statoOfficina = `<div class="scheda-row"><span class="scheda-key">Officina</span><span class="scheda-val" style="color:var(--green)">✅ Completato il ${fmtDate(riga.chiusoTs)}</span></div>`;
+    } else if (riga.apertoTs) {
+      statoOfficina = `<div class="scheda-row"><span class="scheda-key">Officina</span><span class="scheda-val">🔵 Aperto il ${fmtDate(riga.apertoTs)} — materiali scaricati
+        <button class="btn btn-sm" onclick="annullaAperturaProdotto('${o.id}','${riga.rid}')" style="margin-left:8px;font-size:11px">Annulla apertura</button></span></div>`;
+    } else if (riga.rid) {
+      statoOfficina = `<div class="scheda-row"><span class="scheda-key">Officina</span><span class="scheda-val" style="color:var(--ink2)">⚪ Non ancora aperto</span></div>`;
+    }
     return `
     <div class="scheda-section">
       <div class="scheda-section-title">${righe.length>1?`Prodotto ${ri+1} di ${righe.length}`:'Prodotto'}</div>
@@ -4486,6 +4635,7 @@ function showSchedaModal(id) {
       ${riga.colore?`<div class="scheda-row"><span class="scheda-key">Finitura</span><span class="scheda-val" style="color:var(--accent)">🎨 ${riga.colore}</span></div>`:''}
       ${riga.incisioni?`<div class="scheda-row"><span class="scheda-key">Incisioni</span><span class="scheda-val" style="color:var(--accent)">✏ ${riga.incisioni}</span></div>`:''}
       ${nomiAcc.length?`<div class="scheda-row"><span class="scheda-key">Accessori</span><span class="scheda-val">${nomiAcc.join(', ')}</span></div>`:''}
+      ${statoOfficina}
       ${riga.note?`<div class="scheda-note"><strong>Note:</strong> ${riga.note}</div>`:''}
     </div>`;
   }).join('');
@@ -5372,7 +5522,7 @@ async function printScheda(id) {
   if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Scheda…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#8C8578;padding:48px;text-align:center">Preparo la scheda…</body></html>'); } catch(e){} }
 
   // Garantisco il gettone di chiusura E il suo salvataggio nel database PRIMA di costruire il QR.
-  await _assicuraChiusuraToken(o);
+  await _assicuraQrProdotti(o);
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Scheda ${o.num}</title>
   <style>${_stileScheda()}</style></head><body>
@@ -5486,14 +5636,60 @@ async function _assicuraChiusuraToken(o){
   return o ? (o.chiusuraToken || '') : '';
 }
 
+// ─── FABBISOGNO DI UNA RIGA (per lo snapshot di scarico magazzino) ────────────
+// Distinta del prodotto + componenti degli accessori, aggregati per nome.
+// Viene CONGELATO sulla riga alla stampa: lo scarico all'apertura usa ESATTAMENTE
+// questa lista — cioè quello che c'è scritto sul foglio che l'operaio ha in mano.
+function _fabbisognoRiga(riga){
+  const fabb = calcolaFabbisognoCommessa({prodotto:riga.prodotto, accessori:riga.accessori||[]});
+  const agg = {};
+  const somma = c => {
+    if(!c || !c.nome) return;
+    if(!agg[c.nome]) agg[c.nome] = { nome:c.nome, qty:0, um:c.um||'pz' };
+    agg[c.nome].qty += Number(c.qty)||0;
+  };
+  (fabb.botte||[]).forEach(somma);
+  (fabb.accessori||[]).forEach(a => (a.componenti||[]).forEach(somma));
+  return Object.values(agg).filter(x=>x.qty>0).map(x=>({nome:x.nome, qty:Math.round(x.qty*1000)/1000, um:x.um}));
+}
+
+// ─── PREPARAZIONE QR PER PRODOTTO (chiamata PRIMA di ogni stampa scheda) ──────
+// Garantisce a OGNI riga: rid (identificativo), qrToken (gettone segreto del QR)
+// e fabbisogno (snapshot per lo scarico). Il fabbisogno viene RIcalcolato alla
+// stampa SOLO se la riga non è ancora stata aperta: se è aperta, lo scarico è già
+// avvenuto con la vecchia lista e l'eventuale annullo deve ricaricare quella.
+// Ordini vecchi senza righe: restano sul QR di chiusura ordine intero (transizione).
+async function _assicuraQrProdotti(o){
+  if (!o) return;
+  if (!(o.righe && o.righe.length)) { await _assicuraChiusuraToken(o); return; }
+  let cambiato = false;
+  o.righe.forEach((r, i) => {
+    if (!r.rid){
+      r.rid = 'r' + (i+1) + '-' + Math.random().toString(36).slice(2,8);
+      cambiato = true;
+    }
+    if (!r.qrToken){
+      r.qrToken = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                  : (Date.now().toString(36) + Math.random().toString(36).slice(2,12));
+      cambiato = true;
+    }
+    if (!r.apertoTs){
+      const f = _fabbisognoRiga(r);
+      if (JSON.stringify(r.fabbisogno||null) !== JSON.stringify(f)){ r.fabbisogno = f; cambiato = true; }
+    }
+  });
+  if (cambiato){ try { await salvaOrdineSingolo(o); } catch(e){} }
+}
+
 function corpoSchedaHTML(o) {
   const righe = o.righe && o.righe.length ? o.righe : [{prodotto:o.prodotto,prodottoNome:o.prodottoNome,accessori:o.accessori||[],note:o.note||'',fuoriStandard:o.fuoriStandard||false,colore:o.colore||'',incisioni:o.incisioni||''}];
   const totProdotti = righe.length;
 
-  // QR di CHIUSURA: scansionato (anche senza login) apre una pagina che chiede conferma e segna l'ordine COMPLETATO.
-  // Nell'URL (#chiudi=...) viaggiano, compressi: id ordine, gettone segreto (chiusuraToken), numero e cliente.
-  // Il gettone è verificato dalla funzione Supabase chiudi_ordine: solo chi ha QUESTO foglio può chiudere QUESTO ordine.
-  // Il numero/cliente nell'URL restano nel frammento (#...), che non viene inviato a nessun server.
+  // QR: da questa versione ogni FOGLIO (prodotto) porta il SUO QR (#prod=...), che permette
+  // di APRIRE il prodotto (scarico materiali dal magazzino secondo lo snapshot stampato)
+  // e poi di CHIUDERLO. Il gettone della riga è verificato dalle funzioni Supabase
+  // apri_prodotto / chiudi_prodotto: solo chi ha QUESTO foglio muove QUESTO prodotto.
+  // Ordini vecchi senza rid/gettone di riga: resta il QR di chiusura ordine intero (#chiudi=...).
   let qrBox = '';
   try {
     const token = o.chiusuraToken || '';   // già garantito/salvato da printScheda PRIMA di arrivare qui
@@ -5504,6 +5700,20 @@ function corpoSchedaHTML(o) {
       if (qrTag) qrBox = `<div style="width:118px;height:118px;flex:0 0 auto;text-align:center"><a href="${chiudiURL}" style="text-decoration:none">${qrTag}</a><div style="font-size:8px;color:#8C8578;font-family:monospace;margin-top:2px;letter-spacing:0.02em">Inquadra: segna COMPLETATO</div></div>`;
     }
   } catch(e) { qrBox=''; }
+
+  function _qrBoxRiga(riga){
+    try {
+      if (riga && riga.rid && riga.qrToken && typeof LZString!=='undefined' && typeof qrSVG==='function' && o.id) {
+        const payload = LZString.compressToEncodedURIComponent(JSON.stringify({
+          i:o.id, r:riga.rid, t:riga.qrToken, n:o.num, c:o.cliente||'', p:riga.prodottoNome||riga.prodotto||''
+        }));
+        const prodURL = location.origin + location.pathname + '#prod=' + payload;
+        const qrTag = qrSVG(prodURL, 'M');
+        if (qrTag) return `<div style="width:118px;height:118px;flex:0 0 auto;text-align:center"><a href="${prodURL}" style="text-decoration:none">${qrTag}</a><div style="font-size:8px;color:#8C8578;font-family:monospace;margin-top:2px;letter-spacing:0.02em">Inquadra: APRI / COMPLETA</div></div>`;
+      }
+    } catch(e) {}
+    return qrBox;   // fallback: QR di chiusura ordine intero (schede/ordini vecchi)
+  }
 
   // Genero UN FOGLIO per ogni prodotto (così viaggiano separati in officina)
   return righe.map((riga, ri) => {
@@ -5569,7 +5779,7 @@ function corpoSchedaHTML(o) {
           <h1>Scheda di lavorazione</h1>
           <div class="sub">${o.num} — creato ${fmtDate(o.creato)}</div>
         </div>
-        ${qrBox}
+        ${_qrBoxRiga(riga)}
       </div>
       ${etichettaProdotto}
       <div class="section">
@@ -5612,7 +5822,7 @@ window.printSchedeGiorno = async function(dayIdx){
   if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Schede…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#8C8578;padding:48px;text-align:center">Preparo le schede del giorno…</body></html>'); } catch(e){} }
 
   // Garantisco il gettone di chiusura (e il salvataggio) per OGNI ordine prima di costruire i QR.
-  for (const o of lista) { await _assicuraChiusuraToken(o); }
+  for (const o of lista) { await _assicuraQrProdotti(o); }
 
   const d = new Date(_pianifSett); d.setDate(_pianifSett.getDate()+dayIdx);
   const schede = lista.map(o=>corpoSchedaHTML(o)).join('');
@@ -5631,7 +5841,7 @@ async function printSchedeColonna(stato) {
   const w = window.open('','_blank');
   if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Schede…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#8C8578;padding:48px;text-align:center">Preparo le schede…</body></html>'); } catch(e){} }
   // Garantisco il gettone (e il salvataggio) per OGNI ordine prima di costruire i QR.
-  for (const o of lista) { await _assicuraChiusuraToken(o); }
+  for (const o of lista) { await _assicuraQrProdotti(o); }
   const schede = lista.map(o=>corpoSchedaHTML(o)).join('');
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Schede ${stato}</title>
   <style>${_stileScheda()}</style></head><body>
@@ -6749,7 +6959,7 @@ function _riRenderPaginaCorrente(){
 let _appAvviata = false;
 
 async function avviaApp() {
-  if (window.__CONF__ || window.__TV__ || window.__CHIUDI__ || window.__TIMBRA__ || window.__MAG__) return;    // conferma QR o schermo TV: niente login/gestionale
+  if (window.__CONF__ || window.__TV__ || window.__CHIUDI__ || window.__PROD__ || window.__TIMBRA__ || window.__MAG__) return;    // conferma QR o schermo TV: niente login/gestionale
   if (_appAvviata) return;        // evita doppi avvii
   _appAvviata = true;
   document.getElementById('login-overlay').style.display = 'none';
@@ -6797,7 +7007,7 @@ window.eseguiLogout = eseguiLogout;
 
 // All'apertura: se c'è già una sessione valida entro dritti, altrimenti mostra il login.
 (async function controllaSessione() {
-  if (window.__CONF__ || window.__TV__ || window.__CHIUDI__ || window.__TIMBRA__ || window.__MAG__) return;    // conferma QR o schermo TV: niente sessione né avvio app
+  if (window.__CONF__ || window.__TV__ || window.__CHIUDI__ || window.__PROD__ || window.__TIMBRA__ || window.__MAG__) return;    // conferma QR o schermo TV: niente sessione né avvio app
   try {
     const { data } = await sb.auth.getSession();
     if (data && data.session) {
