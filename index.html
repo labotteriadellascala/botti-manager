@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.3 — 21/07/2026 · scheda: qtà a sinistra</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.4 — 22/07/2026 · stampa presenze: riquadro semplificato</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1495,8 +1495,7 @@ window.stampaTimbratureMese = function(){
       <div class="sub">Arrotondamento ${step} min a favore azienda (entrata ↑, uscita ↓) · orari in ora italiana</div>
       <table><thead><tr><th>Giorno</th><th>Timbrature (entrata–uscita)</th><th class="num">Ore reali</th><th class="num">Ore arrot.</th></tr></thead><tbody>${righe}</tbody></table>
       <div class="riquadro">
-        <div><span>Ore reali del mese</span><b>${hhmm(d.minutiMese)}</b></div>
-        <div><span>Ore arrotondate (${step} min)</span><b>${hhmm(d.minutiMeseEff)}</b></div>
+        <div><span>Ore del mese</span><b>${hhmm(d.minutiMeseEff)}</b></div>
         <div><span>Tariffa oraria (${_meseLbl(_timbMese)})${tarInfo.eredita?' — ereditata da '+_meseLbl(tarInfo.eredita):''}</span><b>${tar!=null?eur(tar)+'/h':'non impostata'}</b></div>
         <div class="costoriga"><span>Costo del mese (ore arrot. × tariffa)</span><b>${costo!=null?eur(costo):'—'}</b></div>
       </div>
