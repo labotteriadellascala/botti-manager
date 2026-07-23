@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.13 — 23/07/2026 · magazzino QR: conta o aggiungi</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.14 — 23/07/2026 · le finestre non si chiudono più al clic fuori</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -952,7 +952,7 @@ td.fin-in{color:var(--green);font-weight:500}
   </div>
 </div>
 </div>
-<div class="modal-overlay" id="modal-imp" style="display:none" onclick="if(event.target===this)chiudiModal()">
+<div class="modal-overlay" id="modal-imp" style="display:none">
   <div class="modal">
     <div class="modal-title">Impostazioni</div>
     <div class="modal-sub">Percentuale di ricarico per famiglia. Visibile solo a te.</div>
@@ -6362,7 +6362,7 @@ ${o.consegna?`<div class="consegna">
 function showModal(title, content, buttons) {
   const btns = buttons.map(b=>`<button class="btn ${b.primary?'btn-primary':''}" onclick="${b.action}">${b.label}</button>`).join('');
   document.getElementById('modal-root').innerHTML = `
-    <div class="modal-overlay" onclick="event.target===this&&closeModal()">
+    <div class="modal-overlay">
       <div class="modal">
         <div class="modal-title">${title}</div>
         <div>${content}</div>
