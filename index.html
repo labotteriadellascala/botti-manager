@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.14 — 23/07/2026 · le finestre non si chiudono più al clic fuori</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.15 — 23/07/2026 · materiali settimana raggruppati per materia prima</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -4517,6 +4517,7 @@ function _stileStampaPianif(){ return `
     .giorno-titolo{font-size:8.5px;font-weight:700;color:#5C4A00;background:#F0EDE6;border-left:2px solid #7A5C00;padding:1px 5px;margin-bottom:1px}
     .giorno-ordini{font-size:7.5px;color:#8C8578;font-family:monospace;margin:0 0 2px 5px;line-height:1.2}
     .avviso{background:#FFF0F0;border-left:2px solid #8B1A1A;padding:3px 6px;margin:5px 0;font-size:8.5px}
+    td.mp-head{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#5C4A00;background:#F0EDE6;border-left:2px solid #7A5C00;padding:1.5px 5px;border-bottom:none}
     .footer{margin-top:7px;padding-top:4px;border-top:1px solid #ddd;font-size:7.5px;color:#8C8578;font-family:monospace;display:flex;justify-content:space-between;gap:10px}`; }
 
 // Stampa alternativa: SOLO i pezzi DA TAGLIARE (fabbisogno non coperto dalla giacenza),
@@ -4629,9 +4630,34 @@ window.stampaMaterialiSettimana = function(){
       <div class="sub">${_pianifLabel()}</div>
       <div style="color:#8C8578;padding:16px 0">Nessun ordine pianificato in questa settimana.</div>`;
   } else {
+    // Raggruppamento per materia prima di partenza (pioppo 15, abete 19, …).
+    // I componenti SENZA materia prima (acquisti / già pronti) finiscono in fondo, in un gruppo dedicato.
+    const SENZA_MP = 'Acquisti / senza materia prima';
+    const mpDi = n => ((matMap[n]||{}).materiaPrima||'').trim();
+    const ordinaPerGruppo = nomi => nomi.slice().sort((a,b)=>{
+      const ga = mpDi(a), gb = mpDi(b);
+      if(ga!==gb){
+        if(!ga) return 1;            // senza materia prima → in fondo
+        if(!gb) return -1;
+        return ga.localeCompare(gb);
+      }
+      return a.localeCompare(b);
+    });
+    // Trasforma una lista ordinata di nomi in righe <tr> con intestazioni di gruppo intercalate.
+    // rigaFn(nome) → html della riga dati; ncol = numero colonne per il colspan dell'intestazione.
+    const righeRaggruppate = (nomi, rigaFn, ncol) => {
+      const out = []; let curr = null;
+      nomi.forEach(n=>{
+        const mp = mpDi(n) || SENZA_MP;
+        if(mp!==curr){ out.push({ head: mp, html: `<tr><td colspan="${ncol}" class="mp-head">${_esc(mp)}</td></tr>` }); curr = mp; }
+        out.push({ html: rigaFn(n) });
+      });
+      return out;
+    };
+
     // TOTALE settimana
     const tot = _fabbisognoDiOrdini(tutti);
-    const nomiTot = Object.keys(tot.fabb).sort((a,b)=>a.localeCompare(b));
+    const nomiTot = ordinaPerGruppo(Object.keys(tot.fabb));
     const rigaTot = n => {
       const f = tot.fabb[n];
       const m = matMap[n]||{};
@@ -4640,12 +4666,20 @@ window.stampaMaterialiSettimana = function(){
       const esito = g===null ? '<span style="color:#8C8578">n/d</span>' : (g>=f ? '<span class="ok">OK</span>' : `<span class="manca">Mancano ${f-g}</span>`);
       return `<tr><td>${_esc(n)}</td><td class="num">${f} ${um}</td><td class="num">${g===null?'—':g}</td><td>${esito}</td></tr>`;
     };
-    // due mezze tabelle affiancate: metà lista a sinistra, metà a destra (dimezza i fogli)
-    const meta = Math.ceil(nomiTot.length/2);
+    // due mezze tabelle affiancate: metà lista a sinistra, metà a destra (dimezza i fogli).
+    // Se il taglio cade a metà gruppo, la colonna destra ripete l'intestazione con "(segue)".
+    const righeTot = righeRaggruppate(nomiTot, rigaTot, 4);
+    const meta = Math.ceil(righeTot.length/2);
+    const colSx = righeTot.slice(0,meta);
+    let colDx = righeTot.slice(meta);
+    if(colDx.length && !colDx[0].head){
+      const ultimo = [...colSx].reverse().find(r=>r.head);
+      if(ultimo) colDx = [{ html: `<tr><td colspan="4" class="mp-head">${_esc(ultimo.head)} (segue)</td></tr>` }, ...colDx];
+    }
     const testataTot = `<thead><tr><th>Materiale</th><th class="num">Fabb.</th><th class="num">Giac.</th><th>Esito</th></tr></thead>`;
     const tabellaTot = `<div style="display:flex;gap:10px;align-items:flex-start">
-      <table>${testataTot}<tbody>${nomiTot.slice(0,meta).map(rigaTot).join('')}</tbody></table>
-      <table>${testataTot}<tbody>${nomiTot.slice(meta).map(rigaTot).join('')}</tbody></table>
+      <table>${testataTot}<tbody>${colSx.map(r=>r.html).join('')}</tbody></table>
+      <table>${testataTot}<tbody>${colDx.map(r=>r.html).join('')}</tbody></table>
     </div>`;
 
     // DETTAGLIO per giorno — la giacenza si SCARICA in ordine di giorno:
@@ -4659,8 +4693,10 @@ window.stampaMaterialiSettimana = function(){
       if(!lista.length) continue;
       const d = new Date(_pianifSett); d.setDate(_pianifSett.getDate()+i);
       const fg = _fabbisognoDiOrdini(lista);
-      const nomi = Object.keys(fg.fabb).sort((a,b)=>a.localeCompare(b));
-      const righe = nomi.map(n=>{
+      // Stesso raggruppamento per materia prima del totale. L'ordine di elaborazione non
+      // altera lo scarico della giacenza: ogni materiale compare al più una volta per giorno.
+      const nomi = ordinaPerGruppo(Object.keys(fg.fabb));
+      const rigaGiorno = n => {
         const q = fg.fabb[n];
         const um = (matMap[n]||{}).um||'pz';
         let esito;
@@ -4674,7 +4710,8 @@ window.stampaMaterialiSettimana = function(){
           esito = manca>0 ? `<span class="manca">Mancano ${manca}</span>` : `<span class="ok">OK</span> <span style="color:#8C8578;font-size:7.5px">(restano ${residuo[n]})</span>`;
         }
         return `<tr><td>${_esc(n)}</td><td class="num">${q} ${um}</td><td>${esito}</td></tr>`;
-      }).join('');
+      };
+      const righe = righeRaggruppate(nomi, rigaGiorno, 3).map(r=>r.html).join('');
       dettaglio += `<div class="giorno">
         <div class="giorno-titolo">${_WDlong[i]} ${d.getDate()}/${d.getMonth()+1} — ${lista.length} ordine/i</div>
         <div class="giorno-ordini">${lista.map(o=>_esc(String(o.num||''))+' '+_esc(o.cliente||'')).join(' · ')}</div>
