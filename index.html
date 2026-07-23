@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.15 — 23/07/2026 · materiali settimana raggruppati per materia prima</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.16 — 23/07/2026 · filtro canale multi-selezione nel piano produzione</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -781,6 +781,11 @@ td.fin-in{color:var(--green);font-weight:500}
       <select id="kf-colore" onchange="renderProduzione()" style="width:100%">
         <option value="">Tutti</option>
       </select>
+    </div>
+    <div class="form-group" style="margin:0;min-width:160px;position:relative" id="kf-canale-wrap">
+      <label style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--ink3);display:block;margin-bottom:4px">Canale</label>
+      <button type="button" id="kf-canale-btn" onclick="toggleKfCanaleMenu(event)" style="width:100%;height:38px;text-align:left;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:0 10px;cursor:pointer;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Tutti i canali ▾</button>
+      <div id="kf-canale-menu" style="display:none;position:absolute;top:100%;left:0;z-index:60;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 16px rgba(0,0,0,.14);min-width:210px;max-height:260px;overflow:auto;padding:6px;margin-top:4px"></div>
     </div>
     <div class="form-group" style="margin:0;min-width:130px">
       <label style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--ink3);display:block;margin-bottom:4px">Consegna entro</label>
@@ -4254,8 +4259,36 @@ function resetFiltriKanban() {
   ['kf-cerca','kf-data'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const col=document.getElementById('kf-colore'); if(col) col.value='';
   const mat=document.getElementById('kf-materiali'); if(mat) mat.checked=false;
+  if(window.kfCanaleSel) window.kfCanaleSel.clear();
+  const cm=document.getElementById('kf-canale-menu'); if(cm) cm.style.display='none';
   renderProduzione();
 }
+
+// ===== Filtro Canale (multi-selezione) nel Kanban =====
+// Stato su window.* per evitare la trappola di scope tra blocchi <script> (const non
+// affidabile cross-block nell'architettura a file singolo).
+window.kfCanaleSel = window.kfCanaleSel || new Set();   // '' = ordini senza canale
+window._kfCanaleVoci = window._kfCanaleVoci || [];       // valori indicizzati del menu corrente
+
+function toggleKfCanaleMenu(ev) {
+  if(ev) ev.stopPropagation();
+  const m = document.getElementById('kf-canale-menu');
+  if(m) m.style.display = (m.style.display==='none'||!m.style.display) ? 'block' : 'none';
+}
+// Uso l'indice (non il valore) nell'onchange inline: i nomi canale possono contenere
+// apostrofi o virgolette che romperebbero l'attributo HTML.
+function toggleKfCanaleIdx(i) {
+  const v = window._kfCanaleVoci[i];
+  if(v===undefined) return;
+  if(window.kfCanaleSel.has(v)) window.kfCanaleSel.delete(v); else window.kfCanaleSel.add(v);
+  renderProduzione();
+}
+// Chiudo il menu cliccando fuori
+document.addEventListener('click', function(ev){
+  const wrap = document.getElementById('kf-canale-wrap');
+  const m = document.getElementById('kf-canale-menu');
+  if(m && m.style.display==='block' && wrap && !wrap.contains(ev.target)) m.style.display='none';
+});
 
 function hasMaterialiDisponibili(riga) {
   const prodotti = DB.get('prodotti')||[];
@@ -4760,13 +4793,43 @@ function renderProduzione() {
     kfColore.innerHTML = '<option value="">Tutti i colori</option>' + coloriUsati.map(c=>`<option value="${c}" ${c===curr?'selected':''}>${c}</option>`).join('');
   }
 
+  // Popola canali nel filtro (multi-selezione). Come per i colori, mostro solo i canali
+  // effettivamente usati negli ordini, + "(Senza canale)" se esistono ordini senza.
+  const canaliUsati = [...new Set(ordini.map(o=>o.canale||'').filter(Boolean))].sort();
+  const esisteSenzaCanale = ordini.some(o=>!o.canale);
+  // Ripulisco selezioni orfane (canale non più presente in alcun ordine)
+  [...window.kfCanaleSel].forEach(v=>{
+    if(v==='' ? !esisteSenzaCanale : !canaliUsati.includes(v)) window.kfCanaleSel.delete(v);
+  });
+  const kfCanaleMenu = document.getElementById('kf-canale-menu');
+  if(kfCanaleMenu) {
+    const wasOpen = kfCanaleMenu.style.display==='block';
+    const voci = canaliUsati.concat(esisteSenzaCanale?['']:[]);
+    window._kfCanaleVoci = voci;
+    kfCanaleMenu.innerHTML = voci.length ? voci.map((v,i)=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:13px;border-radius:6px" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+        <input type="checkbox" style="width:auto" ${window.kfCanaleSel.has(v)?'checked':''} onchange="toggleKfCanaleIdx(${i})">
+        <span>${v||'<em>(Senza canale)</em>'}</span>
+      </label>`).join('')
+      : '<div style="padding:8px;font-size:12px;color:var(--ink3)">Nessun canale negli ordini</div>';
+    kfCanaleMenu.style.display = wasOpen ? 'block' : 'none';
+    const btn = document.getElementById('kf-canale-btn');
+    if(btn) {
+      const n = window.kfCanaleSel.size;
+      btn.textContent = n===0 ? 'Tutti i canali ▾'
+        : n===1 ? (([...window.kfCanaleSel][0]||'(Senza canale)')+' ▾')
+        : n+' canali selezionati ▾';
+    }
+  }
+
   // Leggi filtri
   const fQ      = (document.getElementById('kf-cerca')||{}).value?.toLowerCase().trim()||'';
   const fColore  = (document.getElementById('kf-colore')||{}).value||'';
   const fData    = (document.getElementById('kf-data')||{}).value||'';
   const fMat     = (document.getElementById('kf-materiali')||{}).checked||false;
+  const fCanali  = window.kfCanaleSel;
 
-  const attivi = fQ||fColore||fData||fMat;
+  const attivi = fQ||fColore||fData||fMat||fCanali.size>0;
   const badge = document.getElementById('kf-attivi');
   if(badge) {
     badge.style.display = attivi ? 'block' : 'none';
@@ -4774,6 +4837,7 @@ function renderProduzione() {
       const tags = [];
       if(fQ) tags.push(`Ricerca: <strong>${fQ}</strong>`);
       if(fColore) tags.push(`Colore: <strong>${fColore}</strong>`);
+      if(fCanali.size) tags.push(`Canale: <strong>${[...fCanali].map(c=>c||'(Senza canale)').join(', ')}</strong>`);
       if(fData) tags.push(`Entro: <strong>${fmtDate(fData)}</strong>`);
       if(fMat) tags.push(`<strong>Solo materiali disponibili</strong>`);
       badge.innerHTML = `<div style="font-size:12px;color:var(--ink2);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -4798,6 +4862,8 @@ function renderProduzione() {
       const colori = (o.righe||[{colore:o.colore}]).map(r=>r.colore||'');
       if(!colori.includes(fColore)) return false;
     }
+    // Canale: logica OR — l'ordine passa se il suo canale è tra quelli selezionati
+    if(fCanali.size && !fCanali.has(o.canale||'')) return false;
     if(fData && o.consegna && o.consegna > fData) return false;
     if(fMat) {
       const righe = o.righe||[{prodotto:o.prodotto, accessori:o.accessori||[]}];
