@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.12 — 23/07/2026 · pianificatore: serbatoio in due sezioni</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.13 — 23/07/2026 · magazzino QR: conta o aggiungi</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1079,15 +1079,41 @@ window.renderMagKiosk = function(){
   }
   document.body.innerHTML =
     '<div style="min-height:100vh;background:#14110D;color:#F5EFE4;font-family:\'Segoe UI\',Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;box-sizing:border-box">'+
-      '<div style="font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#9A9082;font-family:monospace">Botti Manager · Conta magazzino</div>'+
+      '<div style="font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#9A9082;font-family:monospace">Botti Manager · Magazzino</div>'+
       '<div style="font-size:26px;font-weight:700;margin:14px 0 4px;text-align:center;line-height:1.2">'+_e(d.nome)+'</div>'+
-      '<div style="font-size:13px;color:#9A9082;margin-bottom:22px">Quanti pezzi VEDI a scaffale adesso?</div>'+
+      '<div style="display:flex;gap:8px;margin:14px 0 10px;width:100%;max-width:320px">'+
+        '<button id="mag-modo-conta" onclick="magSetModo(\'conta\')" style="flex:1;padding:12px 0;border-radius:12px;border:2px solid #2D6A4F;font-size:15px;font-weight:700;cursor:pointer">📋 CONTA</button>'+
+        '<button id="mag-modo-aggiungi" onclick="magSetModo(\'aggiungi\')" style="flex:1;padding:12px 0;border-radius:12px;border:2px solid #2D6A4F;font-size:15px;font-weight:700;cursor:pointer">➕ AGGIUNGI</button>'+
+      '</div>'+
+      '<div id="mag-hint" style="font-size:13px;color:#9A9082;margin-bottom:16px;text-align:center">Quanti pezzi VEDI a scaffale adesso?</div>'+
       '<input id="mag-qty" type="number" inputmode="decimal" min="0" placeholder="0" style="width:180px;font-size:44px;text-align:center;font-family:monospace;background:#1F1B16;border:1px solid #332C24;border-radius:14px;color:#F5EFE4;padding:12px">'+
       '<button id="mag-salva" onclick="eseguiRilevazione()" style="margin-top:20px;width:100%;max-width:280px;font-size:22px;font-weight:800;padding:18px 0;border-radius:14px;border:none;background:#2D6A4F;color:#fff">SALVA CONTA</button>'+
       '<div id="mag-esito" style="margin-top:20px;width:100%;max-width:360px;text-align:center;min-height:60px"></div>'+
-      '<div style="margin-top:16px;font-size:11px;color:#9A9082;text-align:center">La giacenza a gestionale DIVENTA questo numero (rilevazione, non carico).</div>'+
+      '<div id="mag-nota" style="margin-top:16px;font-size:11px;color:#9A9082;text-align:center">La giacenza a gestionale DIVENTA questo numero (rilevazione, non carico).</div>'+
     '</div>';
+  window.magSetModo('conta');
   var q=document.getElementById('mag-qty'); if(q) q.focus();
+};
+
+// Cambio modalità della pagina magazzino: CONTA (la giacenza diventa N) / AGGIUNGI (+N)
+window._magModo = 'conta';
+window.magSetModo = function(m){
+  window._magModo = (m==='aggiungi') ? 'aggiungi' : 'conta';
+  var att = { background:'#2D6A4F', color:'#fff' }, spe = { background:'#1F1B16', color:'#9A9082' };
+  var bc=document.getElementById('mag-modo-conta'), ba=document.getElementById('mag-modo-aggiungi');
+  if(bc){ bc.style.background=(window._magModo==='conta'?att.background:spe.background); bc.style.color=(window._magModo==='conta'?att.color:spe.color); }
+  if(ba){ ba.style.background=(window._magModo==='aggiungi'?att.background:spe.background); ba.style.color=(window._magModo==='aggiungi'?att.color:spe.color); }
+  var h=document.getElementById('mag-hint'), s=document.getElementById('mag-salva'), n=document.getElementById('mag-nota'), q=document.getElementById('mag-qty');
+  if(window._magModo==='conta'){
+    if(h) h.textContent='Quanti pezzi VEDI a scaffale adesso?';
+    if(s) s.textContent='SALVA CONTA';
+    if(n) n.textContent='La giacenza a gestionale DIVENTA questo numero (rilevazione, non carico).';
+  } else {
+    if(h) h.textContent='Quanti pezzi stai AGGIUNGENDO a scaffale?';
+    if(s) s.textContent='AGGIUNGI A MAGAZZINO';
+    if(n) n.textContent='I pezzi vengono SOMMATI alla giacenza attuale (carico).';
+  }
+  if(q){ q.value=''; q.focus(); }
 };
 if(window.__MAG__){
   (function(){
@@ -1688,18 +1714,29 @@ window.eseguiRilevazione = async function(){
   var d=window.__MAG__||{};
   var inp=document.getElementById('mag-qty');
   var qty=inp?parseFloat(inp.value):NaN;
-  if(isNaN(qty)||qty<0){ window.magEsito('errore','Inserisci una quantità valida (0 o più).'); return; }
+  var aggiungo = (window._magModo==='aggiungi');
+  if(aggiungo){
+    if(isNaN(qty)||qty<=0){ window.magEsito('errore','Inserisci quanti pezzi stai aggiungendo (più di 0).'); return; }
+  } else {
+    if(isNaN(qty)||qty<0){ window.magEsito('errore','Inserisci una quantità valida (0 o più).'); return; }
+  }
   var btn=document.getElementById('mag-salva'); if(btn){ btn.disabled=true; btn.textContent='Invio…'; }
   try{
-    const { data, error } = await sb.rpc('rileva_giacenza', { p_token: d.token, p_nome: d.nome, p_qty: qty });
+    const fn = aggiungo ? 'aggiungi_giacenza' : 'rileva_giacenza';
+    const { data, error } = await sb.rpc(fn, { p_token: d.token, p_nome: d.nome, p_qty: qty });
     if(error){ window.magEsito('errore','Errore di collegamento. Riprova.'); return; }
     if(data && data.ok){
-      window.magEsito('ok','✓ '+(data.nome||d.nome)+': giacenza registrata '+(data.giacenza!=null?data.giacenza:qty)+' '+(data.um||'pz'));
+      if(aggiungo){
+        window.magEsito('ok','✓ '+(data.nome||d.nome)+': +'+qty+' → giacenza '+(data.giacenza!=null?data.giacenza:'aggiornata')+' '+(data.um||'pz'));
+      } else {
+        window.magEsito('ok','✓ '+(data.nome||d.nome)+': giacenza registrata '+(data.giacenza!=null?data.giacenza:qty)+' '+(data.um||'pz'));
+      }
+      if(inp) inp.value='';
     } else {
-      window.magEsito('errore',(data && data.msg) || 'Rilevazione rifiutata');
+      window.magEsito('errore',(data && data.msg) || (aggiungo?'Carico rifiutato':'Rilevazione rifiutata'));
     }
   }catch(e){ window.magEsito('errore','Errore: '+((e&&e.message)||e)); }
-  finally{ if(btn){ btn.disabled=false; btn.textContent='SALVA CONTA'; } }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=(window._magModo==='aggiungi')?'AGGIUNGI A MAGAZZINO':'SALVA CONTA'; } }
 };
 
 // ─── ETICHETTE QR MAGAZZINO: selezione materiali + stampa griglia parametrica ───
