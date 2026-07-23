@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.10 — 22/07/2026 · promemoria: tasto Fatto</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.11 — 23/07/2026 · pianificatore: codice prodotto in card</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -3046,6 +3046,19 @@ function riepilogoProdotti(o) {
   }
   return `${righe.length} prodotti`;
 }
+// Come riepilogoProdotti, ma con il CODICE prodotto davanti alla descrizione.
+// Multi-prodotto: mostra anche l'elenco dei codici (es. "2 prodotti: BTT-M1, REF8-MET").
+function riepilogoProdottiConCodice(o) {
+  const mono = c => `<span style="font-family:var(--mono);font-weight:600">${_esc(c)}</span>`;
+  const righe = o.righe||[];
+  if(!righe.length) return (o.prodotto?mono(o.prodotto)+' · ':'') + _esc(o.prodottoNome||'—');
+  if(righe.length===1) {
+    const r=righe[0];
+    return (r.prodotto?mono(r.prodotto)+' · ':'') + _esc(r.prodottoNome||'—') + (r.accessori&&r.accessori.length?` +${r.accessori.length} acc.`:'');
+  }
+  const codici = righe.map(r=>r.prodotto).filter(Boolean);
+  return `${righe.length} prodotti` + (codici.length?`: ${mono(codici.join(', '))}`:'');
+}
 // Totale prodotti (righe) in un ordine
 function totProdotti(o) { return (o.righe||[]).length||1; }
 
@@ -4337,7 +4350,7 @@ function renderPianificazione(){
   const cardGiorno = o => `<div onclick="showSchedaModal('${o.id}')" title="Clicca per vedere il riepilogo ordine" style="border:1px solid var(--border);border-left:3px solid ${_EVASO_PF[o.stato]?'var(--green)':'var(--accent2)'};border-radius:7px;padding:6px 8px;margin-bottom:6px;background:#fff;cursor:pointer">
     <div style="font-size:10px;font-family:var(--mono);color:var(--ink3)">${o.num} · ${_EVASO_PF[o.stato]?'<span style="color:var(--green)">'+_esc(o.stato)+'</span>':_esc(o.stato)}</div>
     <div style="font-weight:600;font-size:12.5px;line-height:1.2;margin:1px 0">${_esc(o.cliente||'—')}</div>
-    <div style="font-size:11px;color:var(--ink2);line-height:1.2">${_esc(riepilogoProdotti(o))}${finitura(o)}</div>
+    <div style="font-size:11px;color:var(--ink2);line-height:1.2">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;margin-top:5px">
       <button class="btn btn-sm" title="Giorno precedente" onclick="event.stopPropagation();pianificaShiftGiorno('${o.id}',-1)" style="padding:1px 7px">‹</button>
       <button class="btn btn-sm btn-danger" title="Togli dalla pianificazione" onclick="event.stopPropagation();pianificaRemove('${o.id}')" style="padding:1px 7px">✕</button>
@@ -4392,7 +4405,7 @@ function renderPianificazione(){
   const cardDisp = o => `<div onclick="showSchedaModal('${o.id}')" title="Clicca per vedere il riepilogo ordine" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">
     <div style="font-size:11px;font-family:var(--mono);color:var(--ink3)">${o.num} · ${_esc(o.stato)}${o.settimanaLavorazione?' · <span style="color:var(--accent2)">'+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div>
     <div style="font-weight:600;font-size:13px">${_esc(o.cliente||'—')}</div>
-    <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${_esc(riepilogoProdotti(o))}${finitura(o)}</div>
+    <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--ink3);margin-right:2px">Assegna a:</span>${picker(o)}</div></div>`;
 
   root.innerHTML=`
