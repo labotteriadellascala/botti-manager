@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.11 — 23/07/2026 · pianificatore: codice prodotto in card</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.12 — 23/07/2026 · pianificatore: serbatoio in due sezioni</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -4343,6 +4343,9 @@ function renderPianificazione(){
   let disp=ordini.filter(o=> _STATI_LAV[o.stato] && _lunKeyOf(o.settimanaLavorazione)!==key );
   if(q) disp=disp.filter(o=>((o.cliente||'')+' '+(o.num||'')+' '+riepilogoProdotti(o)).toLowerCase().includes(q));
   disp.sort((a,b)=>String(a.consegna||'').localeCompare(String(b.consegna||'')));
+  // Sezione 2 richiesta da Andrea: separo i MAI pianificati da quelli già assegnati a un'ALTRA settimana
+  const dispNuovi = disp.filter(o=>!o.settimanaLavorazione);
+  const dispAltre = disp.filter(o=> o.settimanaLavorazione);
 
   const oggiKey=_dayKeyFromDate((function(){const d=new Date();d.setHours(0,0,0,0);return d;})());
 
@@ -4403,7 +4406,7 @@ function renderPianificazione(){
   // card serbatoio: selettore giorno L M M G V S
   const picker = o => _WD1.map((L,idx)=>`<button class="btn btn-sm" title="Assegna a ${_WDlong[idx]}" onclick="event.stopPropagation();pianificaSetGiorno('${o.id}',${idx})" style="padding:2px 0;width:26px;font-family:var(--mono)">${L}</button>`).join('');
   const cardDisp = o => `<div onclick="showSchedaModal('${o.id}')" title="Clicca per vedere il riepilogo ordine" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">
-    <div style="font-size:11px;font-family:var(--mono);color:var(--ink3)">${o.num} · ${_esc(o.stato)}${o.settimanaLavorazione?' · <span style="color:var(--accent2)">'+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div>
+    <div style="font-size:11px;font-family:var(--mono);color:var(--ink3)">${o.num} · ${_esc(o.stato)}${o.settimanaLavorazione?' · <span style="color:var(--accent2);font-weight:700">📌 già pianificato '+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div>
     <div style="font-weight:600;font-size:13px">${_esc(o.cliente||'—')}</div>
     <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--ink3);margin-right:2px">Assegna a:</span>${picker(o)}</div></div>`;
@@ -4423,12 +4426,18 @@ function renderPianificazione(){
    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — sposta con ‹ ›, togli con ✕</div>
    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px">${colonne}</div>
 
-   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Da pianificare — ordini in Lav. 1 / Lav. 2 (${disp.length})</div>
+   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Da pianificare — mai assegnati (${dispNuovi.length})</div>
    <input id="pianif-cerca" placeholder="Cerca per cliente, numero, prodotto…" value="${_esc(q)}" oninput="renderPianificazione()" style="width:100%;max-width:420px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;font-size:13px;box-sizing:border-box">
    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
-     ${disp.length?disp.slice(0,60).map(cardDisp).join(''):'<div style="color:var(--ink3);font-size:13px;padding:18px">Nessun ordine in Lav. 1 / Lav. 2 da pianificare.</div>'}
+     ${dispNuovi.length?dispNuovi.slice(0,60).map(cardDisp).join(''):'<div style="color:var(--ink3);font-size:13px;padding:18px">Nessun ordine in Lav. 1 / Lav. 2 senza pianificazione.</div>'}
    </div>
-   ${disp.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(disp.length-60)+'. Usa la ricerca per restringere.</div>':''}`;
+   ${dispNuovi.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispNuovi.length-60)+'. Usa la ricerca per restringere.</div>':''}
+   ${dispAltre.length?`
+   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin:22px 0 8px;font-weight:600">📌 Pianificati in altre settimane (${dispAltre.length}) <span style="font-weight:400;text-transform:none;letter-spacing:0">— clicca un giorno per spostarli in questa settimana</span></div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;opacity:0.85">
+     ${dispAltre.slice(0,60).map(cardDisp).join('')}
+   </div>
+   ${dispAltre.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispAltre.length-60)+'. Usa la ricerca per restringere.</div>':''}`:''}`;
   const ce=document.getElementById('pianif-cerca'); if(ce && q){ ce.focus(); ce.setSelectionRange(ce.value.length,ce.value.length); }
 }
 
