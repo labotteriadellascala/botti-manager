@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.18 — 28/07/2026 · motivi duplicazione configurabili in Impostazioni</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.20 — 28/07/2026 · statistiche clienti + valore medio ordine in dashboard</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -735,6 +735,8 @@ td.fin-in{color:var(--green);font-weight:500}
   </div>
   <div id="dash-daconsegnare"></div>
   <div id="dash-resoconto"></div>
+  <div id="dash-valoremedio"></div>
+  <div id="dash-statclienti"></div>
 </div>
 
 <!-- ORDINI -->
@@ -3343,6 +3345,215 @@ function renderDashboard() {
   <p style="font-size:12px;color:var(--ink3);margin-top:10px">
     📥 Ricevuti = ordini per data di inserimento. 📦 Consegnati = ordini spostati in "Consegnato" dal Piano produzione, contati dal mese in cui li sposti${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}.
   </p>`;
+
+  // ── VALORE MEDIO ORDINE (esclusi Bloccato e Da sviluppare) ──────────────────
+  // Ordini ricevuti nell'anno. NB: escludendo "Da sviluppare", un ordine che matura
+  // ENTRA nel calcolo retroattivamente → la media può cambiare senza ordini nuovi.
+  // Esclusi anche gli ordini con prezzo 0/mancante (dato non ancora compilato).
+  const STATI_ESCLUSI_MEDIA = ['Bloccato','Da sviluppare'];
+  const valoriMedia = ordini.filter(filtra).filter(o=>{
+    if(!o.creato || new Date(o.creato).getFullYear()!==ANNO) return false;
+    if(STATI_ESCLUSI_MEDIA.includes(o.stato)) return false;
+    return (o.prezzoTotale||0) > 0;
+  }).map(o=>o.prezzoTotale).sort((a,b)=>a-b);
+  const vmBox = document.getElementById('dash-valoremedio');
+  if(vmBox){
+    if(valoriMedia.length){
+      const media = valoriMedia.reduce((s,v)=>s+v,0)/valoriMedia.length;
+      const mid = Math.floor(valoriMedia.length/2);
+      const mediana = valoriMedia.length%2 ? valoriMedia[mid] : (valoriMedia[mid-1]+valoriMedia[mid])/2;
+      const divergenza = mediana>0 && Math.abs(media-mediana)/mediana > 0.25;
+      vmBox.innerHTML = `
+        <div class="card" style="margin-top:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:baseline">
+            <div>
+              <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3)">💶 Valore medio ordine ${ANNO}${canaleSel?` · ${canaleSel}`:''}</div>
+              <div style="font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:-1px">${fmt(Math.round(media))} €</div>
+            </div>
+            <div>
+              <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3)">Mediana</div>
+              <div style="font-family:var(--serif);font-size:22px;font-weight:700">${fmt(Math.round(mediana))} €</div>
+            </div>
+            <div style="font-size:12px;color:var(--ink3);flex:1;min-width:200px">
+              Su <strong style="font-family:var(--mono)">${valoriMedia.length}</strong> ordini ricevuti (esclusi Bloccato, Da sviluppare e senza prezzo).
+              ${divergenza?'<br><span style="color:var(--accent)">⚠ Media e mediana divergono: pochi ordini grandi trainano la media.</span>':''}
+            </div>
+          </div>
+        </div>`;
+    } else {
+      vmBox.innerHTML = `<div class="card" style="margin-top:16px;font-size:13px;color:var(--ink3)">💶 Valore medio ordine: nessun ordine conteggiabile nel ${ANNO}${canaleSel?` per il canale ${canaleSel}`:''} (esclusi Bloccato, Da sviluppare e senza prezzo).</div>`;
+    }
+  }
+
+  // ── STATISTICHE CLIENTI (sesso / età / regione) ─────────────────────────────
+  renderStatClienti(ordini.filter(filtra).filter(o=>{
+    if(!o.creato) return false;
+    return new Date(o.creato).getFullYear()===ANNO;
+  }), ANNO, canaleSel);
+}
+
+// ─── STATISTICHE CLIENTI: decodifica CF + regione da indirizzo ────────────────
+// Sesso ed età sono ricavati dal Codice Fiscale (solo persone fisiche, 16 caratteri).
+// La regione viene dall'indirizzo di SPEDIZIONE: prima la provincia, poi il CAP.
+// NB: il CF codifica il comune di NASCITA, per questo NON lo usiamo per la regione.
+
+// Omocodia: nei CF "omocodici" alcune cifre sono sostituite da lettere
+const _OMOCODIA = { L:'0', M:'1', N:'2', P:'3', Q:'4', R:'5', S:'6', T:'7', U:'8', V:'9' };
+function _cfCifra(ch){ return /[0-9]/.test(ch) ? ch : (_OMOCODIA[ch] || null); }
+
+const _CF_MESI = { A:1, B:2, C:3, D:4, E:5, H:6, L:7, M:8, P:9, R:10, S:11, T:12 };
+
+// Decodifica un CF: torna {sesso:'M'|'F', eta:Number} oppure null se non decodificabile.
+// Le P.IVA (11 cifre) e i campi vuoti tornano null e finiscono nel conteggio "senza dato".
+function decodificaCF(raw){
+  const cf = String(raw||'').replace(/\s/g,'').toUpperCase();
+  if(cf.length !== 16) return null;
+  if(!/^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/.test(cf)) return null;
+  const yy = _cfCifra(cf[6]) + _cfCifra(cf[7]);
+  const mese = _CF_MESI[cf[8]];
+  let giorno = parseInt(_cfCifra(cf[9]) + _cfCifra(cf[10]), 10);
+  if(!mese || isNaN(giorno)) return null;
+  const sesso = giorno > 40 ? 'F' : 'M';
+  if(giorno > 40) giorno -= 40;
+  if(giorno < 1 || giorno > 31) return null;
+  // Secolo: il CF ha solo 2 cifre di anno. Se 20xx darebbe una data futura → 19xx.
+  // Se 20xx darebbe un minorenne (cliente improbabile) → 19xx. Altrimenti 20xx.
+  const oggi = new Date();
+  let anno = 2000 + parseInt(yy,10);
+  if(anno > oggi.getFullYear() || (oggi.getFullYear() - anno) < 18) anno -= 100;
+  const nascita = new Date(anno, mese-1, giorno);
+  if(isNaN(nascita.getTime())) return null;
+  let eta = oggi.getFullYear() - anno;
+  if(oggi.getMonth() < mese-1 || (oggi.getMonth() === mese-1 && oggi.getDate() < giorno)) eta -= 1;
+  if(eta < 0 || eta > 110) return null;
+  return { sesso, eta };
+}
+
+// Sigla provincia → regione (incluse province soppresse/riorganizzate)
+const _PROV_REGIONE = {
+  AG:'Sicilia',AL:'Piemonte',AN:'Marche',AO:'Valle d\'Aosta',AR:'Toscana',AP:'Marche',AT:'Piemonte',AV:'Campania',
+  BA:'Puglia',BT:'Puglia',BL:'Veneto',BN:'Campania',BG:'Lombardia',BI:'Piemonte',BO:'Emilia-Romagna',BZ:'Trentino-Alto Adige',
+  BS:'Lombardia',BR:'Puglia',CA:'Sardegna',CL:'Sicilia',CB:'Molise',CI:'Sardegna',CE:'Campania',CT:'Sicilia',
+  CZ:'Calabria',CH:'Abruzzo',CO:'Lombardia',CS:'Calabria',CR:'Lombardia',KR:'Calabria',CN:'Piemonte',EN:'Sicilia',
+  FM:'Marche',FE:'Emilia-Romagna',FI:'Toscana',FG:'Puglia',FC:'Emilia-Romagna',FR:'Lazio',GE:'Liguria',GO:'Friuli-Venezia Giulia',
+  GR:'Toscana',IM:'Liguria',IS:'Molise',SP:'Liguria',AQ:'Abruzzo',LT:'Lazio',LE:'Puglia',LC:'Lombardia',
+  LI:'Toscana',LO:'Lombardia',LU:'Toscana',MC:'Marche',MN:'Lombardia',MS:'Toscana',MT:'Basilicata',ME:'Sicilia',
+  MI:'Lombardia',MO:'Emilia-Romagna',MB:'Lombardia',NA:'Campania',NO:'Piemonte',NU:'Sardegna',OG:'Sardegna',OT:'Sardegna',
+  OR:'Sardegna',PD:'Veneto',PA:'Sicilia',PR:'Emilia-Romagna',PV:'Lombardia',PG:'Umbria',PU:'Marche',PE:'Abruzzo',
+  PC:'Emilia-Romagna',PI:'Toscana',PT:'Toscana',PN:'Friuli-Venezia Giulia',PZ:'Basilicata',PO:'Toscana',RG:'Sicilia',RA:'Emilia-Romagna',
+  RC:'Calabria',RE:'Emilia-Romagna',RI:'Lazio',RN:'Emilia-Romagna',RM:'Lazio',RO:'Veneto',SA:'Campania',SS:'Sardegna',
+  SV:'Liguria',SI:'Toscana',SR:'Sicilia',SO:'Lombardia',SU:'Sardegna',TA:'Puglia',TE:'Abruzzo',TR:'Umbria',
+  TO:'Piemonte',TP:'Sicilia',TN:'Trentino-Alto Adige',TV:'Veneto',TS:'Friuli-Venezia Giulia',UD:'Friuli-Venezia Giulia',VA:'Lombardia',VE:'Veneto',
+  VB:'Piemonte',VC:'Piemonte',VR:'Veneto',VV:'Calabria',VI:'Veneto',VT:'Lazio'
+};
+
+// Fallback: prime 2 cifre del CAP → regione (approssimazione buona per statistiche aggregate)
+const _CAP_REGIONE = {
+  '00':'Lazio','01':'Lazio','02':'Lazio','03':'Lazio','04':'Lazio','05':'Umbria','06':'Umbria',
+  '07':'Sardegna','08':'Sardegna','09':'Sardegna','10':'Piemonte','11':'Valle d\'Aosta','12':'Piemonte',
+  '13':'Piemonte','14':'Piemonte','15':'Piemonte','16':'Liguria','17':'Liguria','18':'Liguria','19':'Liguria',
+  '20':'Lombardia','21':'Lombardia','22':'Lombardia','23':'Lombardia','24':'Lombardia','25':'Lombardia',
+  '26':'Lombardia','27':'Lombardia','28':'Piemonte','29':'Emilia-Romagna','30':'Veneto','31':'Veneto',
+  '32':'Veneto','33':'Friuli-Venezia Giulia','34':'Friuli-Venezia Giulia','35':'Veneto','36':'Veneto','37':'Veneto',
+  '38':'Trentino-Alto Adige','39':'Trentino-Alto Adige','40':'Emilia-Romagna','41':'Emilia-Romagna','42':'Emilia-Romagna',
+  '43':'Emilia-Romagna','44':'Emilia-Romagna','45':'Veneto','46':'Lombardia','47':'Emilia-Romagna','48':'Emilia-Romagna',
+  '50':'Toscana','51':'Toscana','52':'Toscana','53':'Toscana','54':'Toscana','55':'Toscana','56':'Toscana',
+  '57':'Toscana','58':'Toscana','59':'Toscana','60':'Marche','61':'Marche','62':'Marche','63':'Marche',
+  '64':'Abruzzo','65':'Abruzzo','66':'Abruzzo','67':'Abruzzo','70':'Puglia','71':'Puglia','72':'Puglia',
+  '73':'Puglia','74':'Puglia','75':'Basilicata','76':'Puglia','80':'Campania','81':'Campania','82':'Campania',
+  '83':'Campania','84':'Campania','85':'Basilicata','86':'Molise','87':'Calabria','88':'Calabria','89':'Calabria',
+  '90':'Sicilia','91':'Sicilia','92':'Sicilia','93':'Sicilia','94':'Sicilia','95':'Sicilia','96':'Sicilia',
+  '97':'Sicilia','98':'Sicilia'
+};
+
+// Regione dall'indirizzo di spedizione: provincia se c'è, altrimenti CAP.
+function regioneDaOrdine(o){
+  const sped = o.indirizzoSpedizione || {};
+  const prov = String(sped.provincia||'').trim().toUpperCase();
+  if(prov && _PROV_REGIONE[prov]) return _PROV_REGIONE[prov];
+  const cap = String(sped.cap || o.cap || '').trim();
+  if(/^\d{5}$/.test(cap) && _CAP_REGIONE[cap.slice(0,2)]) return _CAP_REGIONE[cap.slice(0,2)];
+  return null;
+}
+
+function renderStatClienti(ordiniAnno, ANNO, canaleSel){
+  const box = document.getElementById('dash-statclienti');
+  if(!box) return;
+  const tot = ordiniAnno.length;
+
+  // ── Raccolta dati ──
+  const sesso = { M:0, F:0 };
+  const fasce = [ ['18–29',18,29], ['30–44',30,44], ['45–59',45,59], ['60+',60,200] ];
+  const fasceCnt = fasce.map(()=>0);
+  let sommaEta = 0, cfValidi = 0;
+  const regioni = {};
+  let regValidi = 0;
+
+  ordiniAnno.forEach(o=>{
+    const dec = decodificaCF(o.cf);
+    if(dec){
+      cfValidi++; sesso[dec.sesso]++; sommaEta += dec.eta;
+      const fi = fasce.findIndex(f=>dec.eta>=f[1] && dec.eta<=f[2]);
+      if(fi>=0) fasceCnt[fi]++;
+    }
+    const reg = regioneDaOrdine(o);
+    if(reg){ regValidi++; regioni[reg] = (regioni[reg]||0)+1; }
+  });
+
+  const pct = (n,d)=> d>0 ? Math.round(n/d*100) : 0;
+  const barra = (n,max,colore)=>`<div style="height:8px;background:var(--border);border-radius:99px;overflow:hidden;flex:1"><div style="height:100%;width:${max>0?Math.round(n/max*100):0}%;background:${colore};border-radius:99px"></div></div>`;
+  const copertura = (n)=>`<div style="font-size:11px;font-family:var(--mono);color:var(--ink3);margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">Dato disponibile su <strong>${n}</strong> di <strong>${tot}</strong> ordini ${ANNO}${n<tot/2&&tot>0?' · ⚠ copertura bassa: leggi con cautela':''}</div>`;
+
+  // ── Card sesso ──
+  const cardSesso = `
+    <div class="card">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:12px">👤 Sesso</div>
+      ${cfValidi>0 ? `
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:64px;font-size:13px">Uomini</span>${barra(sesso.M,cfValidi,'var(--accent)')}<span style="font-family:var(--mono);font-size:13px;width:70px;text-align:right"><strong>${sesso.M}</strong> · ${pct(sesso.M,cfValidi)}%</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:64px;font-size:13px">Donne</span>${barra(sesso.F,cfValidi,'var(--accent2)')}<span style="font-family:var(--mono);font-size:13px;width:70px;text-align:right"><strong>${sesso.F}</strong> · ${pct(sesso.F,cfValidi)}%</span></div>
+        </div>` : `<div style="font-size:13px;color:var(--ink3)">Nessun codice fiscale decodificabile negli ordini ${ANNO}.</div>`}
+      ${copertura(cfValidi)}
+    </div>`;
+
+  // ── Card età ──
+  const maxFascia = Math.max(1, ...fasceCnt);
+  const etaMedia = cfValidi>0 ? Math.round(sommaEta/cfValidi) : null;
+  const cardEta = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <span style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3)">🎂 Età</span>
+        ${etaMedia!==null?`<span style="font-family:var(--serif);font-size:20px;font-weight:700">${etaMedia} <span style="font-size:11px;font-family:var(--mono);font-weight:400;color:var(--ink3)">media</span></span>`:''}
+      </div>
+      ${cfValidi>0 ? `<div style="display:flex;flex-direction:column;gap:10px">${
+        fasce.map((f,i)=>`<div style="display:flex;align-items:center;gap:10px"><span style="width:64px;font-size:13px;font-family:var(--mono)">${f[0]}</span>${barra(fasceCnt[i],maxFascia,'var(--accent)')}<span style="font-family:var(--mono);font-size:13px;width:70px;text-align:right"><strong>${fasceCnt[i]}</strong> · ${pct(fasceCnt[i],cfValidi)}%</span></div>`).join('')
+      }</div>` : `<div style="font-size:13px;color:var(--ink3)">Nessun codice fiscale decodificabile negli ordini ${ANNO}.</div>`}
+      ${copertura(cfValidi)}
+    </div>`;
+
+  // ── Card regioni ──
+  const regOrd = Object.entries(regioni).sort((a,b)=>b[1]-a[1]);
+  const maxReg = regOrd.length ? regOrd[0][1] : 1;
+  const cardRegioni = `
+    <div class="card">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:12px">📍 Regione d'acquisto <span style="text-transform:none;letter-spacing:0">(da indirizzo di spedizione)</span></div>
+      ${regOrd.length ? `<div style="display:flex;flex-direction:column;gap:10px">${
+        regOrd.map(([r,n])=>`<div style="display:flex;align-items:center;gap:10px"><span style="width:120px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r}">${r}</span>${barra(n,maxReg,'var(--accent)')}<span style="font-family:var(--mono);font-size:13px;width:70px;text-align:right"><strong>${n}</strong> · ${pct(n,regValidi)}%</span></div>`).join('')
+      }</div>` : `<div style="font-size:13px;color:var(--ink3)">Nessun indirizzo con provincia o CAP valido negli ordini ${ANNO}.</div>`}
+      ${copertura(regValidi)}
+    </div>`;
+
+  box.innerHTML = `
+    <div style="margin-top:22px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <span class="card-title" style="margin:0">Chi compra — ${ANNO}${canaleSel?` · ${canaleSel}`:''}</span>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--ink3)">sesso ed età dal codice fiscale · regione dall'indirizzo</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+      ${cardSesso}${cardEta}${cardRegioni}
+    </div>
+    <p style="font-size:12px;color:var(--ink3);margin-top:10px">
+      Conteggiati gli ordini <strong>ricevuti nel ${ANNO}</strong>. Sesso ed età solo da CF di persone fisiche (le P.IVA e i campi vuoti restano fuori). Con pochi ordini le percentuali ballano: guarda sempre anche il numero assoluto.
+    </p>`;
 }
 
 // ─── ORDINI ───────────────────────────────────────────────────────────────────
