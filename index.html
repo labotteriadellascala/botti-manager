@@ -539,7 +539,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.16 — 23/07/2026 · filtro canale multi-selezione nel piano produzione</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.18 — 28/07/2026 · motivi duplicazione configurabili in Impostazioni</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -873,6 +873,17 @@ td.fin-in{color:var(--green);font-weight:500}
     <div style="display:flex;gap:8px;align-items:center">
       <input type="text" id="nuovo-canale-input" placeholder="Es. Fiera Milano 2025" style="max-width:280px" onkeydown="if(event.key==='Enter')aggiungiCanale()">
       <button class="btn btn-primary" onclick="aggiungiCanale()">+ Aggiungi</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Motivi duplicazione ordine</div>
+    <p style="font-size:13px;color:var(--ink2);margin-bottom:14px">Motivi proposti dal tasto <strong>⧉ Duplica</strong> sugli ordini. Ogni motivo appartiene a una <strong>categoria fissa</strong> (la chiave usata per le statistiche nel tempo) e decide se il duplicato parte a 0&nbsp;€. Gli ordini già salvati conservano il motivo com'era al momento, anche se poi lo rinomini o lo elimini qui.</p>
+    <div id="motivi-duplica-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="nuovo-motivo-input" placeholder="Es. NC — errore misura" style="max-width:240px" onkeydown="if(event.key==='Enter')aggiungiMotivoDuplica()">
+      <select id="nuovo-motivo-categoria" style="max-width:230px" onchange="presetZeroMotivo()"></select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap"><input type="checkbox" id="nuovo-motivo-zero" style="width:auto">Prezzo a 0 €</label>
+      <button class="btn btn-primary" onclick="aggiungiMotivoDuplica()">+ Aggiungi</button>
     </div>
   </div>
   <div class="card">
@@ -2312,8 +2323,8 @@ window.provaSupabase = provaSupabase;
 // Le altre sezioni continuano per ora a usare il browser (localStorage), come prima.
 
 var _cache = {};                                  // copia in memoria
-var SEZIONI_CLOUD = ['ordini','canali','famiglie','colori','materiali','prodotti','accessori','contatti','ordiniEvento','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken'];   // sezioni che vivono su Supabase
-var SEZIONI_IMPOSTAZIONI = ['canali','famiglie','colori','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken'];     // liste salvate nel cassetto "impostazioni"
+var SEZIONI_CLOUD = ['ordini','canali','famiglie','colori','materiali','prodotti','accessori','contatti','ordiniEvento','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken','motiviDuplica'];   // sezioni che vivono su Supabase
+var SEZIONI_IMPOSTAZIONI = ['canali','famiglie','colori','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken','motiviDuplica'];     // liste salvate nel cassetto "impostazioni"
 
 var DB = {
   get(k) {
@@ -2810,10 +2821,28 @@ async function caricaOrdiniDaCloud() {
 
 // Valori di partenza per le liste che ora vivono nel cloud (impostazioni).
 // Servono solo la primissima volta, se il cloud è ancora vuoto.
+// ─── CATEGORIE DUPLICAZIONE (FISSE) ──────────────────────────────────────────
+// Le categorie NON sono modificabili: sono la chiave stabile su cui si faranno
+// le statistiche nel tempo (quante NC, quanti danni trasporto, quanti riordini).
+// I MOTIVI dentro ogni categoria sono invece configurabili in Impostazioni.
+var CATEGORIE_DUPLICA = {
+  riordino:  { label:'Riordino cliente',              icona:'🔁', zeroDefault:false },
+  trasporto: { label:'Danno / smarrimento trasporto', icona:'📦', zeroDefault:true,
+               avviso:'non è una vendita: DDT causale "sostituzione merce", niente fattura' },
+  nonconf:   { label:'Non conformità (NC)',           icona:'⚠️', zeroDefault:true },
+  altro:     { label:'Altro',                         icona:'✏️', zeroDefault:false }
+};
+
 var DEFAULT_IMPOSTAZIONI = {
   canali: ['Instagram','Facebook','WhatsApp','Telefono','Fiera/Diretto','Sito web'],
   colori: ['Naturale','Rovere','Teak','Noce','Rovere bruciato','Teak bruciato','Bianco bruciato','Nero','Bianco','Naturale bruciato','Verde - RAL 6026','Tiffany - RAL 1606015','Nero marmo oro','Bianco marmo oro','Grigio - RAL 7035','Nero marmo argento','Bianco bruciato venatura oro'],
-  famiglie: ['S','M','L','Economy','Refrigerata','Altro']
+  famiglie: ['S','M','L','Economy','Refrigerata','Altro'],
+  motiviDuplica: [
+    { id:'md-riordino',  label:'Riordino cliente',                      categoria:'riordino',  zero:false },
+    { id:'md-trasporto', label:'Danneggiamento / smarrimento corriere', categoria:'trasporto', zero:true  },
+    { id:'md-nc',        label:'Non conformità generica',               categoria:'nonconf',   zero:true  },
+    { id:'md-altro',     label:'Altro',                                 categoria:'altro',     zero:false }
+  ]
 };
 
 function loadData() {
@@ -2951,6 +2980,62 @@ function renderImpostazioni() {
       <button onclick="rimuoviFamiglia(${i})" style="background:none;border:none;cursor:pointer;color:var(--ink3);font-size:14px;padding:0;line-height:1">×</button>
     </div>
   `).join('');
+
+  // ─── Motivi duplicazione (categoria fissa + etichetta configurabile) ────────
+  const motiviD = DB.get('motiviDuplica')||[];
+  const mdList = document.getElementById('motivi-duplica-list');
+  if (mdList) {
+    mdList.innerHTML = motiviD.length ? motiviD.map((m,i)=>{
+      const cat = CATEGORIE_DUPLICA[m.categoria] || CATEGORIE_DUPLICA.altro;
+      return `<div style="display:flex;align-items:center;gap:10px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius);padding:6px 12px;font-size:13px">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(m.label)}</span>
+        <span class="badge badge-accent" style="font-size:11px;white-space:nowrap">${cat.icona} ${cat.label}</span>
+        <span style="font-family:var(--mono);font-size:11px;white-space:nowrap;color:${m.zero?'var(--red)':'var(--ink3)'}">${m.zero?'0 €':'prezzo pieno'}</span>
+        <button onclick="rimuoviMotivoDuplica(${i})" style="background:none;border:none;cursor:pointer;color:var(--ink3);font-size:14px;padding:0;line-height:1">×</button>
+      </div>`;
+    }).join('') : '<div style="color:var(--ink3);font-size:13px">Nessun motivo configurato: il tasto Duplica userà i motivi predefiniti.</div>';
+    const selCat = document.getElementById('nuovo-motivo-categoria');
+    if (selCat && !selCat.options.length) {
+      selCat.innerHTML = Object.keys(CATEGORIE_DUPLICA).map(k=>`<option value="${k}">${CATEGORIE_DUPLICA[k].icona} ${CATEGORIE_DUPLICA[k].label}</option>`).join('');
+      presetZeroMotivo();
+    }
+  }
+}
+
+// Precompila la spunta "Prezzo a 0 €" secondo la categoria scelta (resta modificabile)
+function presetZeroMotivo() {
+  const sel = document.getElementById('nuovo-motivo-categoria');
+  const chk = document.getElementById('nuovo-motivo-zero');
+  if (sel && chk) { const c = CATEGORIE_DUPLICA[sel.value]; chk.checked = !!(c && c.zeroDefault); }
+}
+
+function aggiungiMotivoDuplica() {
+  const inp = document.getElementById('nuovo-motivo-input');
+  const sel = document.getElementById('nuovo-motivo-categoria');
+  const chk = document.getElementById('nuovo-motivo-zero');
+  const label = ((inp&&inp.value)||'').trim();
+  if(!label) return;
+  const categoria = (sel && CATEGORIE_DUPLICA[sel.value]) ? sel.value : 'altro';
+  const motivi = DB.get('motiviDuplica')||[];
+  if(motivi.some(m=>m.label.toLowerCase()===label.toLowerCase() && m.categoria===categoria)) { inp.value=''; return; }
+  motivi.push({
+    id: 'md-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+    label: label,
+    categoria: categoria,
+    zero: !!(chk && chk.checked)
+  });
+  DB.set('motiviDuplica', motivi);
+  inp.value = '';
+  renderImpostazioni();
+}
+
+function rimuoviMotivoDuplica(i) {
+  const motivi = DB.get('motiviDuplica')||[];
+  const m = motivi[i];
+  if(m && !confirm('Rimuovere il motivo "'+m.label+'"?\n\nGli ordini già salvati con questo motivo NON vengono toccati:\nconservano etichetta e categoria com\'erano al momento.')) return;
+  motivi.splice(i,1);
+  DB.set('motiviDuplica', motivi);
+  renderImpostazioni();
 }
 
 function aggiungiColore() {
@@ -3613,6 +3698,7 @@ function renderOrdini() {
     <td>${statusBadge(o.stato)}</td>
     <td style="display:flex;gap:4px">
       <button class="btn btn-sm btn-ghost" onclick="editOrdine('${o.id}')">Modifica</button>
+      <button class="btn btn-sm btn-ghost" title="Duplica ordine" onclick="duplicaOrdine('${o.id}')">⧉</button>
       <button class="btn btn-sm btn-ghost" onclick="printConfermaOrdine('${o.id}')">📋</button>
       <button class="btn btn-sm btn-ghost" onclick="printSchedaSingola('${o.id}')">🖨</button>
     </td>
@@ -3627,10 +3713,19 @@ function rigaVuota() {
   return { prodotto:'', prodottoNome:'', accessori:[], note:'', fuoriStandard:false, colore:'', incisioni:'', _accSel:{} };
 }
 
-function renderFormOrdine(id) {
+function renderFormOrdine(id, ordPrecompilato) {
   _editId = id;
   const ordini = DB.get('ordini')||[];
-  const ord = id ? ordini.find(o=>o.id===id) : null;
+  const ord = id ? ordini.find(o=>o.id===id) : (ordPrecompilato || null);
+  // Metadati duplicazione: valorizzati SOLO quando il form nasce da "Duplica ordine".
+  // Vengono azzerati in ogni altro caso (nuovo ordine normale, modifica), così un
+  // "Nuovo ordine" aperto dopo una duplicazione non eredita per sbaglio il riferimento.
+  window._duplicaMeta = (ordPrecompilato && ordPrecompilato.duplicatoDa)
+    ? { duplicatoDa: ordPrecompilato.duplicatoDa,
+        motivoDuplicaId: ordPrecompilato.motivoDuplicaId||'',
+        motivoDuplicazione: ordPrecompilato.motivoDuplicazione||'',
+        categoriaDuplicazione: ordPrecompilato.categoriaDuplicazione||'' }
+    : null;
 
   // migrazione ordini vecchi (mono-prodotto) → righe
   if(ord && ord.righe && ord.righe.length) {
@@ -3862,7 +3957,7 @@ function renderFormOrdineHTML(ord) {
       <div style="text-align:right">
         <div style="font-size:12px;color:var(--ink3);margin-bottom:6px">Prezzo finale ordine</div>
         <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
-          <input type="number" id="f-prezzo-finale" style="width:130px;text-align:right;font-family:var(--mono);font-size:15px;font-weight:600" placeholder="0" value="${ord&&ord.prezzoTotale?ord.prezzoTotale:''}" oninput="updateSaldoDisplay()">
+          <input type="number" id="f-prezzo-finale" style="width:130px;text-align:right;font-family:var(--mono);font-size:15px;font-weight:600" placeholder="0" value="${ord&&(ord.prezzoTotale||ord.prezzoTotale===0)?ord.prezzoTotale:''}" oninput="updateSaldoDisplay()">
           <span style="font-size:15px;font-weight:600;color:var(--accent)">€</span>
         </div>
         <div style="font-size:10px;color:var(--ink3);margin-top:3px">Modificabile per sconti / accordi</div>
@@ -4146,7 +4241,11 @@ function salvaOrdine() {
 
   const prezzoCalcolato = righePulite.reduce((s,r)=>s+r.prezzoRiga,0);
   const prezzoFinaleEl = document.getElementById('f-prezzo-finale');
-  const prezzoTotale = prezzoFinaleEl && prezzoFinaleEl.value ? parseFloat(prezzoFinaleEl.value)||prezzoCalcolato : prezzoCalcolato;
+  // NB: "0" è un prezzo VALIDO (rifacimenti/duplicati a 0 €). Il vecchio
+  // `parseFloat(v)||prezzoCalcolato` trasformava silenziosamente 0 nel prezzo pieno.
+  const _pfRaw = prezzoFinaleEl ? String(prezzoFinaleEl.value).trim() : '';
+  const _pfNum = parseFloat(_pfRaw);
+  const prezzoTotale = (_pfRaw !== '' && !isNaN(_pfNum)) ? _pfNum : prezzoCalcolato;
   const fuoriStandard = righePulite.some(r=>r.fuoriStandard);
   const statoEl = document.getElementById('f-stato');
   const stato = statoEl ? statoEl.value : 'Inserito';
@@ -4191,6 +4290,15 @@ function salvaOrdine() {
     note: righePulite[0].note,
   };
 
+  // Tracciabilità duplicazione: solo per ordini NUOVI nati dal tasto "Duplica".
+  // Finisce nel jsonb "dati" (ordineToRiga non li tocca), quindi nessuna modifica schema.
+  if(!_editId && window._duplicaMeta) {
+    dati.duplicatoDa = window._duplicaMeta.duplicatoDa;
+    dati.motivoDuplicaId = window._duplicaMeta.motivoDuplicaId;
+    dati.motivoDuplicazione = window._duplicaMeta.motivoDuplicazione;
+    dati.categoriaDuplicazione = window._duplicaMeta.categoriaDuplicazione;
+  }
+
   let ordineToccato;
   let statoPrecedente;                            // stato PRIMA del salvataggio (per la dataConsegnato)
   if(_editId) {
@@ -4222,8 +4330,96 @@ function salvaOrdine() {
 
   DB.set('ordini', ordini);              // aggiorna la copia in memoria
   salvaOrdineSingolo(ordineToccato);     // sincronizza nel cloud SOLO questo ordine
+  window._duplicaMeta = null;            // consumati: il prossimo ordine non li eredita
   nav('ordini', document.querySelectorAll('.nav-item')[1]);
 }
+
+// ─── DUPLICA ORDINE (con motivo) ─────────────────────────────────────────────
+// Le CATEGORIE sono FISSE (CATEGORIE_DUPLICA): chiave stabile per le statistiche.
+// I MOTIVI sono configurabili in Impostazioni ('motiviDuplica'); se la lista è
+// vuota si ricade sui predefiniti, così il tasto Duplica non resta mai muto.
+// Il motivo imposta i DEFAULT (prezzo e nota automatica); tutto resta modificabile
+// nel form prima del salvataggio: NULLA viene scritto finché non premi Conferma.
+// NON vengono copiati: pagamenti (appartengono all'ordine originale), stato (reset
+// a Inserito), date, promemoria, allegati e i campi di tracciamento QR/officina
+// delle righe (rid, qrToken, fabbisogno, aperture) — altrimenti il duplicato
+// condividerebbe i QR stampati con l'originale.
+// Sull'ordine si salvano TRE cose: categoriaDuplicazione (chiave fissa, per le
+// statistiche), motivoDuplicaId e motivoDuplicazione (fotografia dell'etichetta:
+// se poi rinomini/elimini il motivo in Impostazioni, lo storico resta leggibile).
+function motiviDuplicaAttivi() {
+  const m = DB.get('motiviDuplica');
+  return (Array.isArray(m) && m.length) ? m : DEFAULT_IMPOSTAZIONI.motiviDuplica;
+}
+
+window.duplicaOrdine = function(id){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===id);
+  if(!o){ alert('Ordine non trovato.'); return; }
+  const motivi = motiviDuplicaAttivi();
+  const html = `
+    <div style="font-size:13px;color:var(--ink2);margin-bottom:12px">Perché stai duplicando l'ordine <strong>N. ${o.num}</strong> (${_esc(o.cliente||'')})?<br>
+    <span style="font-size:11px;color:var(--ink3)">Il motivo imposta prezzo e nota automatica; potrai comunque modificare tutto prima di confermare. I motivi si gestiscono in Impostazioni.</span></div>
+    ${Object.keys(CATEGORIE_DUPLICA).map(ck=>{
+      const cat = CATEGORIE_DUPLICA[ck];
+      const del = motivi.filter(m=>m.categoria===ck);
+      if(!del.length) return '';
+      return `<div style="margin-bottom:10px">
+        <div style="font-size:11px;font-family:var(--mono);color:var(--ink3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">${cat.icona} ${cat.label}${cat.avviso?` — <span style="color:var(--accent);text-transform:none;letter-spacing:0">${cat.avviso}</span>`:''}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${del.map(m=>`<button class="btn" style="text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:8px 12px" onclick="avviaDuplicaOrdine('${id}','${m.id}')">
+            <span style="font-weight:600;font-size:13.5px">${_esc(m.label)}</span>
+            <span style="font-family:var(--mono);font-size:11px;color:${m.zero?'var(--red)':'var(--ink3)'};white-space:nowrap">${m.zero?'0 €':'prezzo pieno'}</span>
+          </button>`).join('')}
+        </div>
+      </div>`;
+    }).join('')}`;
+  showModal('⧉ Duplica ordine '+(o.num||''), html, [{label:'Annulla', action:'closeModal()'}]);
+};
+
+window.avviaDuplicaOrdine = function(id, motivoId){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===id);
+  const m = motiviDuplicaAttivi().find(x=>x.id===motivoId);
+  if(!o || !m){ alert('Ordine o motivo non trovato.'); return; }
+  const cat = CATEGORIE_DUPLICA[m.categoria] || CATEGORIE_DUPLICA.altro;
+  closeModal();
+
+  // righe: copio prodotti/accessori/note/colori/incisioni, MA senza i campi QR/officina
+  const righeSorgente = (o.righe && o.righe.length)
+    ? o.righe
+    : (o.prodotto ? [{ prodotto:o.prodotto, prodottoNome:o.prodottoNome||'', accessori:o.accessori||[], note:o.note||'', fuoriStandard:o.fuoriStandard||false }] : []);
+  const righe = righeSorgente.map(r=>{
+    const c = { ...r };
+    ['rid','qrToken','fabbisogno','apertoTs','chiusoTs','_accSel'].forEach(k=>delete c[k]);
+    return c;
+  });
+
+  const nota = m.zero
+    ? `RIFACIMENTO ordine N. ${o.num} — ${cat.label}: ${m.label}. Valore merce originale: ${fmt(o.prezzoTotale||0)} €${m.categoria==='trasporto'?' (riferimento per la pratica di risarcimento col corriere)':''}.`
+    : `${m.label} — duplicato dall'ordine N. ${o.num}.`;
+
+  const pre = {
+    cliente: o.cliente||'', tel: o.tel||'', email: o.email||'', cf: o.cf||'',
+    canale: o.canale||'',
+    consegna: '',                                  // la fissi tu: il duplicato ha tempi suoi
+    stato: 'Inserito',
+    righe: righe,
+    fuoriStandard: righe.some(r=>r.fuoriStandard),
+    prezzoTotale: m.zero ? 0 : (o.prezzoTotale||0),
+    noteOrdine: nota + (o.noteOrdine ? '\n— Note ordine originale —\n'+o.noteOrdine : ''),
+    indirizzoSpedizione: { ...(o.indirizzoSpedizione||{}) },
+    fattUgualeSpedizione: o.fattUgualeSpedizione!==false,
+    indirizzoFatturazione: { ...(o.indirizzoFatturazione||{}) },
+    duplicatoDa: o.num,
+    motivoDuplicaId: m.id,
+    motivoDuplicazione: m.label,
+    categoriaDuplicazione: m.categoria
+  };
+
+  nav('nuovo-ordine', null);
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('topbar-title').textContent = 'Nuovo ordine (duplicato da N. '+(o.num||'')+')';
+  renderFormOrdine(null, pre);
+};
 
 function editOrdine(id) {
   nav('nuovo-ordine', null);
@@ -6480,7 +6676,7 @@ function closeModal() {
 
 // ─── EXPORT / IMPORT ─────────────────────────────────────────────────────────
 // Sezioni incluse nel backup (tutte quelle che vivono nel cloud).
-var SEZIONI_BACKUP = ['ordini','ordiniEvento','contatti','prodotti','accessori','materiali','canali','famiglie','colori'];
+var SEZIONI_BACKUP = ['ordini','ordiniEvento','contatti','prodotti','accessori','materiali','canali','famiglie','colori','motiviDuplica'];
 
 function esportaDati() {
   const chiavi = SEZIONI_BACKUP;
