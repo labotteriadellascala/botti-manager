@@ -514,6 +514,12 @@ table.tmb-sht .ot{color:#444}
   body.tmb-printing .tmb-sheet{break-after:page;page-break-after:always}
   body.tmb-printing .tmb-sheet:last-child{break-after:auto;page-break-after:auto}
 }
+/* ─── Drag & drop Pianificazione (giorni) ─── */
+.pf-handle{cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none;color:var(--ink3);font-size:13px;line-height:1;padding:2px 4px;border-radius:4px;flex:none}
+.pf-handle:hover{background:rgba(0,0,0,0.06);color:var(--ink)}
+.pf-card.pf-dragging{opacity:0.35}
+.pf-ghost{position:fixed;left:0;top:0;z-index:9999;pointer-events:none;opacity:0.92;box-shadow:0 10px 26px rgba(0,0,0,0.28);transform:rotate(1.5deg);border-radius:7px;background:#fff}
+.pf-placeholder{height:9px;border-radius:5px;background:var(--accent2);opacity:0.45;margin:2px 0 6px}
 </style>
 </head>
 <body>
@@ -539,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.20 — 28/07/2026 · statistiche clienti + valore medio ordine in dashboard</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.21 — 29/07/2026 · trascinamento libero card in Pianificazione (giorni)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -4744,7 +4750,7 @@ window.pianifNext = function(){ _pianifSett.setDate(_pianifSett.getDate()+7); re
 window.pianifOggi = function(){ const d=new Date(); d.setHours(0,0,0,0); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); _pianifSett=d; renderPianificazione(); };
 window.pianificaSetGiorno = function(id, idx){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; o.settimanaLavorazione=_giornoKey(idx); salvaOrdineSingolo(o); renderPianificazione(); };
 window.pianificaShiftGiorno = function(id, delta){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; let wd=_weekdayOf(o.settimanaLavorazione); if(wd<0) wd=0; wd=Math.max(0,Math.min(5,wd+delta)); o.settimanaLavorazione=_giornoKey(wd); salvaOrdineSingolo(o); renderPianificazione(); };
-window.pianificaRemove = function(id){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; delete o.settimanaLavorazione; salvaOrdineSingolo(o); renderPianificazione(); };
+window.pianificaRemove = function(id){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; delete o.settimanaLavorazione; delete o.pianifPos; salvaOrdineSingolo(o); renderPianificazione(); };
 
 // ─── ATTIVITÀ LIBERE del piano (slegate dagli ordini) ────────────────────────
 // Struttura: {id, testo, giorno:'YYYY-MM-DD', dest:'Stefano'|'Nikolaj'|'Entrambi'|'Andrea', fatta:bool}
@@ -4763,6 +4769,7 @@ function _normAtt(a){
     giorno: a.giorno || a.data || a.giornoKey || '',
     dest:   ATT_DEST.includes(a.dest) ? a.dest : 'Entrambi',
     fatta:  !!a.fatta,
+    pos:    (typeof a.pos==='number' && isFinite(a.pos)) ? a.pos : null,   // ordinamento manuale (drag & drop)
   };
 }
 function _attLista(){ return (DB.get('attivitaPiano')||[]).map(_normAtt); }
@@ -4800,6 +4807,159 @@ window.attDel = function(id){
   _attSalva(lista.filter(x=>x.id!==id));
 };
 
+// ─── DRAG & DROP nella Pianificazione ────────────────────────────────────────
+// Ordinamento manuale: gli ordini portano un campo pianifPos (numero frazionario,
+// salvato dentro "dati" dell'ordine → nessuna modifica allo schema, un solo record
+// scritto per spostamento, protezione anti-sovrascrittura invariata). Le attività
+// usano il campo pos nella lista attivitaPiano. Chi non ha una posizione esplicita
+// riceve una posizione IMPLICITA deterministica: ordini per numero (1e6+num*1000),
+// attività dopo gli ordini (dal timestamp nell'id) → la prima visualizzazione è
+// identica a prima del drag&drop. Il drop calcola il punto medio tra i vicini.
+function _effPosOrd(o){ return (typeof o.pianifPos==='number'&&isFinite(o.pianifPos)) ? o.pianifPos : 1e6 + (parseFloat(o.num)||0)*1000; }
+function _effPosAtt(a){ if(typeof a.pos==='number'&&isFinite(a.pos)) return a.pos; const m=/^att_(\d{10,})/.exec(a.id||''); return 2e9 + (m ? (+m[1])/1000 : 0); }
+
+let _pfDrag=null, _pfSuppressClick=false;
+// dopo un trascinamento vero, il click "fantasma" che segue il pointerup va inghiottito
+document.addEventListener('click', function(e){ if(_pfSuppressClick){ e.stopPropagation(); e.preventDefault(); _pfSuppressClick=false; } }, true);
+
+function _pfInitDnD(){
+  const root=document.getElementById('pianif-root'); if(!root||root._pfDnD) return; root._pfDnD=true;
+  root.addEventListener('pointerdown', _pfDown);
+}
+function _pfDown(e){
+  if(typeof e.button==='number' && e.button!==0) return;               // solo tasto sinistro
+  const card=e.target.closest('.pf-card'); if(!card) return;
+  if(e.target.closest('button,input,a,select,textarea,label')) return; // i controlli restano cliccabili
+  if(e.pointerType!=='mouse' && !e.target.closest('.pf-handle')) return; // su touch si trascina SOLO dalla maniglia ⠿ (per non rompere lo scroll)
+  _pfDrag={ card, id:card.dataset.pfid, kind:card.dataset.pfkind, x0:e.clientX, y0:e.clientY,
+            ox:e.clientX-card.getBoundingClientRect().left, oy:e.clientY-card.getBoundingClientRect().top,
+            active:false, ghost:null, ph:null, pid:e.pointerId };
+  try{ card.setPointerCapture(e.pointerId); }catch(_){}
+  card.addEventListener('pointermove', _pfMove);
+  card.addEventListener('pointerup', _pfUp);
+  card.addEventListener('pointercancel', _pfCancel);
+}
+function _pfMove(e){
+  const D=_pfDrag; if(!D) return;
+  if(!D.active){
+    if(Math.hypot(e.clientX-D.x0, e.clientY-D.y0) < 6) return;         // soglia: sotto i 6px è un click
+    D.active=true;
+    const r=D.card.getBoundingClientRect();
+    D.ghost=D.card.cloneNode(true);
+    D.ghost.classList.add('pf-ghost'); D.ghost.classList.remove('pf-card');
+    D.ghost.style.width=r.width+'px';
+    document.body.appendChild(D.ghost);
+    D.card.classList.add('pf-dragging');
+    D.ph=document.createElement('div'); D.ph.className='pf-placeholder';
+    document.body.style.userSelect='none';
+  }
+  e.preventDefault();
+  D.ghost.style.left=(e.clientX-D.ox)+'px';
+  D.ghost.style.top =(e.clientY-D.oy)+'px';
+  // dove sono? (il ghost ha pointer-events:none, quindi elementFromPoint vede sotto)
+  const el=document.elementFromPoint(e.clientX,e.clientY);
+  const col=el ? el.closest('.pf-col') : null;
+  if(!col){ if(D.ph.parentNode) D.ph.parentNode.removeChild(D.ph); return; }
+  const list=col.querySelector('.pf-list'); if(!list) return;
+  let before=null;
+  for(const c of list.querySelectorAll(':scope > .pf-card')){
+    if(c===D.card) continue;
+    const cr=c.getBoundingClientRect();
+    if(e.clientY < cr.top + cr.height/2){ before=c; break; }
+  }
+  if(before) list.insertBefore(D.ph, before); else list.appendChild(D.ph);
+}
+function _pfSibCard(ph, dir){
+  let n = dir<0 ? ph.previousElementSibling : ph.nextElementSibling;
+  while(n){
+    if(n.classList && n.classList.contains('pf-card') && !n.classList.contains('pf-dragging')) return n;
+    n = dir<0 ? n.previousElementSibling : n.nextElementSibling;
+  }
+  return null;
+}
+function _pfCancel(){ _pfCleanup(); }
+function _pfUp(e){
+  const D=_pfDrag; if(!D) return;
+  try{ D.card.releasePointerCapture(D.pid); }catch(_){}
+  if(!D.active){ _pfCleanup(); return; }                                // era solo un click: lo lascio passare
+  _pfSuppressClick=true; setTimeout(function(){ _pfSuppressClick=false; },80);
+  let dayIdx=null, prevEff=null, nextEff=null, seq=null, phIdx=-1;
+  if(D.ph && D.ph.parentNode){
+    const list=D.ph.closest('.pf-list');
+    if(list){ dayIdx=parseInt(list.dataset.day,10);
+      const p=_pfSibCard(D.ph,-1), n=_pfSibCard(D.ph,+1);
+      prevEff = p ? parseFloat(p.dataset.pfeff) : null;
+      nextEff = n ? parseFloat(n.dataset.pfeff) : null;
+      if(prevEff!=null && !isFinite(prevEff)) prevEff=null;
+      if(nextEff!=null && !isFinite(nextEff)) nextEff=null;
+      // catturo la sequenza visiva della colonna (serve solo nel raro caso di rinumerazione)
+      seq=[];
+      for(const nd of list.children){
+        if(nd===D.ph){ phIdx=seq.length; continue; }
+        if(nd.classList && nd.classList.contains('pf-card') && nd!==D.card) seq.push({kind:nd.dataset.pfkind, id:nd.dataset.pfid});
+      }
+      if(phIdx<0) phIdx=seq.length;
+    }
+  }
+  const kind=D.kind, id=D.id;
+  _pfCleanup();
+  if(dayIdx==null || isNaN(dayIdx)) return;                             // lasciato fuori dalle colonne: nessuna modifica
+  let newPos;
+  if(prevEff!=null && nextEff!=null) newPos=(prevEff+nextEff)/2;
+  else if(prevEff!=null) newPos=prevEff+1000;
+  else if(nextEff!=null) newPos=nextEff-1000;
+  else newPos=1000;                                                     // colonna vuota
+  // Guardia: dopo moltissimi inserimenti nello STESSO interstizio il punto medio in
+  // virgola mobile può collassare su un vicino → la card non si sposterebbe più.
+  // In quel raro caso rinumero l'intera colonna con posizioni spaziate (i×1000).
+  if(prevEff!=null && nextEff!=null && !(newPos>prevEff && newPos<nextEff)){
+    if(seq){ seq.splice(phIdx,0,{kind,id}); _pfRinumera(dayIdx, seq); }
+    return;
+  }
+  if(kind==='o'){
+    const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return;
+    o.settimanaLavorazione=_giornoKey(dayIdx);
+    o.pianifPos=newPos;
+    salvaOrdineSingolo(o);                                              // un solo record, con lock anti-sovrascrittura
+    renderPianificazione();
+  } else if(kind==='a'){
+    const lista=_attLista(); const a=lista.find(x=>x.id===id); if(!a) return;
+    a.giorno=_giornoKey(dayIdx);
+    a.pos=newPos;
+    _attSalva(lista);                                                   // già ri-renderizza
+  }
+}
+// Rinumera tutte le card di una colonna con posizioni spaziate. Usata SOLO quando il
+// punto medio frazionario degenera: scrive un record per ogni ordine coinvolto (ciascuno
+// con la consueta protezione anti-sovrascrittura) + una scrittura della lista attività.
+function _pfRinumera(dayIdx, seq){
+  const ordini=DB.get('ordini')||[]; const listaAtt=_attLista(); let attToccate=false;
+  seq.forEach(function(it,i){
+    const pos=(i+1)*1000;
+    if(it.kind==='o'){
+      const o=ordini.find(x=>x.id===it.id);
+      if(o){ o.settimanaLavorazione=_giornoKey(dayIdx); o.pianifPos=pos; salvaOrdineSingolo(o); }
+    } else {
+      const a=listaAtt.find(x=>x.id===it.id);
+      if(a){ a.giorno=_giornoKey(dayIdx); a.pos=pos; attToccate=true; }
+    }
+  });
+  if(attToccate) DB.set('attivitaPiano', listaAtt);
+  renderPianificazione();
+}
+
+function _pfCleanup(){
+  const D=_pfDrag; if(!D) return;
+  D.card.removeEventListener('pointermove', _pfMove);
+  D.card.removeEventListener('pointerup', _pfUp);
+  D.card.removeEventListener('pointercancel', _pfCancel);
+  D.card.classList.remove('pf-dragging');
+  if(D.ghost && D.ghost.parentNode) D.ghost.parentNode.removeChild(D.ghost);
+  if(D.ph && D.ph.parentNode) D.ph.parentNode.removeChild(D.ph);
+  document.body.style.userSelect='';
+  _pfDrag=null;
+}
+
 
 function renderPianificazione(){
   const root=document.getElementById('pianif-root'); if(!root) return;
@@ -4826,9 +4986,9 @@ function renderPianificazione(){
 
   const oggiKey=_dayKeyFromDate((function(){const d=new Date();d.setHours(0,0,0,0);return d;})());
 
-  // card in una colonna-giorno: ‹ sposta indietro, ✕ togli, › sposta avanti
-  const cardGiorno = o => `<div onclick="showSchedaModal('${o.id}')" title="Clicca per vedere il riepilogo ordine" style="border:1px solid var(--border);border-left:3px solid ${_EVASO_PF[o.stato]?'var(--green)':'var(--accent2)'};border-radius:7px;padding:6px 8px;margin-bottom:6px;background:#fff;cursor:pointer">
-    <div style="font-size:10px;font-family:var(--mono);color:var(--ink3)">${o.num} · ${_EVASO_PF[o.stato]?'<span style="color:var(--green)">'+_esc(o.stato)+'</span>':_esc(o.stato)}</div>
+  // card in una colonna-giorno: trascinabile (mouse ovunque, touch dalla maniglia ⠿); ‹ ✕ › restano come alternativa
+  const cardGiorno = o => `<div class="pf-card" data-pfkind="o" data-pfid="${o.id}" data-pfeff="${_effPosOrd(o)}" onclick="showSchedaModal('${o.id}')" title="Clicca per il riepilogo · trascina per spostare" style="border:1px solid var(--border);border-left:3px solid ${_EVASO_PF[o.stato]?'var(--green)':'var(--accent2)'};border-radius:7px;padding:6px 8px;margin-bottom:6px;background:#fff;cursor:pointer">
+    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:10px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_EVASO_PF[o.stato]?'<span style="color:var(--green)">'+_esc(o.stato)+'</span>':_esc(o.stato)}</div><span class="pf-handle" title="Trascina per spostare">⠿</span></div>
     <div style="font-weight:600;font-size:12.5px;line-height:1.2;margin:1px 0">${_esc(o.cliente||'—')}</div>
     <div style="font-size:11px;color:var(--ink2);line-height:1.2">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;margin-top:5px">
@@ -4841,10 +5001,11 @@ function renderPianificazione(){
   const attSett = [[],[],[],[],[],[]];
   _attLista().forEach(a=>{ if(_lunKeyOf(a.giorno)===key){ let wd=_weekdayOf(a.giorno); if(wd>=0&&wd<=5) attSett[wd].push(a); else if(wd===6) attSett[5].push(a); } });
 
-  const cardAttivita = a => { const c=ATT_COLORI[a.dest]||ATT_COLORI['Entrambi']; return `<div style="border:1px dashed ${c.bordo};border-radius:7px;padding:5px 8px;margin-bottom:6px;background:${c.bg}">
+  const cardAttivita = a => { const c=ATT_COLORI[a.dest]||ATT_COLORI['Entrambi']; return `<div class="pf-card" data-pfkind="a" data-pfid="${a.id}" data-pfeff="${_effPosAtt(a)}" style="border:1px dashed ${c.bordo};border-radius:7px;padding:5px 8px;margin-bottom:6px;background:${c.bg}">
     <div style="display:flex;gap:6px;align-items:flex-start">
       <input type="checkbox" ${a.fatta?'checked':''} onchange="attToggle('${a.id}')" title="Segna come fatta" style="margin-top:2px;cursor:pointer">
       <div style="flex:1;font-size:12px;line-height:1.25;color:${c.testo};${a.fatta?'text-decoration:line-through;opacity:0.55':''}">${_esc(a.testo)}</div>
+      <span class="pf-handle" title="Trascina per spostare">⠿</span>
     </div>
     <div style="display:flex;gap:4px;margin-top:4px;align-items:center">
       <button class="btn btn-sm" title="Giorno precedente" onclick="attShift('${a.id}',-1)" style="padding:1px 7px">‹</button>
@@ -4865,7 +5026,9 @@ function renderPianificazione(){
     const lista=perGiorno[i]; const ev=lista.filter(o=>_EVASO_PF[o.stato]).length;
     const attG=attSett[i]; const attFatte=attG.filter(a=>a.fatta).length;
     const oggi = gk===oggiKey;
-    colonne += `<div style="background:${oggi?'#FFFDF5':'var(--bg2)'};border:1px solid ${oggi?'var(--accent2)':'var(--border)'};border-radius:9px;padding:8px;min-height:90px">
+    // lista combinata (ordini + attività) ordinata per posizione effettiva → drag & drop libero
+    const comb=[ ...lista.map(o=>({t:'o',eff:_effPosOrd(o),v:o})), ...attG.map(a=>({t:'a',eff:_effPosAtt(a),v:a})) ].sort((x,y)=>x.eff-y.eff);
+    colonne += `<div class="pf-col" style="background:${oggi?'#FFFDF5':'var(--bg2)'};border:1px solid ${oggi?'var(--accent2)':'var(--border)'};border-radius:9px;padding:8px;min-height:90px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px">
         <div style="font-size:12px;font-weight:700">${_WDlong[i]} <span style="color:var(--ink3);font-weight:400">${d.getDate()}/${d.getMonth()+1}</span></div>
         <div style="display:flex;align-items:baseline;gap:6px">
@@ -4873,17 +5036,18 @@ function renderPianificazione(){
           ${lista.length?`<button class="btn btn-sm" title="Stampa le schede di lavorazione degli ordini di ${_WDlong[i]}" onclick="printSchedeGiorno(${i})" style="padding:0 6px;font-size:11px;line-height:1.5">🖨</button>`:''}
         </div>
       </div>
-      ${lista.length?lista.map(cardGiorno).join(''):''}
-      ${attG.map(cardAttivita).join('')}
-      ${(!lista.length&&!attG.length)?'<div style="color:var(--ink3);font-size:11px;text-align:center;padding:10px 4px;opacity:0.7">—</div>':''}
+      <div class="pf-list" data-day="${i}" style="min-height:26px">
+        ${comb.map(it=> it.t==='o' ? cardGiorno(it.v) : cardAttivita(it.v)).join('')}
+        ${!comb.length?'<div style="color:var(--ink3);font-size:11px;text-align:center;padding:10px 4px;opacity:0.7">—</div>':''}
+      </div>
       ${formAttivita(i)}
     </div>`;
   }
 
   // card serbatoio: selettore giorno L M M G V S
   const picker = o => _WD1.map((L,idx)=>`<button class="btn btn-sm" title="Assegna a ${_WDlong[idx]}" onclick="event.stopPropagation();pianificaSetGiorno('${o.id}',${idx})" style="padding:2px 0;width:26px;font-family:var(--mono)">${L}</button>`).join('');
-  const cardDisp = o => `<div onclick="showSchedaModal('${o.id}')" title="Clicca per vedere il riepilogo ordine" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">
-    <div style="font-size:11px;font-family:var(--mono);color:var(--ink3)">${o.num} · ${_esc(o.stato)}${o.settimanaLavorazione?' · <span style="color:var(--accent2);font-weight:700">📌 già pianificato '+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div>
+  const cardDisp = o => `<div class="pf-card" data-pfkind="o" data-pfid="${o.id}" onclick="showSchedaModal('${o.id}')" title="Clicca per il riepilogo · trascina su un giorno per pianificare" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">
+    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:11px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_esc(o.stato)}${o.settimanaLavorazione?' · <span style="color:var(--accent2);font-weight:700">📌 già pianificato '+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div><span class="pf-handle" title="Trascina su un giorno">⠿</span></div>
     <div style="font-weight:600;font-size:13px">${_esc(o.cliente||'—')}</div>
     <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--ink3);margin-right:2px">Assegna a:</span>${picker(o)}</div></div>`;
@@ -4900,7 +5064,7 @@ function renderPianificazione(){
      </div>
      <div style="font-size:13px;color:var(--ink2)">In settimana: <b>${totSett}</b> · Evasi: <b style="color:var(--green)">${evasiSett}</b> · <b>${pct}%</b></div>
    </div>
-   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — sposta con ‹ ›, togli con ✕</div>
+   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — trascina le card per spostarle e riordinarle (su tablet usa ⠿) · oppure ‹ › e ✕</div>
    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px">${colonne}</div>
 
    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Da pianificare — mai assegnati (${dispNuovi.length})</div>
@@ -4916,6 +5080,7 @@ function renderPianificazione(){
    </div>
    ${dispAltre.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispAltre.length-60)+'. Usa la ricerca per restringere.</div>':''}`:''}`;
   const ce=document.getElementById('pianif-cerca'); if(ce && q){ ce.focus(); ce.setSelectionRange(ce.value.length,ce.value.length); }
+  _pfInitDnD();   // listener unico sul contenitore, sopravvive ai re-render (idempotente)
 }
 
 // Fabbisogno di una lista di ordini, SENZA filtri di stato:
