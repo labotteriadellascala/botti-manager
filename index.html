@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.21 — 29/07/2026 · trascinamento libero card in Pianificazione (giorni)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.22 — 30/07/2026 · timbrature: filtro dipendente + separatori giorno</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1433,6 +1433,8 @@ let _timbMese = (function(){ const d=new Date(); return d.getFullYear()+'-'+Stri
 let _timbRighe = [];   // cache delle righe del mese visualizzato
 let _timbDip = [];     // anagrafica dipendenti
 let _timbEditId = null; // riga attualmente in modifica inline
+let _timbFiltroDip = ''; // filtro vista: '' = tutti, altrimenti id dipendente (solo visuale, non tocca i dati)
+window.timbSetFiltroDip = function(v){ _timbFiltroDip = String(v||''); _timbDisegna(); };
 
 function _tsRomaStr(ts){ const d=new Date(ts); return d.toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Rome'}); }
 function _tsToLocalInput(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }
@@ -1577,13 +1579,29 @@ function _timbDisegna(){
         </div>
       </td></tr>`; };
 
-  const righe = _timbRighe.map(t => t.id===_timbEditId ? rigaEdit(t) : rigaVista(t)).join('');
+  // ─── filtro per dipendente (solo visuale) + separatori-giorno ───
+  const filtro = String(_timbFiltroDip||'');
+  const righeVis = filtro ? _timbRighe.filter(t=>String(t.dipendente_id)===filtro) : _timbRighe;
+  const sepGiorno = g => {
+    const d=new Date(g+'T12:00:00');
+    let lbl=d.toLocaleDateString('it-IT',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});
+    lbl=lbl.charAt(0).toUpperCase()+lbl.slice(1);
+    const oggi = g===oggiRoma;
+    return `<tr><td colspan="5" style="padding:7px 6px 4px;border-top:2px solid ${oggi?'var(--accent2)':'var(--border2)'};background:${oggi?'var(--accent-bg)':'var(--bg2)'};font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:${oggi?'var(--accent)':'var(--ink2)'};font-weight:600">${lbl}${oggi?' · oggi':''}</td></tr>`;
+  };
+  let righe=''; let _gPrev=null;
+  righeVis.forEach(t=>{
+    const g=_timbGiornoRoma(t.ts);
+    if(g!==_gPrev){ righe+=sepGiorno(g); _gPrev=g; }
+    righe += t.id===_timbEditId ? rigaEdit(t) : rigaVista(t);
+  });
 
-  const anomHtml = analisi.anomalie.length ? `
+  const anomVis = analisi.anomalie.filter(a=>!filtro || String(a.dipId)===filtro);
+  const anomHtml = anomVis.length ? `
     <div class="alert alert-amber" style="display:block;margin-bottom:10px;padding:8px 12px">
-      <b>⚠ ${analisi.anomalie.length} anomalia/e nel mese</b>
+      <b>⚠ ${anomVis.length} anomalia/e nel mese${filtro?' (dipendente filtrato)':''}</b>
       <div style="max-height:120px;overflow-y:auto;margin-top:5px;font-size:12px">
-        ${analisi.anomalie.map(a=>{ const g=a.giorno.split('-'); return `<div>· <b>${_esc(nomeDip(a.dipId))}</b> — ${g[2]}/${g[1]}: ${_esc(a.msg)}</div>`; }).join('')}
+        ${anomVis.map(a=>{ const g=a.giorno.split('-'); return `<div>· <b>${_esc(nomeDip(a.dipId))}</b> — ${g[2]}/${g[1]}: ${_esc(a.msg)}</div>`; }).join('')}
       </div>
     </div>` : '';
 
@@ -1592,7 +1610,11 @@ function _timbDisegna(){
       <input type="month" value="${_timbMese}" onchange="_timbMese=this.value;renderTimbratureCloud()" style="padding:5px 8px">
       <button class="btn btn-sm" onclick="renderTimbratureCloud()">↻ Aggiorna</button>
       <button class="btn btn-sm" onclick="stampaTimbratureMese()" title="Riepilogo mensile ore per dipendente">🖨 Stampa mese</button>
-      <span style="font-size:12px;color:var(--ink3);font-family:var(--mono)">${_timbRighe.length} timbrature nel mese</span>
+      <select onchange="timbSetFiltroDip(this.value)" title="Filtra la vista per dipendente (non tocca i dati né la stampa)" style="padding:5px 8px">
+        <option value="">Tutti i dipendenti</option>
+        ${_timbDip.map(d=>`<option value="${d.id}" ${String(d.id)===filtro?'selected':''}>${_esc(d.nome)}${d.attivo===false?' (non attivo)':''}</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--ink3);font-family:var(--mono)">${filtro ? righeVis.length+' di '+_timbRighe.length : _timbRighe.length} timbrature nel mese</span>
       <span style="margin-left:auto;font-size:11px;color:var(--ink3)">Kiosk: apri <b>#timbra=TOKEN</b> sul telefono d'officina</span>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:11.5px">
@@ -1613,10 +1635,10 @@ function _timbDisegna(){
       <input type="datetime-local" id="timb-nuovo-ts" value="${_tsToLocalInput(Date.now())}">
       <button class="btn btn-sm btn-primary" onclick="timbAggiungi()">Aggiungi</button>
     </div>
-    ${_timbRighe.length?`<div style="max-height:340px;overflow-y:auto"><table style="width:100%;border-collapse:collapse" class="text-sm">
+    ${righeVis.length?`<div style="max-height:340px;overflow-y:auto"><table style="width:100%;border-collapse:collapse" class="text-sm">
       <thead><tr style="text-align:left;font-size:10px;text-transform:uppercase;color:var(--ink3);font-family:var(--mono)"><th style="padding:4px 6px">Quando (Roma)</th><th>Dipendente</th><th>Tipo</th><th>Origine</th><th></th></tr></thead>
       <tbody>${righe}</tbody></table></div>`
-      :'<div style="color:var(--ink3);font-size:13px;padding:10px">Nessuna timbratura in questo mese.</div>'}`;
+      :`<div style="color:var(--ink3);font-size:13px;padding:10px">${filtro?'Nessuna timbratura di '+_esc(nomeDip(Number(filtro)))+' in questo mese.':'Nessuna timbratura in questo mese.'}</div>`}`;
 }
 
 // ✏ apre la modifica inline (calendario + ore/minuti separati)
