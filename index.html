@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.22 — 30/07/2026 · timbrature: filtro dipendente + separatori giorno</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.23 — 31/07/2026 · timbrature: ore giornaliere e totale mese sulla selezione</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1579,16 +1579,40 @@ function _timbDisegna(){
         </div>
       </td></tr>`; };
 
-  // ─── filtro per dipendente (solo visuale) + separatori-giorno ───
+  // ─── filtro per dipendente (solo visuale) + separatori-giorno con ore ───
   const filtro = String(_timbFiltroDip||'');
   const righeVis = filtro ? _timbRighe.filter(t=>String(t.dipendente_id)===filtro) : _timbRighe;
+  const hhmm = mnt => Math.floor(mnt/60)+'h '+String(mnt%60).padStart(2,'0')+'m';
+  // Ore del giorno per la selezione applicata (solo sessioni chiuse, come la stampa mese)
+  const oreGiorno = g => {
+    let min=0, minEff=0, anom=false; const parti=[];
+    Object.keys(analisi.perDip).forEach(dipId=>{
+      if(filtro && String(dipId)!==filtro) return;
+      const day=analisi.perDip[dipId].giorni[g]; if(!day) return;
+      const m=day.sessioni.reduce((n,s)=>n+s.min,0), me=day.sessioni.reduce((n,s)=>n+s.minEff,0);
+      min+=m; minEff+=me; if(day.anomale) anom=true;
+      if(m||me) parti.push(nomeDip(Number(dipId))+' '+hhmm(me));
+    });
+    return {min, minEff, anom, tip: parti.length>1 ? parti.join(' · ') : ''};
+  };
   const sepGiorno = g => {
     const d=new Date(g+'T12:00:00');
     let lbl=d.toLocaleDateString('it-IT',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});
     lbl=lbl.charAt(0).toUpperCase()+lbl.slice(1);
     const oggi = g===oggiRoma;
-    return `<tr><td colspan="5" style="padding:7px 6px 4px;border-top:2px solid ${oggi?'var(--accent2)':'var(--border2)'};background:${oggi?'var(--accent-bg)':'var(--bg2)'};font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:${oggi?'var(--accent)':'var(--ink2)'};font-weight:600">${lbl}${oggi?' · oggi':''}</td></tr>`;
+    const og = oreGiorno(g);
+    const ore = (og.min||og.minEff)
+      ? `<span title="${_esc(og.tip ? og.tip+' (arrotondate)' : 'Ore reali · ore arrotondate ('+step+' min a favore azienda). Solo sessioni chiuse.')}" style="float:right;text-transform:none;letter-spacing:0;color:${oggi?'var(--accent)':'var(--ink2)'}">${hhmm(og.min)} · arrot. <b>${hhmm(og.minEff)}</b>${og.anom?' <span title="Timbrature incomplete: contano solo le sessioni chiuse">⚠</span>':''}</span>`
+      : (og.anom ? '<span style="float:right;text-transform:none;letter-spacing:0" title="Nessuna sessione chiusa in questo giorno">⚠ incompleta</span>' : '');
+    return `<tr><td colspan="5" style="padding:7px 6px 4px;border-top:2px solid ${oggi?'var(--accent2)':'var(--border2)'};background:${oggi?'var(--accent-bg)':'var(--bg2)'};font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:${oggi?'var(--accent)':'var(--ink2)'};font-weight:600">${lbl}${oggi?' · oggi':''}${ore}</td></tr>`;
   };
+  // Totale mese per la selezione applicata (stesso perimetro dei separatori)
+  let selMin=0, selMinEff=0;
+  Object.keys(analisi.perDip).forEach(dipId=>{
+    if(filtro && String(dipId)!==filtro) return;
+    selMin += analisi.perDip[dipId].minutiMese;
+    selMinEff += analisi.perDip[dipId].minutiMeseEff;
+  });
   let righe=''; let _gPrev=null;
   righeVis.forEach(t=>{
     const g=_timbGiornoRoma(t.ts);
@@ -1614,7 +1638,7 @@ function _timbDisegna(){
         <option value="">Tutti i dipendenti</option>
         ${_timbDip.map(d=>`<option value="${d.id}" ${String(d.id)===filtro?'selected':''}>${_esc(d.nome)}${d.attivo===false?' (non attivo)':''}</option>`).join('')}
       </select>
-      <span style="font-size:12px;color:var(--ink3);font-family:var(--mono)">${filtro ? righeVis.length+' di '+_timbRighe.length : _timbRighe.length} timbrature nel mese</span>
+      <span style="font-size:12px;color:var(--ink3);font-family:var(--mono)">${filtro ? righeVis.length+' di '+_timbRighe.length : _timbRighe.length} timbrature nel mese${(selMin||selMinEff)?` · <span title="Ore reali (arrot. ${step} min a favore azienda) — solo sessioni chiuse, selezione corrente" style="color:var(--ink2)">${hhmm(selMin)} <b>(arrot. ${hhmm(selMinEff)})</b></span>`:''}</span>
       <span style="margin-left:auto;font-size:11px;color:var(--ink3)">Kiosk: apri <b>#timbra=TOKEN</b> sul telefono d'officina</span>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:11.5px">
