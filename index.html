@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.23 — 31/07/2026 · timbrature: ore giornaliere e totale mese sulla selezione</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.24 — 31/07/2026 · registro Lead: fonte, esito, valore e statistiche mese (tabella lead_marketing)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -564,6 +564,10 @@ table.tmb-sht .ot{color:#444}
     <div class="nav-item" onclick="nav('contatti',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
       Contatti
+    </div>
+    <div class="nav-item" onclick="nav('lead',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+      Lead
     </div>
     <div class="nav-item" onclick="nav('nuovo-ordine',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
@@ -724,6 +728,11 @@ td.fin-in{color:var(--green);font-weight:500}
 <!-- CONTATTI -->
 <div class="page" id="page-contatti">
   <div id="contatti-container"></div>
+</div>
+
+<!-- REGISTRO LEAD MARKETING -->
+<div class="page" id="page-lead">
+  <div id="lead-container"></div>
 </div>
 
 <!-- ORDINI EVENTO -->
@@ -3177,7 +3186,7 @@ function nav(page, el) {
     'pianificazione':'Pianificazione produzione (giorni)',
     'prodotti':'Prodotti e distinte base','accessori-listino':'Listino accessori',
     'impostazioni':'Impostazioni','ordini-evento':'Ordini Evento',
-    'contatti':'Contatti','calcolo-prezzi':'Calcolo prezzi','promemoria':'Promemoria',
+    'contatti':'Contatti','lead':'Registro Lead','calcolo-prezzi':'Calcolo prezzi','promemoria':'Promemoria',
     'timbrature':'Timbrature','finanze':'Registro Finanziario','mastrini':'Mastrini'
   };
   document.getElementById('topbar-title').textContent = titles[page]||'';
@@ -3210,6 +3219,7 @@ function nav(page, el) {
   if(page==='impostazioni') renderImpostazioni();
   if(page==='ordini-evento') renderOrdiniEvento();
   if(page==='contatti') renderContatti();
+  if(page==='lead') { document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" onclick="nuovoLeadMkt()">+ Nuovo lead</button>`; renderLeadMkt(); }
   if(page==='calcolo-prezzi') initCalcoloPrezzi();
   if(page==='promemoria') renderPromemoria();
   if(page==='finanze') renderFinanze();
@@ -7080,6 +7090,248 @@ ${o.consegna?`<div class="consegna">
 }
 
 // ─── MODAL ────────────────────────────────────────────────────────────────────
+/* ============================================================
+   REGISTRO LEAD MARKETING (v2.24)
+   Ogni richiesta che arriva (DM, WhatsApp, form sito, fiera)
+   diventa una riga qui. Cloud-first sulla tabella lead_marketing,
+   con protezione updated_at anti-sovrascrittura (pattern ordini).
+   ============================================================ */
+const LEAD_FONTI  = ['IG organico','Ads Meta','Sito','Fiera','Passaparola','Altro'];
+const LEAD_CANALI = ['Online','Fiera'];
+const LEAD_MOTIVI = ['Per s\u00e9','Regalo','Matrimonio','Locale','Non dichiarato'];
+const LEAD_ESITI  = ['In trattativa','Chiuso','Perso','Silente'];
+const LEAD_ESITO_BADGE = {'In trattativa':'badge-amber','Chiuso':'badge-green','Perso':'badge-gray','Silente':'badge-blue'};
+
+let _leadList = [];       // cache locale; la verita' resta il cloud
+let _leadLoaded = false;
+let _leadEditId = null;
+
+async function renderLeadMkt() {
+  const c = document.getElementById('lead-container');
+  if (!_leadLoaded) {
+    c.innerHTML = '<div class="empty"><div class="empty-icon">\u23f3</div><div>Carico il registro dal cloud\u2026</div></div>';
+    const { data, error } = await sb.from('lead_marketing').select('*')
+      .order('data',{ascending:false}).order('created_at',{ascending:false});
+    if (error) {
+      c.innerHTML = `<div class="empty"><div class="empty-icon">\u26a0\ufe0f</div><div>Errore di caricamento: ${error.message}<br><span style="font-size:11px;color:var(--ink3)">La tabella lead_marketing esiste su Supabase? Eseguire lo script SQL della v2.24.</span></div></div>`;
+      return;
+    }
+    _leadList = data || []; _leadLoaded = true;
+  }
+  disegnaLeadMkt();
+}
+
+function _leadMeseCorrente() { return new Date().toISOString().slice(0,7); }
+
+function _leadGiorniFermo(x) {
+  const rif = x.updated_at || x.created_at;
+  if (!rif) return 0;
+  return Math.floor((Date.now() - new Date(rif).getTime()) / 86400000);
+}
+
+function disegnaLeadMkt() {
+  const c = document.getElementById('lead-container');
+  const list = _leadList;
+
+  const selMeseEl = document.getElementById('ld-filter-mese');
+  const selEsitoEl = document.getElementById('ld-filter-esito');
+  const selFonteEl = document.getElementById('ld-filter-fonte');
+  const qEl = document.getElementById('ld-search');
+  const mese = selMeseEl ? selMeseEl.value : _leadMeseCorrente();
+  const fEsito = selEsitoEl ? selEsitoEl.value : '';
+  const fFonte = selFonteEl ? selFonteEl.value : '';
+  const q = qEl ? qEl.value.toLowerCase() : '';
+
+  // mesi disponibili (dal dato + mese corrente)
+  const mesi = new Set(list.map(x => (x.data||'').slice(0,7)).filter(Boolean));
+  mesi.add(_leadMeseCorrente());
+  const mesiOrd = Array.from(mesi).sort().reverse();
+
+  // ---- statistiche del mese selezionato (solo canale Online: e' l'obiettivo) ----
+  const delMese = list.filter(x => (x.data||'').slice(0,7) === mese);
+  const online = delMese.filter(x => x.canale === 'Online');
+  const chiusi = online.filter(x => x.esito === 'Chiuso');
+  const valore = chiusi.reduce((s,x) => s + (Number(x.valore)||0), 0);
+  const perc = online.length ? Math.round(chiusi.length / online.length * 100) : null;
+  // silenti e fermi: su TUTTO il registro, non solo sul mese (sono code di lavoro)
+  const silentiAperti = list.filter(x => x.esito === 'Silente').length;
+  const fermi = list.filter(x => x.esito === 'In trattativa' && _leadGiorniFermo(x) >= 4).length;
+
+  const statCard = (num, lab, warn) => `
+    <div style="background:var(--bg2);border:1px solid ${warn?'var(--amber)':'var(--border)'};border-radius:var(--radius);padding:10px 16px;text-align:center;min-width:104px">
+      <div style="font-size:20px;font-weight:700;font-family:var(--mono);${warn?'color:var(--amber)':''}">${num}</div>
+      <div style="font-size:11px;color:var(--ink3)">${lab}</div>
+    </div>`;
+
+  let html = `
+  <div class="search-bar" style="margin-bottom:12px;flex-wrap:wrap">
+    <select id="ld-filter-mese" onchange="disegnaLeadMkt()" style="max-width:150px">
+      ${mesiOrd.map(m=>`<option value="${m}" ${m===mese?'selected':''}>${m}</option>`).join('')}
+      <option value="" ${mese===''?'selected':''}>Tutti i mesi</option>
+    </select>
+    <select id="ld-filter-esito" onchange="disegnaLeadMkt()" style="max-width:150px">
+      <option value="">Tutti gli esiti</option>
+      ${LEAD_ESITI.map(s=>`<option ${fEsito===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <select id="ld-filter-fonte" onchange="disegnaLeadMkt()" style="max-width:150px">
+      <option value="">Tutte le fonti</option>
+      ${LEAD_FONTI.map(s=>`<option ${fFonte===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <input type="text" id="ld-search" placeholder="\ud83d\udd0d Cerca nome, contatto, note\u2026" style="max-width:240px" oninput="disegnaLeadMkt()" value="${q.replace(/"/g,'&quot;')}">
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    ${statCard(online.length, 'Contatti online '+(mese||'tot'))}
+    ${statCard(chiusi.length, 'Chiusi')}
+    ${statCard(perc===null?'\u2014':perc+'%', '% chiusura')}
+    ${statCard('\u20ac '+valore.toLocaleString('it-IT'), 'Valore netto chiuso')}
+    ${statCard(silentiAperti, 'Silenti da ricontattare', silentiAperti>0)}
+    ${statCard(fermi, 'Fermi da 4+ giorni', fermi>0)}
+  </div>`;
+
+  let lista = mese ? delMese : list;
+  if (fEsito) lista = lista.filter(x => x.esito === fEsito);
+  if (fFonte) lista = lista.filter(x => x.fonte === fFonte);
+  if (q) lista = lista.filter(x => ((x.nome||'')+(x.contatto||'')+(x.prodotto||'')+(x.note||'')).toLowerCase().includes(q));
+
+  if (!lista.length) {
+    html += `<div class="empty"><div class="empty-icon">\u26a1</div><div>${list.length?'Nessun lead per i filtri applicati':'Registro vuoto. Ogni richiesta che arriva diventa una riga: clicca "+ Nuovo lead".'}</div></div>`;
+    c.innerHTML = html; return;
+  }
+
+  html += `<div class="card" style="padding:0"><div class="table-wrap"><table>
+    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
+    <tbody>${lista.map(x=>{
+      const fermoGg = x.esito==='In trattativa' ? _leadGiorniFermo(x) : 0;
+      const fermoTag = fermoGg>=4 ? ` <span style="font-size:10px;color:var(--amber);font-family:var(--mono)" title="Fermo da ${fermoGg} giorni: candidato Silente">\u23f0${fermoGg}g</span>` : '';
+      const corr = x.corredo_proposto ? (x.corredo_tenuto ? '\u2705 tenuto' : 'proposto') : '\u2014';
+      return `<tr>
+        <td class="text-mono text-sm">${x.data?fmtDate(x.data):'\u2014'}</td>
+        <td style="font-weight:500">${x.nome||'\u2014'}</td>
+        <td class="text-mono text-sm">${x.contatto||'\u2014'}</td>
+        <td style="font-size:12px">${x.fonte||'\u2014'}</td>
+        <td><span class="badge ${x.canale==='Online'?'badge-accent':'badge-gray'}" style="font-size:10px">${x.canale||'\u2014'}</span></td>
+        <td style="font-size:12px;color:var(--ink2)">${x.motivo||'\u2014'}</td>
+        <td style="font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(x.prodotto||'')}">${x.prodotto||'\u2014'}</td>
+        <td><span class="badge ${LEAD_ESITO_BADGE[x.esito]||'badge-gray'}">${x.esito||'\u2014'}</span>${fermoTag}</td>
+        <td class="text-mono text-sm" style="text-align:right">${x.valore!=null && x.valore!=='' ? Number(x.valore).toLocaleString('it-IT') : '\u2014'}</td>
+        <td style="font-size:11px;color:var(--ink3)">${corr}</td>
+        <td style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-ghost" onclick="editLeadMkt('${x.id}')">Modifica</button>
+          ${x.esito==='In trattativa' ? `<button class="btn btn-sm btn-ghost" title="Segna come silente (da ricontattare)" onclick="cambiaEsitoLead('${x.id}','Silente')">\ud83d\udd15 Silente</button>` : ''}
+          ${x.esito==='Silente' ? `<button class="btn btn-sm btn-ghost" title="Riportato in trattativa" onclick="cambiaEsitoLead('${x.id}','In trattativa')">\u21a9\ufe0f Riapri</button>` : ''}
+          <button class="btn btn-sm btn-danger" onclick="eliminaLeadMkt('${x.id}')">\u00d7</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div></div>
+  <div style="font-size:11px;color:var(--ink3);margin-top:10px">Le statistiche contano il canale <b>Online</b> (l'obiettivo dei 20k). Silenti e fermi guardano tutto il registro, non solo il mese. Valori al netto IVA.</div>`;
+  c.innerHTML = html;
+}
+
+function nuovoLeadMkt() {
+  _leadEditId = null;
+  mostraFormLeadMkt({ data:new Date().toISOString().slice(0,10), nome:'', contatto:'', fonte:'', canale:'Online', motivo:'', prodotto:'', esito:'In trattativa', valore:'', corredo_proposto:false, corredo_tenuto:false, note:'' });
+}
+
+function editLeadMkt(id) {
+  const x = _leadList.find(r=>r.id===id);
+  if (!x) return;
+  _leadEditId = id;
+  mostraFormLeadMkt(x);
+}
+
+function mostraFormLeadMkt(x) {
+  const opt = (arr, sel, vuoto) => (vuoto?`<option value="">\u2014 scegli \u2014</option>`:'') + arr.map(v=>`<option ${v===sel?'selected':''}>${v}</option>`).join('');
+  const html = `
+    <div class="form-grid">
+      <div class="form-group"><label>Data *</label><input type="date" id="ld-data" value="${(x.data||'').slice(0,10)}"></div>
+      <div class="form-group"><label>Fonte *</label><select id="ld-fonte">${opt(LEAD_FONTI, x.fonte, true)}</select></div>
+      <div class="form-group"><label>Canale *</label><select id="ld-canale">${opt(LEAD_CANALI, x.canale||'Online', false)}</select></div>
+      <div class="form-group"><label>Motivo</label><select id="ld-motivo">${opt(LEAD_MOTIVI, x.motivo, true)}</select></div>
+      <div class="form-group"><label>Nome</label><input type="text" id="ld-nome" value="${(x.nome||'').replace(/"/g,'&quot;')}" placeholder="Nome del contatto"></div>
+      <div class="form-group"><label>Contatto (tel / IG / email)</label><input type="text" id="ld-contatto" value="${(x.contatto||'').replace(/"/g,'&quot;')}" placeholder="Per il follow-up"></div>
+      <div class="form-group full"><label>Prodotto richiesto</label><input type="text" id="ld-prodotto" value="${(x.prodotto||'').replace(/"/g,'&quot;')}" placeholder="Es. mezza botte, refrigerata 15, angolare\u2026"></div>
+      <div class="form-group"><label>Esito</label><select id="ld-esito">${opt(LEAD_ESITI, x.esito||'In trattativa', false)}</select></div>
+      <div class="form-group"><label>Valore netto \u20ac <span style="font-size:10px;color:var(--ink3)">(se chiuso, senza IVA)</span></label><input type="number" id="ld-valore" value="${x.valore!=null?x.valore:''}" min="0" step="1"></div>
+      <div class="form-group full">
+        <div style="display:flex;gap:18px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)"><input type="checkbox" id="ld-cor-prop" style="width:auto" ${x.corredo_proposto?'checked':''}> Corredo proposto nel rendering</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)"><input type="checkbox" id="ld-cor-ten" style="width:auto" ${x.corredo_tenuto?'checked':''}> Corredo tenuto</label>
+        </div>
+      </div>
+      <div class="form-group full"><label>Note</label><textarea id="ld-note" rows="2" placeholder="Spazio, colori, passioni, occasione\u2026">${(x.note||'')}</textarea></div>
+    </div>`;
+  showModal(_leadEditId ? 'Modifica lead' : 'Nuovo lead', html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:_leadEditId ? 'Salva' : 'Aggiungi', action:'salvaLeadMkt()', primary:true}
+  ]);
+}
+
+async function salvaLeadMkt() {
+  const v = id => document.getElementById(id);
+  const riga = {
+    data: v('ld-data').value,
+    fonte: v('ld-fonte').value,
+    canale: v('ld-canale').value,
+    motivo: v('ld-motivo').value || null,
+    nome: v('ld-nome').value.trim() || null,
+    contatto: v('ld-contatto').value.trim() || null,
+    prodotto: v('ld-prodotto').value.trim() || null,
+    esito: v('ld-esito').value,
+    valore: v('ld-valore').value !== '' ? Number(v('ld-valore').value) : null,
+    corredo_proposto: v('ld-cor-prop').checked,
+    corredo_tenuto: v('ld-cor-ten').checked,
+    note: v('ld-note').value.trim() || null
+  };
+  if (!riga.data || !riga.fonte) { alert('Data e Fonte sono obbligatorie.'); return; }
+  if (riga.esito === 'Chiuso' && (riga.valore == null || isNaN(riga.valore))) {
+    if (!confirm('Esito "Chiuso" senza valore: il cruscotto non conter\u00e0 il fatturato di questo ordine.\nSalvare comunque?')) return;
+  }
+
+  if (_leadEditId) {
+    const cur = _leadList.find(r=>r.id===_leadEditId);
+    // Protezione anti-sovrascrittura (pattern ordini): se la riga e' cambiata
+    // nel frattempo su un altro dispositivo, updated_at non corrisponde piu'
+    // e l'update non tocca nulla \u2192 si ricarica e si ripete.
+    let q = sb.from('lead_marketing').update(riga).eq('id', _leadEditId);
+    if (cur && cur.updated_at) q = q.eq('updated_at', cur.updated_at);
+    const { data, error } = await q.select();
+    if (error) { alert('Errore salvataggio: ' + error.message); return; }
+    if (!data || !data.length) {
+      alert('\u26a0\ufe0f Questo lead \u00e8 stato modificato da un altro dispositivo.\nRicarico il registro: ripeti la modifica.');
+      _leadLoaded = false; closeModal(); renderLeadMkt(); return;
+    }
+    Object.assign(cur, data[0]);
+  } else {
+    const { data, error } = await sb.from('lead_marketing').insert(riga).select().single();
+    if (error) { alert('Errore inserimento: ' + error.message); return; }
+    _leadList.unshift(data);
+  }
+  closeModal(); disegnaLeadMkt();
+}
+
+async function cambiaEsitoLead(id, esito) {
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return;
+  let q = sb.from('lead_marketing').update({esito:esito}).eq('id', id);
+  if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);
+  const { data, error } = await q.select();
+  if (error) { alert('Errore: ' + error.message); return; }
+  if (!data || !data.length) { _leadLoaded=false; renderLeadMkt(); return; }
+  Object.assign(cur, data[0]);
+  disegnaLeadMkt();
+}
+
+async function eliminaLeadMkt(id) {
+  const x = _leadList.find(r=>r.id===id);
+  if (!x) return;
+  if (!confirm(`Eliminare il lead${x.nome?' di '+x.nome:''} del ${x.data?fmtDate(x.data):'?'}?\nL'operazione \u00e8 definitiva.`)) return;
+  const { error } = await sb.from('lead_marketing').delete().eq('id', id);
+  if (error) { alert('Errore eliminazione: ' + error.message); return; }
+  _leadList = _leadList.filter(r=>r.id!==id);
+  disegnaLeadMkt();
+}
+
 function showModal(title, content, buttons) {
   const btns = buttons.map(b=>`<button class="btn ${b.primary?'btn-primary':''}" onclick="${b.action}">${b.label}</button>`).join('');
   document.getElementById('modal-root').innerHTML = `
