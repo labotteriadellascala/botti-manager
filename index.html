@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.24 — 31/07/2026 · registro Lead: fonte, esito, valore e statistiche mese (tabella lead_marketing)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.25 — 01/08/2026 · filtro Ordini multi-stato + export Excel della selezione (anagrafica, spedizione, prodotti, saldo)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -758,20 +758,18 @@ td.fin-in{color:var(--green);font-weight:500}
 <div class="page" id="page-ordini">
   <div class="search-bar">
     <input type="text" id="search-ordini" placeholder="Cerca per cliente, telefono, modello, N° ordine…" oninput="renderOrdini()">
-    <select id="filter-stato" onchange="renderOrdini()" style="max-width:180px">
-      <option value="">Tutti gli stati</option>
-      <option value="Inserito">Inserito</option>
-      <option value="Bloccato">Bloccato</option>
-      <option value="Da sviluppare">Da sviluppare</option>
-      <option value="In lavorazione 1">In lavorazione 1</option>
-      <option value="In lavorazione 2">In lavorazione 2</option>
-      <option value="Completato">Completato</option>
-      <option value="Saldato">Saldato</option>
-      <option value="Consegnato">Consegnato</option>
-    </select>
+    <div id="filter-stato-wrap" style="position:relative;min-width:180px;max-width:220px">
+      <button type="button" id="filter-stato-btn" onclick="toggleFiltroStatiPanel(event)"
+        style="width:100%;text-align:left;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg);color:var(--ink);font-size:13px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px">
+        <span id="filter-stato-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Tutti gli stati</span>
+        <span style="font-size:10px;color:var(--ink3)">▼</span>
+      </button>
+      <div id="filter-stato-panel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:200;min-width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);box-shadow:0 6px 20px rgba(0,0,0,0.15);padding:6px"></div>
+    </div>
     <select id="filter-canale" onchange="renderOrdini()" style="max-width:180px">
       <option value="">Tutti i canali</option>
     </select>
+    <button type="button" class="btn" onclick="esportaOrdiniExcel()" title="Esporta in Excel gli ordini attualmente visualizzati (filtri e ordinamento inclusi)">⬇ Excel</button>
   </div>
   <div class="card" style="padding:0">
     <div class="table-wrap"><table>
@@ -3904,14 +3902,138 @@ function frecciaOrd(tabella, campo) {
   return ord.verso === 1 ? ' ▲' : ' ▼';
 }
 
+// ─── FILTRO STATI MULTI-SELEZIONE (vista Ordini) ─────────────────────────────
+// Set vuoto = nessun filtro attivo (equivale a "Tutti gli stati")
+var _filtroStatiOrdini = new Set();
+var _STATI_ORDINE_FILTRO = ['Inserito','Bloccato','Da sviluppare','In lavorazione 1','In lavorazione 2','Completato','Saldato','Consegnato'];
+
+function toggleFiltroStatiPanel(ev) {
+  ev.stopPropagation();
+  const p = document.getElementById('filter-stato-panel');
+  if (!p) return;
+  if (p.style.display === 'none') { _buildFiltroStatiPanel(); p.style.display = 'block'; }
+  else p.style.display = 'none';
+}
+
+function _buildFiltroStatiPanel() {
+  const p = document.getElementById('filter-stato-panel');
+  if (!p) return;
+  p.innerHTML = _STATI_ORDINE_FILTRO.map(s=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--radius);cursor:pointer;font-size:13px;white-space:nowrap" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
+      <input type="checkbox" style="width:auto;margin:0" ${_filtroStatiOrdini.has(s)?'checked':''} onchange="onFiltroStatoChange('${s.replace(/'/g,"\\'")}',this.checked)">
+      <span>${s}</span>
+    </label>`).join('') +
+    `<div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
+      <button type="button" class="btn btn-sm btn-ghost" style="width:100%" onclick="azzeraFiltroStati()">Azzera filtro</button>
+    </div>`;
+}
+
+function onFiltroStatoChange(stato, checked) {
+  if (checked) _filtroStatiOrdini.add(stato); else _filtroStatiOrdini.delete(stato);
+  _aggiornaFiltroStatiLabel();
+  renderOrdini();
+}
+
+function azzeraFiltroStati() {
+  _filtroStatiOrdini.clear();
+  _buildFiltroStatiPanel();
+  _aggiornaFiltroStatiLabel();
+  renderOrdini();
+}
+
+function _aggiornaFiltroStatiLabel() {
+  const l = document.getElementById('filter-stato-label');
+  if (!l) return;
+  const n = _filtroStatiOrdini.size;
+  if (n === 0) l.textContent = 'Tutti gli stati';
+  else if (n === 1) l.textContent = [..._filtroStatiOrdini][0];
+  else l.textContent = n + ' stati selezionati';
+}
+
+// Chiudo il pannello cliccando fuori (il click sulle checkbox non lo chiude)
+document.addEventListener('click', function(ev){
+  const wrap = document.getElementById('filter-stato-wrap');
+  const p = document.getElementById('filter-stato-panel');
+  if (p && p.style.display !== 'none' && wrap && !wrap.contains(ev.target)) p.style.display = 'none';
+});
+
+// ─── EXPORT EXCEL ORDINI (selezione corrente) ────────────────────────────────
+// Esporta esattamente ciò che è visualizzato nella tabella Ordini (filtri e ordinamento inclusi).
+var _ordiniExportLista = [];
+
+// Carica SheetJS dal CDN solo alla prima esportazione (lazy-load: la pagina resta leggera)
+function _loadSheetJS() {
+  return new Promise((resolve, reject) => {
+    if (window.XLSX) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Impossibile caricare la libreria Excel (verifica la connessione).'));
+    document.head.appendChild(s);
+  });
+}
+
+// Dettaglio prodotti per l'export: ogni riga con nome prodotto + elenco accessori per nome
+function _prodottiPerExport(o) {
+  const righe = o.righe||[];
+  if (!righe.length) return o.prodottoNome||o.prodotto||'';
+  return righe.map(r=>{
+    const acc = (r.accessori||[]).map(a=>a.nome||'').filter(Boolean);
+    return (r.prodottoNome||r.prodotto||'') + (acc.length ? ' [+ '+acc.join(', ')+']' : '');
+  }).join(' | ');
+}
+
+async function esportaOrdiniExcel() {
+  const list = _ordiniExportLista||[];
+  if (!list.length) { alert('Nessun ordine da esportare con i filtri correnti.'); return; }
+  try {
+    await _loadSheetJS();
+  } catch(e) { alert(e.message); return; }
+
+  const rows = list.map(o=>{
+    // Indirizzo di spedizione: struttura nuova con fallback ai campi legacy piatti
+    const sped = o.indirizzoSpedizione||{};
+    return {
+      'N°': o.num||'',
+      'Cliente': o.cliente||'',
+      'Telefono': o.tel||'',
+      'Email': o.email||'',
+      'CF': o.cf||'',
+      'Via': sped.via||o.indirizzo||'',
+      'CAP': String(sped.cap||o.cap||''),
+      'Città': sped.citta||o.citta||'',
+      'Prov.': (sped.provincia||'').toUpperCase(),
+      'Prodotti': _prodottiPerExport(o),
+      'Stato': o.stato||'',
+      'Prezzo €': o.prezzoTotale||0,
+      'Da saldare €': calcolaSaldo(o)
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Larghezze colonne leggibili
+  ws['!cols'] = [
+    {wch:6},{wch:24},{wch:14},{wch:26},{wch:18},
+    {wch:28},{wch:8},{wch:18},{wch:6},
+    {wch:55},{wch:16},{wch:10},{wch:12}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Ordini');
+
+  // Nome file: data + eventuale canale filtrato, così l'export si riconosce al volo
+  const oggi = new Date().toISOString().slice(0,10);
+  const canale = (document.getElementById('filter-canale')||{}).value||'';
+  const suffisso = canale ? '_'+canale.replace(/[^\w\u00C0-\u017F-]+/g,'-') : '';
+  XLSX.writeFile(wb, 'ordini_'+oggi+suffisso+'.xlsx');
+}
+
 function renderOrdini() {
   const ordini = DB.get('ordini')||[];
   const q = (document.getElementById('search-ordini')||{}).value||'';
-  const stato = (document.getElementById('filter-stato')||{}).value||'';
   const canaleSel = (document.getElementById('filter-canale')||{}).value||'';
   let list = [...ordini].sort((a,b)=>new Date(b.creato)-new Date(a.creato));
   if(q) list = list.filter(o=>(o.cliente+(o.righe||[]).map(r=>r.prodottoNome||'').join(' ')+o.num+(o.tel||'')).toLowerCase().includes(q.toLowerCase()));
-  if(stato) list = list.filter(o=>o.stato===stato);
+  if(_filtroStatiOrdini.size) list = list.filter(o=>_filtroStatiOrdini.has(o.stato));
   if(canaleSel) list = list.filter(o=>(o.canale||'')===canaleSel);
 
   // Popolo la tendina canali con i canali reali (da Impostazioni), mantenendo la scelta corrente
@@ -3954,6 +4076,9 @@ function renderOrdini() {
     `<th style="cursor:pointer" onclick="ordinaPer('ordini','saldo')">Saldo${frecciaOrd('ordini','saldo')}</th>`+
     `<th style="cursor:pointer" onclick="ordinaPer('ordini','stato')">Stato${frecciaOrd('ordini','stato')}</th>`+
     `<th></th></tr>`;
+
+  // Memorizzo la lista effettivamente visualizzata (filtri + ordinamento) per l'export Excel
+  _ordiniExportLista = list;
 
   const tb = document.getElementById('ordini-table');
   if(!list.length) { tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--ink3);padding:24px">Nessun ordine trovato</td></tr>'; return; }
