@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.27 — 08/08/2026 · Avviso automatico quando esce una versione nuova: fascetta discreta con “Ricarica”, nessuna ricarica forzata</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.28 — 08/08/2026 · Lead: campi Email e Telefono separati (allineati al form del sito), più campo “Altro contatto” per IG/storico</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.27';
+window.APP_VERSION = '2.28';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7397,7 +7397,7 @@ function disegnaLeadMkt() {
   let lista = mese ? delMese : list;
   if (fEsito) lista = lista.filter(x => x.esito === fEsito);
   if (fFonte) lista = lista.filter(x => x.fonte === fFonte);
-  if (q) lista = lista.filter(x => ((x.nome||'')+(x.contatto||'')+(x.prodotto||'')+(x.note||'')).toLowerCase().includes(q));
+  if (q) lista = lista.filter(x => ((x.nome||'')+(x.contatto||'')+(x.email||'')+(x.telefono||'')+(x.prodotto||'')+(x.note||'')).toLowerCase().includes(q));
 
   if (!lista.length) {
     html += `<div class="empty"><div class="empty-icon">\u26a1</div><div>${list.length?'Nessun lead per i filtri applicati':'Registro vuoto. Ogni richiesta che arriva diventa una riga: clicca "+ Nuovo lead".'}</div></div>`;
@@ -7413,7 +7413,7 @@ function disegnaLeadMkt() {
       return `<tr>
         <td class="text-mono text-sm">${x.data?fmtDate(x.data):'\u2014'}</td>
         <td style="font-weight:500">${x.nome||'\u2014'}</td>
-        <td class="text-mono text-sm">${x.contatto||'\u2014'}</td>
+        <td class="text-mono text-sm">${([x.email,x.telefono].filter(Boolean).join(' \u00b7 ')||x.contatto)||'\u2014'}</td>
         <td style="font-size:12px">${x.fonte||'\u2014'}</td>
         <td><span class="badge ${x.canale==='Online'?'badge-accent':'badge-gray'}" style="font-size:10px">${x.canale||'\u2014'}</span></td>
         <td style="font-size:12px;color:var(--ink2)">${x.motivo||'\u2014'}</td>
@@ -7436,7 +7436,7 @@ function disegnaLeadMkt() {
 
 function nuovoLeadMkt() {
   _leadEditId = null;
-  mostraFormLeadMkt({ data:new Date().toISOString().slice(0,10), nome:'', contatto:'', fonte:'', canale:'Online', motivo:'', prodotto:'', esito:'In trattativa', valore:'', corredo_proposto:false, corredo_tenuto:false, note:'' });
+  mostraFormLeadMkt({ data:new Date().toISOString().slice(0,10), nome:'', email:'', telefono:'', contatto:'', fonte:'', canale:'Online', motivo:'', prodotto:'', esito:'In trattativa', valore:'', corredo_proposto:false, corredo_tenuto:false, note:'' });
 }
 
 function editLeadMkt(id) {
@@ -7455,7 +7455,9 @@ function mostraFormLeadMkt(x) {
       <div class="form-group"><label>Canale *</label><select id="ld-canale">${opt(LEAD_CANALI, x.canale||'Online', false)}</select></div>
       <div class="form-group"><label>Motivo</label><select id="ld-motivo">${opt(LEAD_MOTIVI, x.motivo, true)}</select></div>
       <div class="form-group"><label>Nome</label><input type="text" id="ld-nome" value="${(x.nome||'').replace(/"/g,'&quot;')}" placeholder="Nome del contatto"></div>
-      <div class="form-group"><label>Contatto (tel / IG / email)</label><input type="text" id="ld-contatto" value="${(x.contatto||'').replace(/"/g,'&quot;')}" placeholder="Per il follow-up"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="ld-email" value="${(x.email||'').replace(/"/g,'&quot;')}" placeholder="email del contatto"></div>
+      <div class="form-group"><label>Telefono</label><input type="text" id="ld-telefono" value="${(x.telefono||'').replace(/"/g,'&quot;')}" placeholder="numero / WhatsApp"></div>
+      <div class="form-group full"><label>Altro contatto <span style="font-size:10px;color:var(--ink3)">(IG, storico…)</span></label><input type="text" id="ld-contatto" value="${(x.contatto||'').replace(/"/g,'&quot;')}" placeholder="handle Instagram o recapito storico"></div>
       <div class="form-group full"><label>Prodotto richiesto</label><input type="text" id="ld-prodotto" value="${(x.prodotto||'').replace(/"/g,'&quot;')}" placeholder="Es. mezza botte, refrigerata 15, angolare\u2026"></div>
       <div class="form-group"><label>Esito</label><select id="ld-esito">${opt(LEAD_ESITI, x.esito||'In trattativa', false)}</select></div>
       <div class="form-group"><label>Valore netto \u20ac <span style="font-size:10px;color:var(--ink3)">(se chiuso, senza IVA)</span></label><input type="number" id="ld-valore" value="${x.valore!=null?x.valore:''}" min="0" step="1"></div>
@@ -7481,6 +7483,8 @@ async function salvaLeadMkt() {
     canale: v('ld-canale').value,
     motivo: v('ld-motivo').value || null,
     nome: v('ld-nome').value.trim() || null,
+    email: v('ld-email').value.trim() || null,
+    telefono: v('ld-telefono').value.trim() || null,
     contatto: v('ld-contatto').value.trim() || null,
     prodotto: v('ld-prodotto').value.trim() || null,
     esito: v('ld-esito').value,
