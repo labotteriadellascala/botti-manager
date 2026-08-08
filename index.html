@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.26 — 07/08/2026 · Promemoria a lista: più avvisi per ordine, “Fatto” non distruttivo (storico barrato), toggle Mostra fatti</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.27 — 08/08/2026 · Avviso automatico quando esce una versione nuova: fascetta discreta con “Ricarica”, nessuna ricarica forzata</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1292,6 +1292,13 @@ if(window.__PROD__){
 const SUPABASE_URL = 'https://wdlfzdjzynlnkqjhectg.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_KPRg_MTQr8FDXtpmM48DqQ_GmdWR-Sf';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── VERSIONE APP (per l'avviso "nuova versione disponibile") ───────────────
+// ⚠️ A OGNI DEPLOY aggiorna INSIEME questi TRE punti, o l'avviso non scatta:
+//   1) questa costante APP_VERSION
+//   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
+//   3) il file version.json nella radice del repo
+window.APP_VERSION = '2.27';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9797,6 +9804,104 @@ window.finMastDelete = function(idx){
   MASTRINI.splice(idx,1); salvaMastrini(); BUILT=false; drawMastrini();
 };
 window.renderFinResoconto = renderResoconto;
+})();
+</script>
+
+<script>
+/* ═══════════ AVVISO "NUOVA VERSIONE DISPONIBILE" (v2.27) ═══════════
+   Aggiunta ISOLATA: nessun legame con ordini, salvataggio, locking o altri
+   moduli. Confronta window.APP_VERSION (la versione che sta girando in questo
+   browser) con la versione pubblicata in /version.json. Se online c'è una
+   versione PIÙ ALTA, mostra una fascetta discreta con pulsante "Ricarica".
+   Non ricarica MAI da sola: la ricarica la decide l'utente. */
+(function(){
+  'use strict';
+  var LOCALE = String(window.APP_VERSION || '').trim();
+  if(!LOCALE) return; // senza versione locale non ha senso controllare
+
+  // Confronto numerico per campi: "2.10" > "2.9", "2.27" > "2.26".
+  // true SOLO se 'remota' è STRETTAMENTE più alta di 'locale' (un rollback
+  // a versione più bassa NON deve mostrare l'avviso a chi ha la più nuova).
+  function remotaPiuAlta(remota, locale){
+    var a = String(remota).split('.').map(function(x){ return parseInt(x,10)||0; });
+    var b = String(locale).split('.').map(function(x){ return parseInt(x,10)||0; });
+    var n = Math.max(a.length, b.length);
+    for(var i=0;i<n;i++){
+      var da = a[i]||0, db = b[i]||0;
+      if(da>db) return true;
+      if(da<db) return false;
+    }
+    return false; // uguali
+  }
+  window._bmRemotaPiuAlta = remotaPiuAlta; // esposta per i test
+
+  // ── Fascetta (creata una sola volta, nascosta finché non serve) ──
+  var barra = null;
+  function creaBarra(){
+    if(barra) return barra;
+    var css =
+      '.bm-upd-barra{position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;'
+      + 'max-width:520px;margin:0 auto;background:#1C1A16;color:#F5F0E8;'
+      + 'border:1px solid rgba(245,240,232,0.18);border-radius:12px;'
+      + 'box-shadow:0 8px 28px rgba(0,0,0,0.35);padding:12px 14px;box-sizing:border-box;'
+      + 'display:flex;align-items:center;gap:12px;font-size:14px;line-height:1.35;'
+      + 'font-family:inherit;animation:bm-upd-in .25s ease}'
+      + '@keyframes bm-upd-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'
+      + '.bm-upd-txt{flex:1;min-width:0}'
+      + '.bm-upd-txt b{color:#fff}'
+      + '.bm-upd-btn{flex:none;background:#C4622D;color:#fff;border:none;'
+      + 'border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;'
+      + 'cursor:pointer;font-family:inherit}'
+      + '.bm-upd-btn:hover{filter:brightness(1.07)}'
+      + '.bm-upd-x{flex:none;background:none;border:none;color:rgba(245,240,232,0.5);'
+      + 'font-size:20px;line-height:1;cursor:pointer;padding:0 2px}'
+      + '@media(max-width:520px){.bm-upd-barra{flex-wrap:wrap}.bm-upd-txt{flex:1 1 100%}}';
+    var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+
+    barra = document.createElement('div');
+    barra.className = 'bm-upd-barra';
+    barra.setAttribute('role','status');
+    barra.innerHTML =
+      '<div class="bm-upd-txt">✨ <b>È disponibile una versione aggiornata del gestionale.</b> '
+      + 'Salva il lavoro e ricarica quando puoi.</div>'
+      + '<button class="bm-upd-btn" type="button">Ricarica</button>'
+      + '<button class="bm-upd-x" type="button" title="Nascondi" aria-label="Nascondi">×</button>';
+    barra.querySelector('.bm-upd-btn').addEventListener('click', function(){ location.reload(); });
+    barra.querySelector('.bm-upd-x').addEventListener('click', function(){ barra.style.display='none'; });
+    document.body.appendChild(barra);
+    return barra;
+  }
+  function mostraBarra(){ creaBarra().style.display = 'flex'; }
+
+  var trovato = false;      // aggiornamento già rilevato
+  var ultimoCheck = 0;      // anti-rimbalzo
+
+  function controlla(){
+    if(trovato) return;                       // già rilevato: inutile ripetere il fetch
+    var ora = Date.now();
+    if(ora - ultimoCheck < 60000) return;     // max 1 controllo al minuto
+    ultimoCheck = ora;
+    fetch('version.json?t=' + ora, {cache:'no-store'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        if(j && j.version && remotaPiuAlta(j.version, LOCALE)){
+          trovato = true;
+          mostraBarra();
+        }
+      })
+      .catch(function(){ /* offline o file assente: silenzio totale, nessun errore */ });
+  }
+
+  // Al ritorno sulla finestra: se già rilevato, ri-mostra la fascetta (anche se
+  // era stata nascosta); altrimenti fai un controllo (rispettando l'anti-rimbalzo).
+  function alRitorno(){ if(trovato) mostraBarra(); else controlla(); }
+
+  window.addEventListener('focus', alRitorno);
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') alRitorno();
+  });
+  setInterval(controlla, 300000);   // ogni 5 minuti
+  setTimeout(controlla, 4000);      // primo controllo poco dopo l'avvio, senza rallentare il boot
 })();
 </script>
 
