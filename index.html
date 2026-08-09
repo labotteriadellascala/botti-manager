@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.31 — 09/08/2026 · Lead: prossima azione + “Da fare oggi” (scaduti in rosso) e chiusura non distruttiva con motivo</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.32 — 09/08/2026 · Lead: funnel a fasi con stepper e to-do automatico (avanzi a pulsanti, il sistema propone la prossima mossa)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.31';
+window.APP_VERSION = '2.32';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7308,6 +7308,85 @@ const LEAD_MOTIVI = ['Per s\u00e9','Regalo','Matrimonio','Locale','Non dichiarat
 const LEAD_ESITI  = ['In trattativa','Chiuso','Perso','Silente'];
 const LEAD_ESITO_BADGE = {'In trattativa':'badge-amber','Chiuso':'badge-green','Perso':'badge-gray','Silente':'badge-blue'};
 
+// ═══════════ FUNNEL LEAD (v2.32) — REGOLE MODIFICABILI ═══════════
+// Per ogni fase: label mostrata, macro-fase (1 Contatto / 2 Preventivo-Trattativa),
+// testo del to-do e fra quanti GIORNI, dove porta "Fatto (aspetto risposta)" e "Ha risposto".
+// Per cambiare tempi o testi modifica SOLO questa tabella: nient'altro.
+const LEAD_MACRO_LABEL = { 1:'Contatto', 2:'Preventivo / Trattativa', 3:'Esito' };
+const LEAD_FUNNEL = {
+  nuovo:         { label:'Nuovo',              macro:1, todo:'Contatta il lead',               giorni:0, fatto:null,            risposto:null },
+  contatto_1:    { label:'1° contatto',        macro:1, todo:'2° contatto',                    giorni:2, fatto:'contatto_2',    risposto:'in_dialogo' },
+  contatto_2:    { label:'2° contatto',        macro:1, todo:'3° e ultimo contatto',           giorni:4, fatto:'contatto_3',    risposto:'in_dialogo' },
+  contatto_3:    { label:'3° contatto',        macro:1, todo:'Ultimo tentativo (poi Silente)', giorni:7, fatto:'__silente',     risposto:'in_dialogo' },
+  in_dialogo:    { label:'In conversazione',   macro:1, todo:'Prosegui la conversazione',      giorni:2, fatto:null,            risposto:null },
+  preventivo:    { label:'Preventivo inviato', macro:2, todo:'Follow-up preventivo',           giorni:3, fatto:'preventivo_fu', risposto:'trattativa' },
+  preventivo_fu: { label:'Follow-up preventivo',macro:2, todo:'2° follow-up preventivo',       giorni:5, fatto:'__silente',     risposto:'trattativa' },
+  trattativa:    { label:'In trattativa',      macro:2, todo:'Risollecita',                    giorni:4, fatto:'trattativa',    risposto:'trattativa' }
+};
+
+// Un lead è "in funnel" (deve avere una prossima azione) solo se In trattativa; Silente = parcheggio.
+function _leadInFunnel(x){ return !!x && x.esito==='In trattativa'; }
+// Fase corrente. Per i lead vecchi senza 'fase' la deduce in modo prudente.
+function _leadFase(x){
+  if (!x) return null;
+  if (x.esito==='Chiuso' || x.esito==='Perso' || x.esito==='Silente') return null; // fuori dal funnel attivo
+  if (x.fase && LEAD_FUNNEL[x.fase]) return x.fase;
+  return x.contattato_at ? 'in_dialogo' : 'nuovo';   // lead vecchi: se già preso in carico, "in conversazione"
+}
+// Macro-fase corrente: 1 Contatto, 2 Preventivo/Trattativa, 3 Esito (Chiuso/Perso).
+function _leadMacro(x){
+  if (x && (x.esito==='Chiuso' || x.esito==='Perso')) return 3;
+  const f = _leadFase(x);
+  return f ? LEAD_FUNNEL[f].macro : 1;
+}
+// Data (YYYY-MM-DD, ora locale) fra N giorni da oggi.
+function _leadDataFra(giorni){
+  const d = new Date(); d.setDate(d.getDate() + (Number(giorni)||0));
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${da}`;
+}
+// Barra a 3 fasi (stepper) compatta per la riga lead. Cliccabile → apre "Gestisci lead".
+function _leadStepper(x){
+  const mac = _leadMacro(x);
+  const fin = (x.esito==='Chiuso' || x.esito==='Perso');
+  const seg = (n,label) => {
+    const on = n <= mac;
+    const cur = !fin && n===mac;
+    const bg = (fin && n===3) ? (x.esito==='Chiuso'?'var(--green)':'var(--red)') : (on ? 'var(--accent)' : 'var(--bg3)');
+    const col = on ? '#fff' : 'var(--ink3)';
+    return `<span title="${label}" style="flex:1;text-align:center;font-size:9px;font-weight:${cur?'700':'500'};background:${bg};color:${col};padding:2px 0;border-radius:3px">${n}</span>`;
+  };
+  const lab = fin ? x.esito : (_leadFase(x) ? LEAD_FUNNEL[_leadFase(x)].label : (x.esito==='Silente'?'Silente (in pausa)':'—'));
+  return `<div style="min-width:96px;cursor:pointer" title="Gestisci fase" onclick="gestisciLead('${x.id}')">`
+       + `<div style="display:flex;gap:2px;margin-bottom:2px">${seg(1,'Contatto')}${seg(2,'Preventivo / Trattativa')}${seg(3,'Esito')}</div>`
+       + `<div style="font-size:10px;color:var(--ink2);text-align:center">${lab}</div></div>`;
+}
+// Pulsanti di avanzamento contestuali alla fase del lead.
+function _leadPulsanti(x){
+  const f = _leadFase(x);
+  const B = (fn,lab,cls,tit)=>`<button class="btn btn-sm ${cls||'btn-ghost'}" style="font-size:11px" title="${tit||''}" onclick="${fn}('${x.id}')">${lab}</button>`;
+  let b = '';
+  if (f === 'nuovo') {
+    b += B('segnaContattato','Contattato','btn-primary','Segna che è stato contattato');
+  } else if (f === 'in_dialogo') {
+    b += B('leadPreventivoInviato','📄 Preventivo inviato','btn-primary','Hai inviato il preventivo/rendering');
+    b += B('impostaProssimaAzioneLead','Aggiorna','','Cambia la prossima azione o la data');
+  } else if (f==='contatto_1' || f==='contatto_2' || f==='contatto_3') {
+    b += B('leadFatto','✅ Fatto','btn-primary','Ho fatto il contatto, aspetto risposta');
+    b += B('leadHaRisposto','💬 Ha risposto','','Il cliente ha risposto');
+    b += B('leadPreventivoInviato','📄 Preventivo','','Hai già inviato il preventivo');
+  } else if (f==='preventivo' || f==='preventivo_fu') {
+    b += B('leadFatto','✅ Fatto','btn-primary','Follow-up fatto, aspetto risposta');
+    b += B('leadTrattativa','🤝 Sta trattando','','È partita la trattativa');
+    b += B('leadVinto','✅ Vinto','','Registra la vendita');
+  } else if (f==='trattativa') {
+    b += B('leadFatto','✅ Risollecitato','btn-primary','Risollecitato, ricordamelo ancora');
+    b += B('leadVinto','✅ Vinto','','Registra la vendita');
+  }
+  b += B('chiudiLead','Chiudi','','Chiudi (Perso/Silente) con motivo');
+  return b;
+}
+
 // Presa in carico lead: mappa email di login -> nome amichevole (sconosciuti = parte prima della @)
 const UTENTI_NOMI = { 'info@steelhead.it':'Andrea', 'giuliagarbuio@gmail.com':'Giulia' };
 function nomeUtente(email){ return email ? (UTENTI_NOMI[String(email).toLowerCase()] || String(email).split('@')[0]) : '—'; }
@@ -7429,7 +7508,7 @@ function disegnaLeadMkt() {
   // Indipendente dai filtri di mese/esito: sono code di lavoro, non statistiche del mese.
   const _daFare = list.filter(x => _leadAttivo(x) && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) !== 'futuro')
                       .sort((a,b) => a.data_prossima_azione.localeCompare(b.data_prossima_azione));
-  const _senzaAzione = list.filter(x => _leadAttivo(x) && !x.data_prossima_azione).length;
+  const _senzaAzione = list.filter(x => _leadInFunnel(x) && !x.data_prossima_azione).length;
   if (_daFare.length || _senzaAzione) {
     const righeDF = _daFare.map(x => {
       const st = statoPromemoria(x.data_prossima_azione);
@@ -7437,8 +7516,7 @@ function disegnaLeadMkt() {
       return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border)">
         <span class="text-mono" style="color:${col};font-weight:700;font-size:12px;min-width:82px">${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}</span>
         <span style="flex:1;font-size:13px"><b>${x.nome||'—'}</b> · ${x.prossima_azione ? String(x.prossima_azione).replace(/</g,'&lt;') : '<span style="color:var(--ink3)">azione non specificata</span>'}</span>
-        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="impostaProssimaAzioneLead('${x.id}')">Aggiorna</button>
-        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="chiudiLead('${x.id}')">Chiudi</button>
+        ${_leadPulsanti(x)}
       </div>`;
     }).join('');
     html += `<div style="background:var(--bg2);border:1px solid var(--amber);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
@@ -7459,7 +7537,7 @@ function disegnaLeadMkt() {
   }
 
   html += `<div class="card" style="padding:0"><div class="table-wrap"><table>
-    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Presa in carico</th><th>Prossima azione</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
+    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Presa in carico</th><th>Fase</th><th>Prossima azione</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
     <tbody>${lista.map(x=>{
       const fermoGg = x.esito==='In trattativa' ? _leadGiorniFermo(x) : 0;
       const fermoTag = fermoGg>=4 ? ` <span style="font-size:10px;color:var(--amber);font-family:var(--mono)" title="Fermo da ${fermoGg} giorni: candidato Silente">\u23f0${fermoGg}g</span>` : '';
@@ -7477,13 +7555,13 @@ function disegnaLeadMkt() {
       const _stPa = x.data_prossima_azione ? statoPromemoria(x.data_prossima_azione) : null;
       const _colPa = _stPa==='scaduto' ? 'var(--red)' : (_stPa==='oggi' ? 'var(--amber)' : 'var(--ink2)');
       let paCell;
-      if (x.data_prossima_azione) {
+      if (x.data_prossima_azione && _leadInFunnel(x)) {
         const _tag = _stPa==='scaduto' ? ' <span style="font-size:9px;background:var(--red);color:#fff;border-radius:4px;padding:1px 5px">SCAD</span>'
                    : (_stPa==='oggi' ? ' <span style="font-size:9px;background:var(--amber);color:#fff;border-radius:4px;padding:1px 5px">OGGI</span>' : '');
         paCell = `<div style="font-size:12px"><span class="text-mono" style="color:${_colPa};font-weight:600">${fmtDate(x.data_prossima_azione)}</span>${_tag}`
                + `<div style="color:var(--ink2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(x.prossima_azione||'').replace(/"/g,'&quot;')}">${x.prossima_azione||''}</div></div>`
                + `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;margin-top:2px" onclick="impostaProssimaAzioneLead('${x.id}')">Aggiorna</button>`;
-      } else if (_leadAttivo(x)) {
+      } else if (_leadInFunnel(x)) {
         paCell = `<button class="btn btn-sm btn-ghost" style="color:var(--amber);font-size:11px" title="Nessuna prossima azione: impostala" onclick="impostaProssimaAzioneLead('${x.id}')">⚠ Imposta</button>`;
       } else {
         paCell = '<span style="color:var(--ink3)">—</span>';
@@ -7493,6 +7571,7 @@ function disegnaLeadMkt() {
         <td style="font-weight:500">${x.nome||'\u2014'}</td>
         <td class="text-mono text-sm">${([x.email,x.telefono].filter(Boolean).join(' \u00b7 ')||x.contatto)||'\u2014'}</td>
         <td>${preso}</td>
+        <td>${_leadStepper(x)}</td>
         <td>${paCell}</td>
         <td style="font-size:12px">${x.fonte||'\u2014'}</td>
         <td><span class="badge ${x.canale==='Online'?'badge-accent':'badge-gray'}" style="font-size:10px">${x.canale||'\u2014'}</span></td>
@@ -7503,7 +7582,7 @@ function disegnaLeadMkt() {
         <td style="font-size:11px;color:var(--ink3)">${corr}</td>
         <td style="display:flex;gap:4px;flex-wrap:wrap">
           <button class="btn btn-sm btn-ghost" onclick="editLeadMkt('${x.id}')">Modifica</button>
-          ${_leadAttivo(x) ? `<button class="btn btn-sm btn-ghost" title="Chiudi il lead (Perso o Silente) con motivo \u2014 non lo cancella" onclick="chiudiLead('${x.id}')">Chiudi</button>` : ''}
+          ${_leadInFunnel(x) ? `<button class="btn btn-sm btn-primary" title="Avanza il lead nel funnel: stato, pulsanti e prossima azione" onclick="gestisciLead('${x.id}')">\ud83c\udfaf Gestisci</button>` : ''}
           ${(x.esito==='Silente'||x.esito==='Perso') ? `<button class="btn btn-sm btn-ghost" title="Riporta in trattativa" onclick="riapriLead('${x.id}')">\u21a9 Riapri</button>` : ''}
           <button class="btn btn-sm btn-ghost" style="color:var(--ink3);font-size:12px;padding:2px 6px" title="Elimina definitivamente (solo per spam o test)" onclick="eliminaLeadMkt('${x.id}')">\ud83d\uddd1</button>
         </td>
@@ -7618,7 +7697,13 @@ async function segnaContattato(id) {
   const cur = _leadList.find(r=>r.id===id);
   if (!cur) return;
   if (cur.contattato_at) return;   // già preso in carico
-  const patch = { contattato_at: new Date().toISOString(), contattato_da: window.__UTENTE_EMAIL__ || null };
+  // Presa in carico = avvio del funnel: fase contatto_1 + primo to-do automatico + storico.
+  const nowIso = new Date().toISOString();
+  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
+  storico.push({ fase:'contatto_1', ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: cur.fase || null });
+  const patch = { contattato_at: nowIso, contattato_da: window.__UTENTE_EMAIL__ || null,
+                  fase:'contatto_1', fase_da:nowIso, fase_storico:storico,
+                  prossima_azione: LEAD_FUNNEL.contatto_1.todo, data_prossima_azione: _leadDataFra(LEAD_FUNNEL.contatto_1.giorni) };
   let q = sb.from('lead_marketing').update(patch).eq('id', id);
   if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);
   const { data, error } = await q.select();
@@ -7628,6 +7713,7 @@ async function segnaContattato(id) {
     _leadLoaded=false; renderLeadMkt(); return;
   }
   Object.assign(cur, data[0]);
+  closeModal();
   disegnaLeadMkt();
   aggiornaBadgeLead();
 }
@@ -7707,11 +7793,96 @@ async function salvaChiusuraLead(id){
   }
 }
 
-// Riapre un lead chiuso (Perso/Silente): torna In trattativa, si azzera chiuso_at.
+// Riapre un lead chiuso/parcheggiato: torna In trattativa e rigenera il to-do della sua fase.
 async function riapriLead(id){
-  if (await _aggiornaLead(id, { esito:'In trattativa', chiuso_at:null })) {
-    disegnaLeadMkt(); aggiornaBadgeLead();
-  }
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return;
+  const f = (cur.fase && LEAD_FUNNEL[cur.fase]) ? cur.fase : 'in_dialogo';
+  const conf = LEAD_FUNNEL[f];
+  const patch = { esito:'In trattativa', chiuso_at:null, fase:f };
+  if (conf){ patch.prossima_azione = conf.todo; patch.data_prossima_azione = _leadDataFra(conf.giorni); }
+  if (await _aggiornaLead(id, patch)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+
+// ── Motore avanzamento funnel ──────────────────────────────────────────────
+// Porta il lead alla 'nuovaFase', registra il passaggio nello storico e genera
+// da solo il prossimo to-do (testo + data) secondo la tabella LEAD_FUNNEL.
+async function _vaiAFase(id, nuovaFase){
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return false;
+  const nowIso = new Date().toISOString();
+  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
+  storico.push({ fase:nuovaFase, ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: cur.fase || null });
+  const conf = LEAD_FUNNEL[nuovaFase] || {};
+  const patch = {
+    fase: nuovaFase, fase_da: nowIso, fase_storico: storico,
+    prossima_azione: conf.todo || null,
+    data_prossima_azione: conf.todo ? _leadDataFra(conf.giorni) : null
+  };
+  return await _aggiornaLead(id, patch);
+}
+// Manda un lead in Silente in automatico (tentativi esauriti), con motivo di sistema.
+async function _leadInSilente(id){
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return false;
+  const nowIso = new Date().toISOString();
+  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
+  storico.push({ fase:'silente', ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: cur.fase || null });
+  return await _aggiornaLead(id, { esito:'Silente', chiuso_at:nowIso, fase_storico:storico,
+    prossima_azione:null, data_prossima_azione:null,
+    motivo_chiusura: cur.motivo_chiusura || 'Nessuna risposta dopo i tentativi previsti' });
+}
+
+// "Fatto, aspetto risposta": passa al tentativo successivo (o Silente se esauriti).
+async function leadFatto(id){
+  const cur = _leadList.find(r=>r.id===id);
+  const f = cur && _leadFase(cur);
+  const conf = f && LEAD_FUNNEL[f];
+  if (!conf) return;
+  if (conf.fatto === '__silente') { if (await _leadInSilente(id)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } return; }
+  if (!conf.fatto) { impostaProssimaAzioneLead(id); return; }   // fasi manuali (es. in conversazione): apri l'editor
+  if (await _vaiAFase(id, conf.fatto)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+// "Ha risposto": salta in avanti secondo la regola della fase.
+async function leadHaRisposto(id){
+  const cur = _leadList.find(r=>r.id===id);
+  const f = cur && _leadFase(cur);
+  const conf = f && LEAD_FUNNEL[f];
+  if (!conf || !conf.risposto) return;
+  if (await _vaiAFase(id, conf.risposto)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+// "Preventivo inviato" → Fase 2.
+async function leadPreventivoInviato(id){
+  if (await _vaiAFase(id, 'preventivo')) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+// "Sta trattando" → Trattativa.
+async function leadTrattativa(id){
+  if (await _vaiAFase(id, 'trattativa')) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+// "Vinto": apre la scheda per registrare l'importo e chiudere come Chiuso.
+function leadVinto(id){
+  const x = _leadList.find(r=>r.id===id);
+  if (!x) return;
+  _leadEditId = id;
+  mostraFormLeadMkt(Object.assign({}, x, { esito:'Chiuso' }));
+}
+// Finestra "Gestisci lead": stepper + prossima azione + pulsanti della fase.
+function gestisciLead(id){
+  const x = _leadList.find(r=>r.id===id);
+  if (!x) return;
+  const fin = (x.esito==='Chiuso' || x.esito==='Perso');
+  const faseLbl = fin ? x.esito : (_leadFase(x) ? LEAD_FUNNEL[_leadFase(x)].label : (x.esito||'—'));
+  const todo = x.prossima_azione
+    ? `<b>${String(x.prossima_azione).replace(/</g,'&lt;')}</b>${x.data_prossima_azione?` · <span class="text-mono">${fmtDate(x.data_prossima_azione)}</span>`:''}`
+    : '<span style="color:var(--ink3)">nessuna azione impostata</span>';
+  const html = `
+    <div style="margin-bottom:14px">${_leadStepper(x)}</div>
+    <div style="font-size:12px;color:var(--ink3)">Fase attuale</div>
+    <div style="font-weight:600;margin-bottom:10px">${faseLbl}${x.contattato_da?` · <span style="font-size:12px;color:var(--ink2)">${nomeUtente(x.contattato_da)}</span>`:''}</div>
+    <div style="font-size:12px;color:var(--ink3)">Prossima azione</div>
+    <div style="margin-bottom:14px">${todo}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${_leadPulsanti(x)}</div>`;
+  showModal('Gestisci lead — ' + (x.nome||'lead'), html, [ {label:'Chiudi finestra', action:'closeModal()'} ]);
 }
 
 async function eliminaLeadMkt(id) {
