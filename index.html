@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.30 — 09/08/2026 · Lead: notifica “da contattare” nel menu + bottone Contattato (registra chi e quando, con tempo di risposta)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.31 — 09/08/2026 · Lead: prossima azione + “Da fare oggi” (scaduti in rosso) e chiusura non distruttiva con motivo</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.30';
+window.APP_VERSION = '2.31';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7328,8 +7328,14 @@ let _leadEditId = null;
 // Badge rosso "lead da contattare" nel menu. Se i lead sono in cache conta da lì,
 // altrimenti usa il conteggio leggero calcolato all'avvio (window.__leadDaContattare).
 function aggiornaBadgeLead(nOverride) {
+  // "Da gestire" = lead non ancora contattato OPPURE lead attivo con prossima azione scaduta/oggi.
+  // Prima che il registro sia caricato dal cloud si usa il conteggio leggero d'avvio (solo non contattati).
   const n = (typeof nOverride === 'number') ? nOverride
-          : (_leadLoaded ? _leadList.filter(x => !x.contattato_at).length : (window.__leadDaContattare || 0));
+          : (_leadLoaded ? _leadList.filter(x =>
+                !x.contattato_at ||
+                (_leadAttivo(x) && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) !== 'futuro')
+              ).length
+            : (window.__leadDaContattare || 0));
   const badge = document.getElementById('badge-lead');
   if (!badge) return;
   if (n > 0) { badge.textContent = n; badge.style.display = ''; }
@@ -7419,6 +7425,29 @@ function disegnaLeadMkt() {
     ${statCard(fermi, 'Fermi da 4+ giorni', fermi>0)}
   </div>`;
 
+  // ── "Da fare oggi": lead attivi con prossima azione scaduta/oggi (scaduti in cima) ──
+  // Indipendente dai filtri di mese/esito: sono code di lavoro, non statistiche del mese.
+  const _daFare = list.filter(x => _leadAttivo(x) && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) !== 'futuro')
+                      .sort((a,b) => a.data_prossima_azione.localeCompare(b.data_prossima_azione));
+  const _senzaAzione = list.filter(x => _leadAttivo(x) && !x.data_prossima_azione).length;
+  if (_daFare.length || _senzaAzione) {
+    const righeDF = _daFare.map(x => {
+      const st = statoPromemoria(x.data_prossima_azione);
+      const col = st === 'scaduto' ? 'var(--red)' : 'var(--amber)';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border)">
+        <span class="text-mono" style="color:${col};font-weight:700;font-size:12px;min-width:82px">${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}</span>
+        <span style="flex:1;font-size:13px"><b>${x.nome||'—'}</b> · ${x.prossima_azione ? String(x.prossima_azione).replace(/</g,'&lt;') : '<span style="color:var(--ink3)">azione non specificata</span>'}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="impostaProssimaAzioneLead('${x.id}')">Aggiorna</button>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="chiudiLead('${x.id}')">Chiudi</button>
+      </div>`;
+    }).join('');
+    html += `<div style="background:var(--bg2);border:1px solid var(--amber);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:2px">📌 Da fare oggi${_daFare.length?` <span style="color:var(--ink3);font-weight:400">(${_daFare.length})</span>`:''}</div>
+      ${righeDF}
+      ${_senzaAzione?`<div style="font-size:11px;color:var(--ink3);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">⚠ ${_senzaAzione} lead attiv${_senzaAzione===1?'o':'i'} senza una prossima azione: impostala dalla colonna “Prossima azione”.</div>`:''}
+    </div>`;
+  }
+
   let lista = mese ? delMese : list;
   if (fEsito) lista = lista.filter(x => x.esito === fEsito);
   if (fFonte) lista = lista.filter(x => x.fonte === fFonte);
@@ -7430,7 +7459,7 @@ function disegnaLeadMkt() {
   }
 
   html += `<div class="card" style="padding:0"><div class="table-wrap"><table>
-    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Presa in carico</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
+    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Presa in carico</th><th>Prossima azione</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
     <tbody>${lista.map(x=>{
       const fermoGg = x.esito==='In trattativa' ? _leadGiorniFermo(x) : 0;
       const fermoTag = fermoGg>=4 ? ` <span style="font-size:10px;color:var(--amber);font-family:var(--mono)" title="Fermo da ${fermoGg} giorni: candidato Silente">\u23f0${fermoGg}g</span>` : '';
@@ -7444,11 +7473,27 @@ function disegnaLeadMkt() {
         const _attesa = (_arrivo!=null) ? `<div style="font-size:10px;color:var(--amber);margin-top:3px">in attesa da ${_fmtDurata(Date.now()-_arrivo)}</div>` : '';
         preso = `<button class="btn btn-sm btn-primary" onclick="segnaContattato('${x.id}')">Contattato</button>${_attesa}`;
       }
+      // Prossima azione: colore per stato (scaduta=rosso, oggi=ambra), ⚠ se manca su lead attivo
+      const _stPa = x.data_prossima_azione ? statoPromemoria(x.data_prossima_azione) : null;
+      const _colPa = _stPa==='scaduto' ? 'var(--red)' : (_stPa==='oggi' ? 'var(--amber)' : 'var(--ink2)');
+      let paCell;
+      if (x.data_prossima_azione) {
+        const _tag = _stPa==='scaduto' ? ' <span style="font-size:9px;background:var(--red);color:#fff;border-radius:4px;padding:1px 5px">SCAD</span>'
+                   : (_stPa==='oggi' ? ' <span style="font-size:9px;background:var(--amber);color:#fff;border-radius:4px;padding:1px 5px">OGGI</span>' : '');
+        paCell = `<div style="font-size:12px"><span class="text-mono" style="color:${_colPa};font-weight:600">${fmtDate(x.data_prossima_azione)}</span>${_tag}`
+               + `<div style="color:var(--ink2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(x.prossima_azione||'').replace(/"/g,'&quot;')}">${x.prossima_azione||''}</div></div>`
+               + `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 6px;margin-top:2px" onclick="impostaProssimaAzioneLead('${x.id}')">Aggiorna</button>`;
+      } else if (_leadAttivo(x)) {
+        paCell = `<button class="btn btn-sm btn-ghost" style="color:var(--amber);font-size:11px" title="Nessuna prossima azione: impostala" onclick="impostaProssimaAzioneLead('${x.id}')">⚠ Imposta</button>`;
+      } else {
+        paCell = '<span style="color:var(--ink3)">—</span>';
+      }
       return `<tr>
         <td class="text-mono text-sm">${x.data?fmtDate(x.data):'\u2014'}</td>
         <td style="font-weight:500">${x.nome||'\u2014'}</td>
         <td class="text-mono text-sm">${([x.email,x.telefono].filter(Boolean).join(' \u00b7 ')||x.contatto)||'\u2014'}</td>
         <td>${preso}</td>
+        <td>${paCell}</td>
         <td style="font-size:12px">${x.fonte||'\u2014'}</td>
         <td><span class="badge ${x.canale==='Online'?'badge-accent':'badge-gray'}" style="font-size:10px">${x.canale||'\u2014'}</span></td>
         <td style="font-size:12px;color:var(--ink2)">${x.motivo||'\u2014'}</td>
@@ -7458,9 +7503,9 @@ function disegnaLeadMkt() {
         <td style="font-size:11px;color:var(--ink3)">${corr}</td>
         <td style="display:flex;gap:4px;flex-wrap:wrap">
           <button class="btn btn-sm btn-ghost" onclick="editLeadMkt('${x.id}')">Modifica</button>
-          ${x.esito==='In trattativa' ? `<button class="btn btn-sm btn-ghost" title="Segna come silente (da ricontattare)" onclick="cambiaEsitoLead('${x.id}','Silente')">\ud83d\udd15 Silente</button>` : ''}
-          ${x.esito==='Silente' ? `<button class="btn btn-sm btn-ghost" title="Riportato in trattativa" onclick="cambiaEsitoLead('${x.id}','In trattativa')">\u21a9\ufe0f Riapri</button>` : ''}
-          <button class="btn btn-sm btn-danger" onclick="eliminaLeadMkt('${x.id}')">\u00d7</button>
+          ${_leadAttivo(x) ? `<button class="btn btn-sm btn-ghost" title="Chiudi il lead (Perso o Silente) con motivo \u2014 non lo cancella" onclick="chiudiLead('${x.id}')">Chiudi</button>` : ''}
+          ${(x.esito==='Silente'||x.esito==='Perso') ? `<button class="btn btn-sm btn-ghost" title="Riporta in trattativa" onclick="riapriLead('${x.id}')">\u21a9 Riapri</button>` : ''}
+          <button class="btn btn-sm btn-ghost" style="color:var(--ink3);font-size:12px;padding:2px 6px" title="Elimina definitivamente (solo per spam o test)" onclick="eliminaLeadMkt('${x.id}')">\ud83d\uddd1</button>
         </td>
       </tr>`;
     }).join('')}</tbody>
@@ -7585,6 +7630,88 @@ async function segnaContattato(id) {
   Object.assign(cur, data[0]);
   disegnaLeadMkt();
   aggiornaBadgeLead();
+}
+
+// Un lead \u00e8 "attivo" (ancora da lavorare) se \u00e8 In trattativa o Silente.
+function _leadAttivo(x){ return !!x && (x.esito==='In trattativa' || x.esito==='Silente'); }
+
+// Update di un lead con locking ottimistico (stesso schema di cambiaEsitoLead/segnaContattato).
+// Ritorna true se salvato; in caso di conflitto ricarica il registro e ritorna false.
+async function _aggiornaLead(id, patch){
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return false;
+  let q = sb.from('lead_marketing').update(patch).eq('id', id);
+  if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);
+  const { data, error } = await q.select();
+  if (error) { alert('Errore: ' + error.message); return false; }
+  if (!data || !data.length) {
+    alert('\u26a0\ufe0f Questo lead \u00e8 stato modificato da un altro dispositivo.\nRicarico il registro: ripeti la modifica.');
+    _leadLoaded = false; closeModal(); renderLeadMkt(); return false;
+  }
+  Object.assign(cur, data[0]);
+  return true;
+}
+
+// Popup per impostare/aggiornare la prossima azione (cosa fare + quando) di un lead.
+function impostaProssimaAzioneLead(id){
+  const x = _leadList.find(r=>r.id===id);
+  if (!x) return;
+  const html = `
+    <div class="form-grid">
+      <div class="form-group"><label>Data prossima azione</label><input type="date" id="lead-pa-data" value="${(x.data_prossima_azione||'').slice(0,10)}"></div>
+      <div class="form-group full"><label>Cosa fare</label><input type="text" id="lead-pa-testo" value="${(x.prossima_azione||'').replace(/"/g,'&quot;')}" placeholder="Es. richiamare, inviare preventivo, sollecitare acconto\u2026"></div>
+    </div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Lascia la data vuota per togliere la prossima azione.</div>`;
+  showModal('Prossima azione \u2014 ' + (x.nome||'lead'), html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:'Salva', action:`salvaProssimaAzioneLead('${id}')`, primary:true}
+  ]);
+}
+async function salvaProssimaAzioneLead(id){
+  const data = document.getElementById('lead-pa-data').value || null;
+  const testo = (document.getElementById('lead-pa-testo').value || '').trim() || null;
+  if (testo && !data) { alert('Metti anche la data della prossima azione (oppure togli il testo).'); return; }
+  if (await _aggiornaLead(id, { prossima_azione: testo, data_prossima_azione: data })) {
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+
+// Popup: chiusura NON distruttiva (Perso/Silente) con motivo obbligatorio. Il lead resta consultabile.
+function chiudiLead(id){
+  const x = _leadList.find(r=>r.id===id);
+  if (!x) return;
+  const html = `
+    <div class="form-grid">
+      <div class="form-group full"><label>Come si chiude?</label>
+        <select id="lead-ch-esito">
+          <option value="Perso">Perso \u2014 non se ne fa nulla</option>
+          <option value="Silente" ${x.esito==='Silente'?'selected':''}>Silente \u2014 da ricontattare pi\u00f9 avanti</option>
+        </select>
+      </div>
+      <div class="form-group full"><label>Motivo *</label><textarea id="lead-ch-motivo" rows="2" placeholder="Perch\u00e9? Es. prezzo, tempi, ha scelto altro, non risponde\u2026">${(x.motivo_chiusura||'').replace(/</g,'&lt;')}</textarea></div>
+    </div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Il lead non viene cancellato: resta nel registro, consultabile e riapribile.</div>`;
+  showModal('Chiudi lead \u2014 ' + (x.nome||'lead'), html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:'Chiudi lead', action:`salvaChiusuraLead('${id}')`, primary:true}
+  ]);
+}
+async function salvaChiusuraLead(id){
+  const esito = document.getElementById('lead-ch-esito').value;
+  const motivo = (document.getElementById('lead-ch-motivo').value || '').trim();
+  if (!motivo) { alert('Il motivo \u00e8 obbligatorio per chiudere un lead.'); return; }
+  const patch = { esito: esito, motivo_chiusura: motivo, chiuso_at: new Date().toISOString(),
+                  prossima_azione: null, data_prossima_azione: null };
+  if (await _aggiornaLead(id, patch)) {
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+
+// Riapre un lead chiuso (Perso/Silente): torna In trattativa, si azzera chiuso_at.
+async function riapriLead(id){
+  if (await _aggiornaLead(id, { esito:'In trattativa', chiuso_at:null })) {
+    disegnaLeadMkt(); aggiornaBadgeLead();
+  }
 }
 
 async function eliminaLeadMkt(id) {
