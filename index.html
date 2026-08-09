@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.29 — 08/08/2026 · Lead: form contatti riordinato (Nome a tutta riga, Email e Telefono appaiati)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.30 — 09/08/2026 · Lead: notifica “da contattare” nel menu + bottone Contattato (registra chi e quando, con tempo di risposta)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -567,7 +567,7 @@ table.tmb-sht .ot{color:#444}
     </div>
     <div class="nav-item" onclick="nav('lead',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
-      Lead
+      Lead <span id="badge-lead" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px"></span>
     </div>
     <div class="nav-item" onclick="nav('nuovo-ordine',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.29';
+window.APP_VERSION = '2.30';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7308,9 +7308,33 @@ const LEAD_MOTIVI = ['Per s\u00e9','Regalo','Matrimonio','Locale','Non dichiarat
 const LEAD_ESITI  = ['In trattativa','Chiuso','Perso','Silente'];
 const LEAD_ESITO_BADGE = {'In trattativa':'badge-amber','Chiuso':'badge-green','Perso':'badge-gray','Silente':'badge-blue'};
 
+// Presa in carico lead: mappa email di login -> nome amichevole (sconosciuti = parte prima della @)
+const UTENTI_NOMI = { 'info@steelhead.it':'Andrea', 'giuliagarbuio@gmail.com':'Giulia' };
+function nomeUtente(email){ return email ? (UTENTI_NOMI[String(email).toLowerCase()] || String(email).split('@')[0]) : '—'; }
+// Formatta una durata in ms come "Xm" / "Yh Zm" / "Wg Vh"
+function _fmtDurata(ms){
+  const min = Math.max(0, Math.round(ms/60000));
+  if (min < 60) return min + 'm';
+  const h = Math.floor(min/60), m = min%60;
+  if (h < 24) return m ? (h+'h '+m+'m') : (h+'h');
+  const g = Math.floor(h/24), hr = h%24;
+  return hr ? (g+'g '+hr+'h') : (g+'g');
+}
+
 let _leadList = [];       // cache locale; la verita' resta il cloud
 let _leadLoaded = false;
 let _leadEditId = null;
+
+// Badge rosso "lead da contattare" nel menu. Se i lead sono in cache conta da lì,
+// altrimenti usa il conteggio leggero calcolato all'avvio (window.__leadDaContattare).
+function aggiornaBadgeLead(nOverride) {
+  const n = (typeof nOverride === 'number') ? nOverride
+          : (_leadLoaded ? _leadList.filter(x => !x.contattato_at).length : (window.__leadDaContattare || 0));
+  const badge = document.getElementById('badge-lead');
+  if (!badge) return;
+  if (n > 0) { badge.textContent = n; badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
+}
 
 async function renderLeadMkt() {
   const c = document.getElementById('lead-container');
@@ -7325,6 +7349,7 @@ async function renderLeadMkt() {
     _leadList = data || []; _leadLoaded = true;
   }
   disegnaLeadMkt();
+  aggiornaBadgeLead();   // ora i lead sono in cache: conteggio accurato dei "da contattare"
 }
 
 function _leadMeseCorrente() { return new Date().toISOString().slice(0,7); }
@@ -7405,15 +7430,25 @@ function disegnaLeadMkt() {
   }
 
   html += `<div class="card" style="padding:0"><div class="table-wrap"><table>
-    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
+    <thead><tr><th>Data</th><th>Nome</th><th>Contatto</th><th>Presa in carico</th><th>Fonte</th><th>Canale</th><th>Motivo</th><th>Prodotto</th><th>Esito</th><th style="text-align:right">Valore \u20ac</th><th>Corredo</th><th></th></tr></thead>
     <tbody>${lista.map(x=>{
       const fermoGg = x.esito==='In trattativa' ? _leadGiorniFermo(x) : 0;
       const fermoTag = fermoGg>=4 ? ` <span style="font-size:10px;color:var(--amber);font-family:var(--mono)" title="Fermo da ${fermoGg} giorni: candidato Silente">\u23f0${fermoGg}g</span>` : '';
       const corr = x.corredo_proposto ? (x.corredo_tenuto ? '\u2705 tenuto' : 'proposto') : '\u2014';
+      const _arrivo = x.created_at ? new Date(x.created_at).getTime() : null;
+      let preso;
+      if (x.contattato_at) {
+        const _tempo = (_arrivo!=null) ? _fmtDurata(new Date(x.contattato_at).getTime() - _arrivo) : '';
+        preso = `<span style="color:var(--green);font-size:11px" title="Preso in carico da ${nomeUtente(x.contattato_da)}${_tempo?(' in '+_tempo):''}">\u2705 ${nomeUtente(x.contattato_da)}${_tempo?(' \u00b7 '+_tempo):''}</span>`;
+      } else {
+        const _attesa = (_arrivo!=null) ? `<div style="font-size:10px;color:var(--amber);margin-top:3px">in attesa da ${_fmtDurata(Date.now()-_arrivo)}</div>` : '';
+        preso = `<button class="btn btn-sm btn-primary" onclick="segnaContattato('${x.id}')">Contattato</button>${_attesa}`;
+      }
       return `<tr>
         <td class="text-mono text-sm">${x.data?fmtDate(x.data):'\u2014'}</td>
         <td style="font-weight:500">${x.nome||'\u2014'}</td>
         <td class="text-mono text-sm">${([x.email,x.telefono].filter(Boolean).join(' \u00b7 ')||x.contatto)||'\u2014'}</td>
+        <td>${preso}</td>
         <td style="font-size:12px">${x.fonte||'\u2014'}</td>
         <td><span class="badge ${x.canale==='Online'?'badge-accent':'badge-gray'}" style="font-size:10px">${x.canale||'\u2014'}</span></td>
         <td style="font-size:12px;color:var(--ink2)">${x.motivo||'\u2014'}</td>
@@ -7517,7 +7552,7 @@ async function salvaLeadMkt() {
     if (error) { alert('Errore inserimento: ' + error.message); return; }
     _leadList.unshift(data);
   }
-  closeModal(); disegnaLeadMkt();
+  closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
 }
 
 async function cambiaEsitoLead(id, esito) {
@@ -7532,6 +7567,26 @@ async function cambiaEsitoLead(id, esito) {
   disegnaLeadMkt();
 }
 
+// Presa in carico: registra chi (utente loggato) e quando ha contattato il lead.
+// Rispetta il locking ottimistico su updated_at (come cambiaEsitoLead).
+async function segnaContattato(id) {
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return;
+  if (cur.contattato_at) return;   // già preso in carico
+  const patch = { contattato_at: new Date().toISOString(), contattato_da: window.__UTENTE_EMAIL__ || null };
+  let q = sb.from('lead_marketing').update(patch).eq('id', id);
+  if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);
+  const { data, error } = await q.select();
+  if (error) { alert('Errore: ' + error.message); return; }
+  if (!data || !data.length) {
+    alert('⚠️ Questo lead è stato modificato da un altro dispositivo.\nRicarico il registro.');
+    _leadLoaded=false; renderLeadMkt(); return;
+  }
+  Object.assign(cur, data[0]);
+  disegnaLeadMkt();
+  aggiornaBadgeLead();
+}
+
 async function eliminaLeadMkt(id) {
   const x = _leadList.find(r=>r.id===id);
   if (!x) return;
@@ -7539,7 +7594,7 @@ async function eliminaLeadMkt(id) {
   const { error } = await sb.from('lead_marketing').delete().eq('id', id);
   if (error) { alert('Errore eliminazione: ' + error.message); return; }
   _leadList = _leadList.filter(r=>r.id!==id);
-  disegnaLeadMkt();
+  disegnaLeadMkt(); aggiornaBadgeLead();
 }
 
 function showModal(title, content, buttons) {
@@ -8424,6 +8479,10 @@ async function avviaApp() {
   mostraPromemoriaBackup();        // promemoria backup giornaliero (dopo che i dati sono caricati)
   aggiornaBadgePromemoria();       // badge col numero di promemoria di oggi/scaduti
   mostraAvvisoPromemoria();        // avviso in alto se ci sono promemoria di oggi o scaduti
+  // Presa in carico lead: memorizza l'utente loggato e conta i lead da contattare per il badge
+  try { const _s = await sb.auth.getSession(); window.__UTENTE_EMAIL__ = (_s && _s.data && _s.data.session && _s.data.session.user) ? _s.data.session.user.email : null; } catch(e){ window.__UTENTE_EMAIL__ = null; }
+  try { const { count } = await sb.from('lead_marketing').select('*', { count:'exact', head:true }).is('contattato_at', null); window.__leadDaContattare = count || 0; } catch(e){ window.__leadDaContattare = 0; }
+  aggiornaBadgeLead();             // badge col numero di lead ancora da contattare
 }
 
 async function eseguiLogin() {
