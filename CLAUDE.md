@@ -16,6 +16,7 @@ Questo è un **gestionale in produzione, usato tutti i giorni, con dentro dati f
 > 2. **Una decisione alla volta.** Scomponi le richieste complesse, conferma la direzione prima di implementare.
 > 3. **Bastian contrario per contratto:** solleva obiezioni e tradeoff PRIMA di eseguire, con ragionamento concreto. Andrea decide in fretta se le opzioni sono chiare.
 > 4. **Niente default silenziosi.** Se prendi una decisione di design al posto suo, diglielo. Se un valore è ambiguo, chiedi.
+> 5. **Mobile-first (premessa fissa).** Il gestionale si usa **soprattutto da telefono** (Andrea spesso da mobile, Giulia in giro). Ogni schermata/modulo/modifica va **progettata e verificata a larghezza telefono** (≈360-390px), non adattata a posteriori: niente overflow orizzontale della pagina; tabelle larghe che scrollano o diventano card; pulsanti toccabili e ben distanziati (`flex-wrap`); overlay/editor a tutta pagina e scrollabili con azioni raggiungibili col pollice; `inputmode`/`type` giusti per la tastiera mobile; font leggibili senza zoom. Attenzione a `backdrop-filter` su mobile (vedi §7).
 
 ---
 
