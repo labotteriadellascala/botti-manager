@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.33 — 10/08/2026 · Preventivi: editor agganciato ai lead (voci/sconto/misure/allegati, IVA esplicita), token e link pubblico da inviare al cliente</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.34 — 10/08/2026 · Preventivi: prezzi IVA inclusa (con scorporo), sconto in € assoluti, validità 10 giorni</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.33';
+window.APP_VERSION = '2.34';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7977,22 +7977,20 @@ function _prevCss(){
   if (document.getElementById('pv-css')) return;
   const st=document.createElement('style'); st.id='pv-css';
   st.textContent =
-    '.pv-ov{position:fixed;inset:0;z-index:99990;background:rgba(28,26,22,.45);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:20px 10px}'
-   +'.pv-box{background:var(--bg);border:1px solid var(--border2);border-radius:14px;max-width:900px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.3);margin:auto}'
-   +'.pv-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);border-radius:14px 14px 0 0;z-index:2}'
-   +'.pv-head h3{margin:0;font-family:var(--serif);font-size:18px;flex:1}'
-   +'.pv-body{padding:16px 18px}'
-   +'.pv-sec{margin-bottom:18px}'
-   +'.pv-cap{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}'
-   +'.pv-righe-h,.pv-riga{display:grid;grid-template-columns:1fr 56px 96px 70px 96px 32px;gap:8px;align-items:center}'
+    '.pv-ov{position:fixed;inset:0;z-index:99990;background:var(--bg);overflow:auto}'
+   +'.pv-topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:12px;padding:14px 20px;background:var(--bg2);border-bottom:1px solid var(--border)}'
+   +'.pv-topbar h3{margin:0;font-family:var(--serif);font-size:20px;flex:1}'
+   +'.pv-page{max-width:900px;margin:0 auto;padding:20px}'
+   +'.pv-righe-h,.pv-riga{display:grid;grid-template-columns:1fr 56px 130px 110px 120px 34px;gap:10px;align-items:center}'
    +'.pv-righe-h{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);margin-bottom:6px}'
    +'.pv-righe-h .r{text-align:right}'
-   +'.pv-riga{padding:6px 0;border-top:1px dashed var(--border)}'
+   +'.pv-riga{padding:7px 0;border-top:1px dashed var(--border)}'
    +'.pv-app{text-align:right;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}'
-   +'.pv-tot{max-width:340px;margin-left:auto;display:grid;gap:6px}'
+   +'.pv-tot{max-width:360px;margin-left:auto;display:grid;gap:6px}'
    +'.pv-tot .r{display:flex;justify-content:space-between;font-size:14px;font-variant-numeric:tabular-nums}'
    +'.pv-tot .grand{font-family:var(--serif);font-size:20px;font-weight:700;color:var(--accent);border-top:1px solid var(--border);padding-top:6px}'
-   +'@media(max-width:640px){.pv-righe-h{display:none}.pv-riga{grid-template-columns:1fr 1fr;gap:6px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px}}';
+   +'.pv-actions{position:sticky;bottom:0;z-index:3;display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;background:var(--bg2);border-top:1px solid var(--border)}'
+   +'@media(max-width:640px){.pv-righe-h{display:none}.pv-riga{grid-template-columns:1fr 1fr;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px}}';
   document.head.appendChild(st);
 }
 function chiudiEditorPreventivo(){ const o=document.getElementById('pv-ov'); if(o) o.remove(); }
@@ -8017,69 +8015,69 @@ async function apriEditorPreventivo(leadId, prevId){
   closeModal();
   const ov=document.createElement('div'); ov.className='pv-ov'; ov.id='pv-ov';
   ov.innerHTML = `
-    <div class="pv-box">
-      <div class="pv-head">
-        <h3>${prevId?'Preventivo '+_at(p.numero||''):'Nuovo preventivo'}</h3>
-        <span class="badge ${PREV_STATO_BADGE[p.stato]||'badge-gray'}">${p.stato||'bozza'}</span>
-        <button class="btn btn-sm btn-ghost" onclick="chiudiEditorPreventivo()">Chiudi</button>
+    <div class="pv-topbar">
+      <h3>${prevId?'Preventivo '+_at(p.numero||''):'Nuovo preventivo'}</h3>
+      <span class="badge ${PREV_STATO_BADGE[p.stato]||'badge-gray'}">${p.stato||'bozza'}</span>
+      <button class="btn btn-sm btn-ghost" onclick="chiudiEditorPreventivo()">Chiudi</button>
+    </div>
+    <div class="pv-page">
+      <div class="card">
+        <div class="card-title">Cliente${lead.nome?' · lead: '+_at(lead.nome):''}</div>
+        <div class="form-grid">
+          <div class="form-group full"><label>Nome / Ragione sociale</label><input id="pv-cl-nome" value="${_at(p.cliente_nome)}"></div>
+          <div class="form-group"><label>Email</label><input id="pv-cl-email" value="${_at(p.cliente_email)}"></div>
+          <div class="form-group"><label>Telefono</label><input id="pv-cl-tel" value="${_at(p.cliente_telefono)}"></div>
+        </div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Il cliente potrà completare/correggere l'anagrafica al momento dell'accettazione.</div>
       </div>
-      <div class="pv-body">
-        <div class="pv-sec">
-          <div class="pv-cap">Cliente${lead.nome?' (lead: '+_at(lead.nome)+')':''}</div>
-          <div class="form-grid">
-            <div class="form-group full"><label>Nome / Ragione sociale</label><input id="pv-cl-nome" value="${_at(p.cliente_nome)}"></div>
-            <div class="form-group"><label>Email</label><input id="pv-cl-email" value="${_at(p.cliente_email)}"></div>
-            <div class="form-group"><label>Telefono</label><input id="pv-cl-tel" value="${_at(p.cliente_telefono)}"></div>
-          </div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:4px">Il cliente potrà completare/correggere l'anagrafica al momento dell'accettazione.</div>
+      <div class="card">
+        <div class="card-title">Dati preventivo</div>
+        <div class="form-grid form-grid-3">
+          <div class="form-group"><label>Numero</label><input id="pv-num" value="${_at(p.numero)}"></div>
+          <div class="form-group"><label>Validità (giorni)</label><input id="pv-val" type="number" min="0" value="10"></div>
+          <div class="form-group"><label>IVA %</label><input id="pv-iva" type="number" min="0" step="0.5" value="${p.iva_percent!=null?p.iva_percent:22}" oninput="_prevRicalcola()"></div>
         </div>
-        <div class="pv-sec">
-          <div class="pv-cap">Dati preventivo</div>
-          <div class="form-grid">
-            <div class="form-group"><label>Numero</label><input id="pv-num" value="${_at(p.numero)}"></div>
-            <div class="form-group"><label>Validità (giorni)</label><input id="pv-val" type="number" min="0" value="30"></div>
-            <div class="form-group"><label>IVA %</label><input id="pv-iva" type="number" min="0" step="0.5" value="${p.iva_percent!=null?p.iva_percent:22}" oninput="_prevRicalcola()"></div>
-          </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Voci — prezzi IVA inclusa, sconto in € sempre visibile</div>
+        <div class="pv-righe-h"><span>Descrizione</span><span class="r">Q.tà</span><span class="r">Prezzo € (IVA incl.)</span><span class="r">Sconto €</span><span class="r">Applicato €</span><span></span></div>
+        <div id="pv-righe"></div>
+        <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="_prevAggiungiRiga()">+ Aggiungi voce</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Misure</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Larghezza cm</label><input id="pv-mi-l" inputmode="decimal" value="${_at(m.larg)}"></div>
+          <div class="form-group"><label>Profondità cm</label><input id="pv-mi-p" inputmode="decimal" value="${_at(m.prof)}"></div>
+          <div class="form-group"><label>Altezza cm</label><input id="pv-mi-h" inputmode="decimal" value="${_at(m.alt)}"></div>
+          <div class="form-group"><label>Diametro cm</label><input id="pv-mi-d" inputmode="decimal" value="${_at(m.diam)}"></div>
+          <div class="form-group full"><label>Note misure / finiture</label><textarea id="pv-mi-note" rows="2">${_at(m.note)}</textarea></div>
         </div>
-        <div class="pv-sec">
-          <div class="pv-cap">Voci — sconto sempre visibile</div>
-          <div class="pv-righe-h"><span>Descrizione</span><span class="r">Q.tà</span><span class="r">Listino €</span><span class="r">Sconto %</span><span class="r">Applicato €</span><span></span></div>
-          <div id="pv-righe"></div>
-          <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="_prevAggiungiRiga()">+ Aggiungi voce</button>
-        </div>
-        <div class="pv-sec">
-          <div class="pv-cap">Misure</div>
-          <div class="form-grid">
-            <div class="form-group"><label>Larghezza cm</label><input id="pv-mi-l" inputmode="decimal" value="${_at(m.larg)}"></div>
-            <div class="form-group"><label>Profondità cm</label><input id="pv-mi-p" inputmode="decimal" value="${_at(m.prof)}"></div>
-            <div class="form-group"><label>Altezza cm</label><input id="pv-mi-h" inputmode="decimal" value="${_at(m.alt)}"></div>
-            <div class="form-group"><label>Diametro cm</label><input id="pv-mi-d" inputmode="decimal" value="${_at(m.diam)}"></div>
-            <div class="form-group full"><label>Note misure / finiture</label><textarea id="pv-mi-note" rows="2">${_at(m.note)}</textarea></div>
-          </div>
-        </div>
-        <div class="pv-sec">
-          <div class="pv-cap">Note (tempi, pagamento, condizioni)</div>
-          <textarea id="pv-note" rows="2" style="width:100%">${_at(p.note)}</textarea>
-        </div>
-        <div class="pv-sec">
-          <div class="pv-cap">Allegati (rendering)</div>
-          <input id="pv-file" type="file" accept="image/*" multiple onchange="_prevAddFile(this.files);this.value=''">
-          <div id="pv-thumbs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:8px"></div>
-        </div>
-        <div class="pv-sec pv-tot">
-          <div class="r"><span>Imponibile a listino</span><span id="pv-t-list">€ 0,00</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Note (tempi, pagamento, condizioni)</div>
+        <textarea id="pv-note" rows="2" style="width:100%">${_at(p.note)}</textarea>
+      </div>
+      <div class="card">
+        <div class="card-title">Allegati · rendering</div>
+        <input id="pv-file" type="file" accept="image/*" multiple onchange="_prevAddFile(this.files);this.value=''">
+        <div id="pv-thumbs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Totali</div>
+        <div class="pv-tot">
+          <div class="r"><span>Importo a listino (IVA incl.)</span><span id="pv-t-list">€ 0,00</span></div>
           <div class="r" style="color:var(--accent)"><span>Sconto</span><span id="pv-t-sc">− € 0,00</span></div>
-          <div class="r"><span><b>Imponibile</b></span><span id="pv-t-imp"><b>€ 0,00</b></span></div>
-          <div class="r"><span id="pv-t-ivalbl">IVA</span><span id="pv-t-iva">€ 0,00</span></div>
-          <div class="r grand"><span>Totale</span><span id="pv-t-tot">€ 0,00</span></div>
+          <div class="r grand"><span>Totale (IVA inclusa)</span><span id="pv-t-tot">€ 0,00</span></div>
+          <div class="r" style="font-size:12px;color:var(--ink3)"><span>di cui imponibile</span><span id="pv-t-imp">€ 0,00</span></div>
+          <div class="r" style="font-size:12px;color:var(--ink3)"><span id="pv-t-ivalbl">di cui IVA 22%</span><span id="pv-t-iva">€ 0,00</span></div>
         </div>
       </div>
-      <div class="pv-head" style="border-top:1px solid var(--border);border-bottom:none;border-radius:0 0 14px 14px;position:sticky;bottom:0;top:auto">
-        <span style="flex:1"></span>
-        <button class="btn btn-sm btn-ghost" onclick="chiudiEditorPreventivo()">Annulla</button>
-        <button class="btn btn-sm" onclick="salvaPreventivo(false)">Salva bozza</button>
-        <button class="btn btn-sm btn-primary" onclick="salvaPreventivo(true)">Salva e genera link</button>
-      </div>
+    </div>
+    <div class="pv-actions">
+      <button class="btn btn-sm btn-ghost" onclick="chiudiEditorPreventivo()">Annulla</button>
+      <button class="btn btn-sm" onclick="salvaPreventivo(false)">Salva bozza</button>
+      <button class="btn btn-sm btn-primary" onclick="salvaPreventivo(true)">Salva e genera link</button>
     </div>`;
   document.body.appendChild(ov);
   const righe = (Array.isArray(p.righe) && p.righe.length) ? p.righe : [{}];
@@ -8095,7 +8093,7 @@ function _prevAggiungiRiga(d){
   div.innerHTML =
     `<input class="pv-desc" placeholder="Es. Bancone botte Ø120 con cella frigo" value="${_at(d.desc)}">`
    +`<input class="pv-qta" inputmode="decimal" style="text-align:right" value="${d.qta!=null?_at(d.qta):'1'}">`
-   +`<input class="pv-list" inputmode="decimal" style="text-align:right" placeholder="0" value="${d.listino!=null?_at(String(d.listino).replace('.',',')):''}">`
+   +`<input class="pv-prezzo" inputmode="decimal" style="text-align:right" placeholder="0" value="${(function(){const p=(d.prezzo!=null?d.prezzo:d.listino); return p!=null?_at(String(p).replace('.',',')):'';})()}">`
    +`<input class="pv-sc" inputmode="decimal" style="text-align:right" placeholder="0" value="${d.sconto!=null?_at(String(d.sconto).replace('.',',')):''}">`
    +`<span class="pv-app">€ 0,00</span>`
    +`<button class="btn btn-sm btn-ghost" style="color:var(--red)" title="Rimuovi">×</button>`;
@@ -8106,33 +8104,35 @@ function _prevAggiungiRiga(d){
 function _prevLeggiRighe(){
   return [...document.querySelectorAll('#pv-righe .pv-riga')].map(r=>{
     const qta=_prevParseNum(r.querySelector('.pv-qta').value);
-    const listino=_prevParseNum(r.querySelector('.pv-list').value);
-    const sconto=_prevParseNum(r.querySelector('.pv-sc').value);
-    const unitApp=listino*(1-sconto/100);
-    return { desc:r.querySelector('.pv-desc').value, qta, listino, sconto, unitApp, totApp:qta*unitApp, totListino:qta*listino };
+    const prezzo=_prevParseNum(r.querySelector('.pv-prezzo').value);   // LORDO, IVA inclusa
+    const sconto=_prevParseNum(r.querySelector('.pv-sc').value);        // sconto assoluto in €
+    const totApp=Math.max(0, qta*prezzo - sconto);
+    return { desc:r.querySelector('.pv-desc').value, qta, prezzo, sconto, totApp, totListino:qta*prezzo };
   });
 }
 function _prevRicalcola(){
-  let listino=0, applicato=0;
+  let listino=0, applicato=0;  // entrambi LORDI (IVA inclusa)
   document.querySelectorAll('#pv-righe .pv-riga').forEach(r=>{
     const qta=_prevParseNum(r.querySelector('.pv-qta').value);
-    const list=_prevParseNum(r.querySelector('.pv-list').value);
+    const prezzo=_prevParseNum(r.querySelector('.pv-prezzo').value);
     const sc=_prevParseNum(r.querySelector('.pv-sc').value);
-    const app=qta*list*(1-sc/100);
+    const app=Math.max(0, qta*prezzo - sc);
     r.querySelector('.pv-app').textContent=_prevEuro(app);
-    listino+=qta*list; applicato+=app;
+    listino+=qta*prezzo; applicato+=app;
   });
-  const sconto=listino-applicato;
+  const sconto=listino-applicato;                        // somma sconti in €
   const iva=_prevParseNum((document.getElementById('pv-iva')||{}).value);
-  const impIva=applicato*iva/100, totale=applicato+impIva;
+  const totale=applicato;                                 // il totale è GIÀ IVA inclusa
+  const imponibile=iva>0 ? totale/(1+iva/100) : totale;   // scorporo IVA dal lordo
+  const impIva=totale-imponibile;
   const set=(id,v)=>{const e=document.getElementById(id); if(e) e.textContent=v;};
   set('pv-t-list',_prevEuro(listino));
   set('pv-t-sc','− '+_prevEuro(sconto));
-  const imp=document.getElementById('pv-t-imp'); if(imp) imp.innerHTML='<b>'+_prevEuro(applicato)+'</b>';
-  set('pv-t-ivalbl','IVA '+(iva||0).toLocaleString('it-IT')+'%');
-  set('pv-t-iva',_prevEuro(impIva));
   set('pv-t-tot',_prevEuro(totale));
-  return {listino,applicato,sconto,iva,impIva,totale};
+  const imp=document.getElementById('pv-t-imp'); if(imp) imp.textContent=_prevEuro(imponibile);
+  set('pv-t-ivalbl','di cui IVA '+(iva||0).toLocaleString('it-IT')+'%');
+  set('pv-t-iva',_prevEuro(impIva));
+  return {listino,applicato,sconto,iva,imponibile,impIva,totale};
 }
 function _prevRidimensiona(file,maxLato=1280,q=0.72){
   return new Promise((res,rej)=>{
@@ -8162,15 +8162,15 @@ function _prevRenderThumbs(){
 async function salvaPreventivo(genera){
   const val=id=>{const e=document.getElementById(id); return e?e.value:'';};
   const t=_prevRicalcola();
-  const righe=_prevLeggiRighe().map(r=>({desc:r.desc,qta:r.qta,listino:r.listino,sconto:r.sconto,unitApp:r.unitApp,totApp:r.totApp}));
+  const righe=_prevLeggiRighe().map(r=>({desc:r.desc,qta:r.qta,prezzo:r.prezzo,sconto:r.sconto,totApp:r.totApp}));
   if (genera && !righe.some(r=>r.totApp>0)){ alert('Aggiungi almeno una voce con un prezzo prima di generare il link.'); return; }
   const validita=parseInt(val('pv-val'),10);
-  const vf=new Date(Date.now()+((isNaN(validita)?30:validita)*86400000));
+  const vf=new Date(Date.now()+((isNaN(validita)?10:validita)*86400000));
   const validoFino=`${vf.getFullYear()}-${String(vf.getMonth()+1).padStart(2,'0')}-${String(vf.getDate()).padStart(2,'0')}`;
   const cur=_prevEditId?_prevList.find(p=>p.id===_prevEditId):null;
   const patch={
     lead_id:_prevLeadId, numero:val('pv-num').trim()||null,
-    righe, imponibile:t.applicato, sconto_totale:t.sconto, iva_percent:_prevParseNum(val('pv-iva')), totale:t.totale,
+    righe, imponibile:t.imponibile, sconto_totale:t.sconto, iva_percent:_prevParseNum(val('pv-iva')), totale:t.totale,
     misure:{larg:val('pv-mi-l'),prof:val('pv-mi-p'),alt:val('pv-mi-h'),diam:val('pv-mi-d'),note:val('pv-mi-note')},
     note:val('pv-note').trim()||null, allegati:_prevAllegati,
     cliente_nome:val('pv-cl-nome').trim()||null, cliente_email:val('pv-cl-email').trim()||null, cliente_telefono:val('pv-cl-tel').trim()||null,
