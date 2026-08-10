@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.36 — 10/08/2026 · Preventivi: eliminazione (singolo preventivo 🗑) e cancellazione lead che rimuove anche i preventivi collegati (con avviso)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.37 — 10/08/2026 · Preventivi: cruscotto cliccabile → lista (bozze/inviati/accettati); e Calcolo prezzi dentro l'editor (aggiunge la voce col prezzo configurato)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.36';
+window.APP_VERSION = '2.37';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7479,8 +7479,8 @@ function disegnaLeadMkt() {
   const silentiAperti = list.filter(x => x.esito === 'Silente').length;
   const fermi = list.filter(x => x.esito === 'In trattativa' && _leadGiorniFermo(x) >= 4).length;
 
-  const statCard = (num, lab, warn) => `
-    <div style="background:var(--bg2);border:1px solid ${warn?'var(--amber)':'var(--border)'};border-radius:var(--radius);padding:10px 16px;text-align:center;min-width:104px">
+  const statCard = (num, lab, warn, click) => `
+    <div ${click?`onclick="${click}"`:''} style="background:var(--bg2);border:1px solid ${warn?'var(--amber)':'var(--border)'};border-radius:var(--radius);padding:10px 16px;text-align:center;min-width:104px${click?';cursor:pointer':''}">
       <div style="font-size:20px;font-weight:700;font-family:var(--mono);${warn?'color:var(--amber)':''}">${num}</div>
       <div style="font-size:11px;color:var(--ink3)">${lab}</div>
     </div>`;
@@ -7518,10 +7518,10 @@ function disegnaLeadMkt() {
   if (_prevList.length) {
     html += `<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
       <span style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono)">Preventivi</span>
-      ${statCard(_pBozze,'Bozze')}
-      ${statCard(_pInviati,'Inviati')}
-      ${statCard(_prevAcc.length,'Accettati da gestire',_prevAcc.length>0)}
-      ${statCard('€ '+_pValAcc.toLocaleString('it-IT'),'Valore accettato')}
+      ${statCard(_pBozze,'Bozze',false,"mostraListaPreventivi('bozza')")}
+      ${statCard(_pInviati,'Inviati',false,"mostraListaPreventivi('inviato')")}
+      ${statCard(_prevAcc.length,'Accettati da gestire',_prevAcc.length>0,"mostraListaPreventivi('accettato')")}
+      ${statCard('€ '+_pValAcc.toLocaleString('it-IT'),'Valore accettato',false,"mostraListaPreventivi('')")}
     </div>`;
   }
 
@@ -8075,6 +8075,7 @@ async function apriEditorPreventivo(leadId, prevId){
         <div class="pv-righe-h"><span>Descrizione</span><span class="r">Q.tà</span><span class="r">Prezzo € (IVA incl.)</span><span class="r">Sconto €</span><span class="r">Applicato €</span><span></span></div>
         <div id="pv-righe"></div>
         <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="_prevAggiungiRiga()">+ Aggiungi voce</button>
+        <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="apriCalcoloPrezzoPrev()">🧮 Calcolo prezzi</button>
       </div>
       <div class="card">
         <div class="card-title">Misure</div>
@@ -8292,6 +8293,108 @@ async function eliminaPreventivo(id){
   if (error) { alert('Errore eliminazione preventivo: ' + error.message); return; }
   await caricaPreventivi(true);
   closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+}
+
+// Finestra con la lista dei preventivi (aperta cliccando i cruscotti). stato='' = tutti.
+const PREV_STATO_LABEL = { bozza:'Bozze', inviato:'Inviati', accettato:'Accettati', lavorato:'Lavorati', scaduto:'Scaduti', annullato:'Annullati' };
+function mostraListaPreventivi(stato){
+  const list = _prevList.filter(p => !stato || p.stato===stato)
+                        .sort((a,b) => String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  const titolo = stato ? ('Preventivi · ' + (PREV_STATO_LABEL[stato]||stato)) : 'Tutti i preventivi';
+  let body;
+  if (!list.length){
+    body = '<div style="color:var(--ink3);font-size:13px">Nessun preventivo in questa categoria.</div>';
+  } else {
+    body = list.map(p => {
+      const _l = _leadList.find(l => l.id===p.lead_id);
+      const chi = p.cliente_nome || (_l && _l.nome) || '—';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:12px">
+        <span class="text-mono" style="min-width:66px">${_at(p.numero||'—')}</span>
+        <span class="badge ${PREV_STATO_BADGE[p.stato]||'badge-gray'}" style="font-size:10px">${p.stato||'bozza'}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_at(chi)}</span>
+        <span class="text-mono" style="font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();apriEditorPreventivo('${p.lead_id}','${p.id}')">Apri</button>
+        ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Link</button>`:''}
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina" onclick="eliminaPreventivo('${p.id}')">🗑</button>
+      </div>`;
+    }).join('');
+  }
+  showModal(titolo, `<div style="max-height:60vh;overflow:auto">${body}</div>`, [ {label:'Chiudi', action:'closeModal()'} ]);
+}
+
+// ── Mini-configuratore prezzi DENTRO l'editor preventivo ──
+// Riusa i dati e le funzioni del modulo Calcolo prezzi (getProdotti/getAccessori/prezzoFinale),
+// che sono function globali quindi richiamabili anche da questo blocco.
+let _pvcFam=null, _pvcMod=null, _pvcAcc={};
+async function apriCalcoloPrezzoPrev(){
+  _pvcFam=null; _pvcMod=null; _pvcAcc={};
+  let ov=document.getElementById('pvcalc-ov');
+  if(!ov){ ov=document.createElement('div'); ov.id='pvcalc-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:99993;background:rgba(28,26,22,.5);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML='<div style="margin:auto;color:#fff;font-family:var(--sans)">Carico i prodotti…</div>';
+  // assicura che i prodotti siano in cache (all'avvio potrebbero non esserlo)
+  if(typeof getProdotti!=='function' || !getProdotti().length){
+    try{ if(typeof caricaProdottiDaCloud==='function'){ await caricaProdottiDaCloud(typeof getDefaultProdotti==='function'?getDefaultProdotti():[]); } }catch(e){}
+  }
+  _pvcRender();
+}
+function chiudiCalcoloPrezzoPrev(){ const o=document.getElementById('pvcalc-ov'); if(o) o.remove(); }
+function _pvcTotale(){
+  const prods=(typeof getProdotti==='function')?getProdotti():[];
+  const accs=(typeof getAccessori==='function')?getAccessori():[];
+  const p=prods.find(x=>x.id===_pvcMod);
+  if(!p) return {p:null, tot:0, nAcc:0};
+  let tot=prezzoFinale(p.prezzoBase,p.famiglia), nAcc=0;
+  accs.forEach(a=>{ if(_pvcAcc[a.id]){ tot+=prezzoFinale(a.prezzo,p.famiglia); nAcc++; } });
+  return {p, tot, nAcc};
+}
+function _pvcRender(){
+  const ov=document.getElementById('pvcalc-ov'); if(!ov) return;
+  const fams=(typeof getFamiglie==='function')?getFamiglie():[];
+  const prods=(typeof getProdotti==='function')?getProdotti():[];
+  const accs=(typeof getAccessori==='function')?getAccessori():[];
+  const famBtns=fams.map(f=>`<button class="btn btn-sm ${f===_pvcFam?'btn-primary':'btn-ghost'}" style="font-size:12px" onclick="_pvcSelFam('${_at(f)}')">${_at(f)}</button>`).join(' ');
+  const prodList=_pvcFam ? prods.filter(p=>p.famiglia===_pvcFam) : [];
+  const prodBtns=prodList.length ? prodList.map(p=>`<button class="btn btn-sm ${p.id===_pvcMod?'btn-primary':'btn-ghost'}" style="font-size:12px" onclick="_pvcSelMod('${p.id}')">${_at(p.nome)}</button>`).join(' ')
+                : (_pvcFam?'<span style="color:var(--ink3);font-size:12px">Nessun prodotto in questa famiglia</span>':'<span style="color:var(--ink3);font-size:12px">Scegli prima una famiglia</span>');
+  let accHtml='';
+  if(_pvcMod){ accHtml=accs.map(a=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;margin:2px 12px 2px 0;cursor:pointer"><input type="checkbox" style="width:auto" ${_pvcAcc[a.id]?'checked':''} onchange="_pvcToggleAcc('${a.id}')"> ${_at(a.nome)}</label>`).join(''); }
+  const r=_pvcTotale();
+  ov.innerHTML=`
+    <div style="background:var(--bg);border:1px solid var(--border2);border-radius:14px;max-width:640px;width:100%;margin:auto;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)">
+        <h3 style="margin:0;font-family:var(--serif);font-size:18px;flex:1">🧮 Calcolo prezzo</h3>
+        <button class="btn btn-sm btn-ghost" onclick="chiudiCalcoloPrezzoPrev()">Chiudi</button>
+      </div>
+      <div style="padding:16px 18px">
+        <div class="card-title" style="margin-bottom:6px">Famiglia</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${famBtns||'<span style="color:var(--ink3);font-size:12px">Nessun prodotto caricato. Apri prima “Calcolo prezzi” dal menu.</span>'}</div>
+        <div class="card-title" style="margin-bottom:6px">Prodotto</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${prodBtns}</div>
+        ${_pvcMod?`<div class="card-title" style="margin-bottom:6px">Accessori</div><div style="margin-bottom:14px">${accHtml||'<span style="color:var(--ink3);font-size:12px">Nessun accessorio</span>'}</div>`:''}
+        <div style="display:flex;align-items:center;gap:14px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em">Totale configurazione</div>
+            <div style="font-family:var(--serif);font-size:24px;font-weight:700;color:var(--accent)">${_prevEuro(r.tot)}</div>
+            ${r.p?`<div style="font-size:11px;color:var(--ink3)">${_at(r.p.nome)}${r.nAcc?' + '+r.nAcc+' accessori':''}</div>`:''}
+          </div>
+          <button class="btn btn-primary" ${r.p?'':'disabled'} onclick="aggiungiVoceDaCalcolo()">Aggiungi al preventivo</button>
+        </div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:8px">Prezzo dal listino del Calcolo prezzi. Verifica che l'IVA sia coerente (il preventivo usa prezzi IVA inclusa).</div>
+      </div>
+    </div>`;
+}
+function _pvcSelFam(f){ _pvcFam=f; _pvcMod=null; _pvcAcc={}; _pvcRender(); }
+function _pvcSelMod(id){ _pvcMod=id; _pvcAcc={}; _pvcRender(); }
+function _pvcToggleAcc(id){ _pvcAcc[id]=!_pvcAcc[id]; _pvcRender(); }
+function aggiungiVoceDaCalcolo(){
+  const r=_pvcTotale();
+  if(!r.p) return;
+  _prevAggiungiRiga({ desc: r.p.nome + (r.nAcc?' + '+r.nAcc+' accessori':''), qta:1, prezzo:r.tot, sconto:0 });
+  _prevRicalcola();
+  chiudiCalcoloPrezzoPrev();
 }
 
 function showModal(title, content, buttons) {
