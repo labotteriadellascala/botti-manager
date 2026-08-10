@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.39 — 10/08/2026 · Ordini: tasto “Esporta anagrafica” (file .xlsx nel formato import clienti di Aruba, precompilato coi dati dell’ordine)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.40 — 10/08/2026 · Ordini: “Esporta anagrafica” (Aruba) ora anche nella barra di Modifica ordine, non solo nel Riepilogo</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.39';
+window.APP_VERSION = '2.40';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -4412,6 +4412,7 @@ function renderFormOrdineHTML(ord) {
     </div>
     ${_editId?`<button class="btn btn-sm" onclick="apriAllegati('${_editId}')">📎 Allegati${(ord&&ord.allegati&&ord.allegati.length)?' ('+ord.allegati.length+')':''}</button>`:`<button class="btn btn-sm" disabled title="Salva prima l'ordine per poter allegare file" style="opacity:.5">📎 Allegati</button>`}
     ${_editId?`<button class="btn btn-sm btn-danger" onclick="deleteOrdine('${_editId}')">Elimina</button>`:''}
+    ${_editId?`<button class="btn btn-sm" title="Scarica l'anagrafica per l'import in Aruba (dai dati salvati)" onclick="esportaAnagraficaAruba('${_editId}')">📇 Esporta anagrafica</button>`:''}
     <button class="btn btn-sm" onclick="nav('ordini',document.querySelectorAll('.nav-item')[1])">Annulla</button>
     <button class="btn btn-sm btn-primary" onclick="salvaOrdine()">${_editId?'Salva modifiche':'Conferma ordine'}</button>
   </div>
