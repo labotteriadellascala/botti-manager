@@ -545,7 +545,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.35 — 10/08/2026 · Preventivi: cruscotto (bozze/inviati/accettati), avviso “accettato” in Da fare oggi e nel badge Lead, rinfresco automatico</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.36 — 10/08/2026 · Preventivi: eliminazione (singolo preventivo 🗑) e cancellazione lead che rimuove anche i preventivi collegati (con avviso)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1298,7 +1298,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.35';
+window.APP_VERSION = '2.36';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7969,6 +7969,7 @@ function _prevListaHtml(leadId){
       <span style="flex:1;text-align:right;font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
       <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="apriEditorPreventivo('${leadId}','${p.id}')">Apri</button>
       ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Copia link</button>`:''}
+      <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina preventivo" onclick="eliminaPreventivo('${p.id}')">🗑</button>
     </div>`).join('');
 }
 
@@ -8260,11 +8261,37 @@ async function marcaPreventivoLavorato(id){
 async function eliminaLeadMkt(id) {
   const x = _leadList.find(r=>r.id===id);
   if (!x) return;
-  if (!confirm(`Eliminare il lead${x.nome?' di '+x.nome:''} del ${x.data?fmtDate(x.data):'?'}?\nL'operazione \u00e8 definitiva.`)) return;
+  // Preventivi collegati: il vincolo FK impedisce di cancellare il lead lasciandoli orfani.
+  const collegati = (typeof _prevList!=='undefined') ? _prevList.filter(p=>p.lead_id===id) : [];
+  let extra = '';
+  if (collegati.length){
+    const nAcc = collegati.filter(p=>p.stato==='accettato').length;
+    extra = '\n\nHa ' + collegati.length + ' preventivo/i collegato/i'
+          + (nAcc ? ' (di cui ' + nAcc + ' ACCETTATO/I dal cliente!)' : '')
+          + ': verranno eliminati anche quelli.';
+  }
+  if (!confirm(`Eliminare il lead${x.nome?' di '+x.nome:''} del ${x.data?fmtDate(x.data):'?'}?\nL'operazione \u00e8 definitiva.`+extra)) return;
+  if (collegati.length){
+    const { error: eP } = await sb.from('preventivi').delete().eq('lead_id', id);
+    if (eP) { alert('Errore eliminazione preventivi collegati: ' + eP.message); return; }
+  }
   const { error } = await sb.from('lead_marketing').delete().eq('id', id);
   if (error) { alert('Errore eliminazione: ' + error.message); return; }
   _leadList = _leadList.filter(r=>r.id!==id);
+  await caricaPreventivi(true);
   disegnaLeadMkt(); aggiornaBadgeLead();
+}
+
+// Elimina un singolo preventivo (utile per bozze/prove). Avvisa se \u00e8 accettato.
+async function eliminaPreventivo(id){
+  const p = _prevList.find(x=>x.id===id);
+  if (!p) return;
+  const avviso = p.stato==='accettato' ? '\n\n\u26a0\ufe0f ATTENZIONE: questo preventivo \u00e8 stato ACCETTATO dal cliente.' : '';
+  if (!confirm('Eliminare definitivamente il preventivo ' + (p.numero||'') + '?' + avviso)) return;
+  const { error } = await sb.from('preventivi').delete().eq('id', id);
+  if (error) { alert('Errore eliminazione preventivo: ' + error.message); return; }
+  await caricaPreventivi(true);
+  closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
 }
 
 function showModal(title, content, buttons) {
