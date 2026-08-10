@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.38 — 10/08/2026 · Lead: vista a Kanban (colonne = fasi del funnel), mobile-first — card con i pulsanti in vista che avanzano il lead; silenti nascosti con filtro</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.39 — 10/08/2026 · Ordini: tasto “Esporta anagrafica” (file .xlsx nel formato import clienti di Aruba, precompilato coi dati dell’ordine)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.38';
+window.APP_VERSION = '2.39';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -1979,6 +1979,48 @@ function fattClienteDaOrdine(o){
     indirizzo: ind.via||'', cap: ind.cap||'', comune: ind.citta||'', provincia: (ind.provincia||'').toUpperCase(),
     nazione:'IT', codiceDestinatario:'0000000', pec:'',
   };
+}
+
+// Esporta l'anagrafica cliente di un ordine nel formato di import Aruba (foglio "ImportAnagrafiche").
+// Genera un .xlsx con le stesse 23 intestazioni + una riga col cliente; SheetJS caricato lazy.
+async function esportaAnagraficaAruba(id){
+  const o = (DB.get('ordini')||[]).find(x=>x.id===id);
+  if(!o){ alert('Ordine non trovato.'); return; }
+  const cli = fattClienteDaOrdine(o);
+  const intestazioni = ['Codice cliente','Tipo cliente','Indirizzo telematico (Codice SDI o PEC)','Email','PEC','Telefono','ID Paese','Partita Iva   ','Codice fiscale','Denominazione','Nome','Cognome','Codice EORI (solo Privati)','Nazione','CAP','Provincia','Comune','Indirizzo','Numero civico','Beneficiario','Condizioni di pagamento','Metodo di pagamento','Banca'];
+  const riga = [
+    '',                                   // Codice cliente (lo assegna Aruba)
+    'Privato',                            // Tipo cliente (aziende comprese)
+    cli.codiceDestinatario || '0000000',  // Indirizzo telematico SDI/PEC
+    o.email || o.mail || '',              // Email
+    '',                                   // PEC
+    o.tel || o.telefono || '',            // Telefono
+    'IT',                                 // ID Paese
+    cli.partitaIva || '',                 // Partita Iva
+    cli.codiceFiscale || '',              // Codice fiscale
+    cli.denominazione || o.cliente || '', // Denominazione
+    '',                                   // Nome
+    '',                                   // Cognome
+    '',                                   // Codice EORI
+    'IT',                                 // Nazione
+    cli.cap || '',                        // CAP
+    cli.provincia || '',                  // Provincia
+    cli.comune || '',                     // Comune
+    cli.indirizzo || '',                  // Indirizzo (può includere il civico)
+    '',                                   // Numero civico
+    '',                                   // Beneficiario
+    '',                                   // Condizioni di pagamento
+    '',                                   // Metodo di pagamento
+    ''                                    // Banca
+  ];
+  try{
+    await _loadSheetJS();
+    const ws = XLSX.utils.aoa_to_sheet([intestazioni, riga]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'ImportAnagrafiche');
+    const nome = 'anagrafica_' + String(cli.denominazione||o.cliente||o.num||'cliente').replace(/[^\w]+/g,'-').slice(0,40) + '.xlsx';
+    XLSX.writeFile(wb, nome);
+  }catch(e){ alert('Errore esportazione anagrafica: ' + e.message); }
 }
 
 // Scorporo con quadratura garantita al centesimo: imposta = lordo − imponibile
@@ -5886,6 +5928,7 @@ function showSchedaModal(id) {
     {label:'📋 Conferma ordine', action:`printConfermaOrdine('${id}')`},
     {label:'🖨 Scheda falegname', action:`printScheda('${id}')`, primary:true},
     {label:'Modifica', action:`closeModal();editOrdine('${id}')`},
+    {label:'📇 Esporta anagrafica', action:`esportaAnagraficaAruba('${id}')`},
   ]);
 }
 
