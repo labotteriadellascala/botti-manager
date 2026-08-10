@@ -1,7 +1,7 @@
 # 📒 Guida al modulo **Lead** — Botti Manager
 
 *Per Giulia — spiegazione semplice di cosa c'è, come si usa e perché.*
-**Aggiornata alla versione v2.32 (09/08/2026).**
+**Aggiornata alla versione v2.33 (10/08/2026).**
 
 ---
 
@@ -115,6 +115,11 @@ Non è burocrazia: è il modo per **non perdere clienti per dimenticanza**. Se o
 - Puoi usare il modulo **anche da telefono**.
 
 ---
+
+## 🆕 Novità della v2.33 (10/08/2026)
+- **Preventivi agganciati ai lead**: dentro **🎯 Gestisci** trovi **+ Genera preventivo**; in alto c'è **+ Nuovo preventivo** (che collega o crea il lead).
+- Editor con voci (sconto sempre visibile), misure, allegati rendering, **IVA esplicita**; **Salva bozza** o **Salva e genera link** da inviare al cliente.
+- *(La pagina che il cliente apre per accettare arriva con la prossima versione.)*
 
 ## 🆕 Novità della v2.32 (09/08/2026)
 - **Funnel automatico a 3 fasi** (Contatto → Preventivo/Trattativa → Esito): nuova colonna **Fase** con la barra di avanzamento e il pulsante **🎯 Gestisci**.
