@@ -158,7 +158,7 @@ textarea { resize: vertical; min-height: 70px; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(28,26,22,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal { background: var(--bg); border-radius: var(--radius-lg); padding: 24px; max-width: 560px; width: 90%; max-height: 85vh; overflow-y: auto; border: 1px solid var(--border2); }
 .modal-title { font-family: var(--serif); font-size: 18px; font-weight: 600; margin-bottom: 18px; }
-.modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.modal-footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 
 /* DISTINTA */
 .distinta-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.40 — 10/08/2026 · Ordini: “Esporta anagrafica” (Aruba) ora anche nella barra di Modifica ordine, non solo nel Riepilogo</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.41 — 10/08/2026 · Tolto “Esporta anagrafica” dal Riepilogo ordine (resta in Modifica ordine); popup: pulsanti in fondo vanno a capo, “Chiudi” sempre visibile</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.40';
+window.APP_VERSION = '2.41';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5929,7 +5929,6 @@ function showSchedaModal(id) {
     {label:'📋 Conferma ordine', action:`printConfermaOrdine('${id}')`},
     {label:'🖨 Scheda falegname', action:`printScheda('${id}')`, primary:true},
     {label:'Modifica', action:`closeModal();editOrdine('${id}')`},
-    {label:'📇 Esporta anagrafica', action:`esportaAnagraficaAruba('${id}')`},
   ]);
 }
 
