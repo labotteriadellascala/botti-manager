@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.41 — 10/08/2026 · Tolto “Esporta anagrafica” dal Riepilogo ordine (resta in Modifica ordine); popup: pulsanti in fondo vanno a capo, “Chiudi” sempre visibile</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.42 — 10/08/2026 · Scheda di lavorazione: numero ordine grande e ben visibile; “FUORI STANDARD” come rettangolo rosso a tutta riga (stampa colori inclusa)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.41';
+window.APP_VERSION = '2.42';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6779,8 +6779,12 @@ async function printScheda(id) {
 function _stileScheda() {
   return `
     @page { size: A4; margin: 10mm 12mm; }
-    body{font-family:'Segoe UI',Arial,sans-serif;max-width:700px;margin:14px auto;color:#1C1A16;font-size:12.5px}
+    body{font-family:'Segoe UI',Arial,sans-serif;max-width:700px;margin:14px auto;color:#1C1A16;font-size:12.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     h1{font-size:17px;margin:0 0 2px}.sub{color:#8C8578;font-size:11px;font-family:monospace;margin-bottom:10px}
+    .scheda-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#8C8578;font-family:monospace}
+    .num-big{font-size:46px;font-weight:800;line-height:1;color:#1C1A16;margin:1px 0 3px;letter-spacing:-0.01em}
+    .scheda-page.compatta .num-big{font-size:34px}
+    .fuoristd-box{background:#8B1A1A;color:#fff;font-weight:800;font-size:15px;text-align:center;padding:8px 10px;border-radius:4px;margin:8px 0 4px;letter-spacing:0.05em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .section{margin-bottom:9px}.section-title{font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:#8C8578;font-family:monospace;margin-bottom:4px;padding-bottom:2px;border-bottom:1.5px solid #ddd}
     .row{display:flex;gap:12px;margin-bottom:2px;font-size:12px}.key{color:#5C5648;min-width:110px;font-family:monospace;font-size:11px}.val{font-weight:600}
     .note{background:#FFF8E6;border-left:3px solid #7A5C00;padding:6px 10px;margin-top:6px;font-size:12px}
@@ -7020,8 +7024,9 @@ function corpoSchedaHTML(o) {
     <div class="scheda-page${classeCompatta}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
         <div>
-          <h1>Scheda di lavorazione</h1>
-          <div class="sub">${o.num} — creato ${fmtDate(o.creato)}</div>
+          <div class="scheda-label">Scheda di lavorazione</div>
+          <div class="num-big">N° ${o.num}</div>
+          <div class="sub">creato ${fmtDate(o.creato)}</div>
         </div>
         ${_qrBoxRiga(riga)}
       </div>
@@ -7037,7 +7042,7 @@ function corpoSchedaHTML(o) {
         <div class="row"><span class="key">Nome</span><span class="val">${riga.prodottoNome ? `${riga.prodotto} — ${riga.prodottoNome}` : (riga.prodotto||'—')}</span></div>
         ${riga.colore?`<div class="row"><span class="key">Finitura</span><span class="val" style="color:#8B3A1A">🎨 ${riga.colore}</span></div>`:''}
         ${riga.incisioni?`<div class="row"><span class="key">Incisioni</span><span class="val" style="color:#8B3A1A">✏ ${riga.incisioni}</span></div>`:''}
-        ${riga.fuoriStandard?`<div class="row"><span class="key">Tipo</span><span class="val urg">⚠ FUORI STANDARD</span></div>`:''}
+        ${riga.fuoriStandard?`<div class="fuoristd-box">⚠ FUORI STANDARD ⚠</div>`:''}
       </div>
       ${riepilogoAccessori}
       ${componentiSection}
