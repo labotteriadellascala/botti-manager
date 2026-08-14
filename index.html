@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.43 — 10/08/2026 · Ordini: “Preventivi” da dentro l’ordine (dati cliente precompilati, legati all’ordine e non ai Lead)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.44 — 10/08/2026 · Preventivi: flag “Mostra IVA esposta” nell’editor (se spento il cliente vede solo il Totale); vale per lead e ordini</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.43';
+window.APP_VERSION = '2.44';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8179,9 +8179,12 @@ async function apriEditorPreventivo(leadId, prevId, ordineId){
           <div class="r"><span>Importo a listino (IVA incl.)</span><span id="pv-t-list">€ 0,00</span></div>
           <div class="r" style="color:var(--accent)"><span>Sconto</span><span id="pv-t-sc">− € 0,00</span></div>
           <div class="r grand"><span>Totale (IVA inclusa)</span><span id="pv-t-tot">€ 0,00</span></div>
-          <div class="r" style="font-size:12px;color:var(--ink3)"><span>di cui imponibile</span><span id="pv-t-imp">€ 0,00</span></div>
-          <div class="r" style="font-size:12px;color:var(--ink3)"><span id="pv-t-ivalbl">di cui IVA 22%</span><span id="pv-t-iva">€ 0,00</span></div>
+          <div id="pv-iva-block">
+            <div class="r" style="font-size:12px;color:var(--ink3)"><span>di cui imponibile</span><span id="pv-t-imp">€ 0,00</span></div>
+            <div class="r" style="font-size:12px;color:var(--ink3)"><span id="pv-t-ivalbl">di cui IVA 22%</span><span id="pv-t-iva">€ 0,00</span></div>
+          </div>
         </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:12px;cursor:pointer;color:var(--ink2)"><input type="checkbox" id="pv-iva-esposta" style="width:auto" ${p.iva_esposta===false?'':'checked'} onchange="_prevToggleIvaEsposta()"> Mostra l'IVA esposta (dettaglio imponibile + IVA). Se spento, il cliente vede solo il Totale.</label>
       </div>
     </div>
     <div class="pv-actions">
@@ -8194,6 +8197,12 @@ async function apriEditorPreventivo(leadId, prevId, ordineId){
   righe.forEach(r => _prevAggiungiRiga(r));
   _prevRenderThumbs();
   _prevRicalcola();
+  _prevToggleIvaEsposta();
+}
+// Mostra/nasconde il dettaglio IVA (scorporo) in base al flag "Mostra IVA esposta".
+function _prevToggleIvaEsposta(){
+  const b=document.getElementById('pv-iva-block'), c=document.getElementById('pv-iva-esposta');
+  if(b && c) b.style.display = c.checked ? '' : 'none';
 }
 
 function _prevAggiungiRiga(d){
@@ -8280,6 +8289,7 @@ async function salvaPreventivo(genera){
   const cur=_prevEditId?_prevList.find(p=>p.id===_prevEditId):null;
   const patch={
     lead_id:_prevLeadId, ordine_id:_prevOrdineId, numero:val('pv-num').trim()||null,
+    iva_esposta: (function(){ const e=document.getElementById('pv-iva-esposta'); return e ? e.checked : true; })(),
     righe, imponibile:t.imponibile, sconto_totale:t.sconto, iva_percent:_prevParseNum(val('pv-iva')), totale:t.totale,
     misure:{larg:val('pv-mi-l'),prof:val('pv-mi-p'),alt:val('pv-mi-h'),diam:val('pv-mi-d'),note:val('pv-mi-note')},
     note:val('pv-note').trim()||null, allegati:_prevAllegati,
