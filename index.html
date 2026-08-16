@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.48 — 16/08/2026 · Lead: Scheda con cronologia delle azioni + “Aggiungi nota”; solleciti e cambi promemoria ora registrati nello storico</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.49 — 16/08/2026 · Lead: nella Scheda ora c’è il blocco “Richiesta” (contatti, fonte + UTM, prodotto, note del form) in sola lettura</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.48';
+window.APP_VERSION = '2.49';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8049,13 +8049,29 @@ function gestisciLead(id){
   const todo = x.prossima_azione
     ? `<b>${_at(x.prossima_azione)}</b>${x.data_prossima_azione?` · <span class="text-mono">${fmtDate(x.data_prossima_azione)}</span>`:''}`
     : '<span style="color:var(--ink3)">nessun promemoria impostato</span>';
+  // Dati della richiesta (sola lettura) — quello che il cliente ha lasciato dal form / all'inserimento.
+  const contatti = [x.email, x.telefono, x.contatto].filter(Boolean).join(' · ');
+  const utmChips = [x.contenuto, x.termine].filter(Boolean).map(t=>`<span style="font-size:9.5px;padding:1px 6px;border-radius:20px;background:var(--blue-bg);color:var(--blue)">${_at(t)}</span>`).join(' ');
+  const rRiga = (lab,val)=> val ? `<div style="display:flex;gap:8px;padding:2px 0"><span style="min-width:92px;color:var(--ink3)">${lab}</span><span style="flex:1">${val}</span></div>` : '';
+  const richiesta =
+      rRiga('Fonte', (x.fonte?_at(x.fonte):'—') + (utmChips?' '+utmChips:''))
+    + rRiga('Prodotto', x.prodotto?_at(x.prodotto):'')
+    + rRiga('Motivo', x.motivo?_at(x.motivo):'')
+    + rRiga('Valore', (x.valore!=null&&x.valore!=='')?('€ '+Number(x.valore).toLocaleString('it-IT')):'')
+    + rRiga('Arrivato il', x.data?fmtDate(x.data):'')
+    + (x.note?`<div style="margin-top:6px"><span style="color:var(--ink3)">Note / richiesta</span><div style="white-space:pre-wrap;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:3px">${_at(x.note)}</div></div>`:'');
   const html = `
     <div style="margin-bottom:6px"><span class="badge ${LEAD_STATO_BADGE[s]||'badge-gray'}">${meta.label}</span>${x.contattato_da?` · <span style="font-size:12px;color:var(--ink2)">${_at(nomeUtente(x.contattato_da))}</span>`:''}</div>
+    ${contatti?`<div style="font-size:12px;color:var(--ink2);margin-bottom:8px">${_at(contatti)}</div>`:''}
     <div style="font-size:12px;color:var(--ink2);margin-bottom:2px">${meta.desc}</div>
     <div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:12px">OBIETTIVO: ${meta.obj}</div>
     <div style="font-size:12px;color:var(--ink3)">Prossima azione</div>
     <div style="margin-bottom:12px">${todo} ${_leadAttivo(x)?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="impostaProssimaAzioneLead('${x.id}')">✎ modifica</button>`:''}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">${_leadPulsanti(x)}${(s==='Perso'||s==='Negativo')?'':_leadSposta(x)}</div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <span style="font-size:12px;color:var(--ink3);font-weight:600;display:block;margin-bottom:6px">Richiesta</span>
+      <div style="font-size:12px;line-height:1.5">${richiesta || '<span style="color:var(--ink3)">Nessun dettaglio inserito.</span>'}</div>
+    </div>
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="font-size:12px;color:var(--ink3);flex:1;font-weight:600">Cronologia</span>
