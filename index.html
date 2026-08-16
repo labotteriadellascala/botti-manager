@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.49 — 16/08/2026 · Lead: nella Scheda ora c’è il blocco “Richiesta” (contatti, fonte + UTM, prodotto, note del form) in sola lettura</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.50 — 16/08/2026 · Lead: nuovo stato “Contattato” (1° messaggio, attende risposta) tra Nuovo e In conversazione; pulsanti “Ha risposto” e “Ricontattato”</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.49';
+window.APP_VERSION = '2.50';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7361,16 +7361,17 @@ const LEAD_MOTIVI = ['Per sé','Regalo','Matrimonio','Locale','Non dichiarato'];
 // motore promemoria (prossima_azione/data_prossima_azione) e dalla FONTE.
 // `esito` (NOT NULL) resta popolato per retrocompatibilità, derivato da
 // `stato` via _statoToEsito. `fase` non è più usata dalla logica.
-const LEAD_STATI = ['Nuovo','In conversazione','Qualificato','Preventivo inviato','Accettazione preventivo','Nurture','Perso','Negativo'];
+const LEAD_STATI = ['Nuovo','Contattato','In conversazione','Qualificato','Preventivo inviato','Accettazione preventivo','Nurture','Perso','Negativo'];
 const LEAD_STATI_NASCOSTI = ['Nurture','Perso','Negativo'];   // fuori dal lavoro attivo: dietro il toggle
 const LEAD_STATO_BADGE = {
-  'Nuovo':'badge-amber','In conversazione':'badge-accent','Qualificato':'badge-accent',
+  'Nuovo':'badge-amber','Contattato':'badge-amber','In conversazione':'badge-accent','Qualificato':'badge-accent',
   'Preventivo inviato':'badge-accent','Accettazione preventivo':'badge-green',
   'Nurture':'badge-blue','Perso':'badge-gray','Negativo':'badge-gray'
 };
 // Meta di colonna: etichetta + descrizione + OBIETTIVO (mostrati sotto il titolo).
 const LEAD_COLONNE = [
   { key:'Nuovo', label:'🆕 Nuovo', desc:'Richiesta appena arrivata, ancora da contattare.', obj:'Rispondere in fretta e rompere il ghiaccio.' },
+  { key:'Contattato', label:'✉️ Contattato', desc:'Primo messaggio di presentazione inviato: ora tocca a lui/lei rispondere.', obj:'Farsi rispondere. Se tace, ricontatta con garbo (poi Nurture).' },
   { key:'In conversazione', label:'💬 In conversazione', desc:'Ci stiamo scrivendo: sto capendo cosa cerca e se fa sul serio.', obj:'Dare un range di prezzo con max 200€ tra minimo e massimo.' },
   { key:'Qualificato', label:'⭐ Qualificato', desc:'Range di prezzo accettato e rendering inviato.', obj:'Massimo hype nel vedere il rendering del prodotto che sognava.' },
   { key:'Preventivo inviato', label:'📄 Preventivo inviato', desc:'Confermati rendering e caratteristiche: si invia il preventivo con OFFERTA UNICA A TEMPO.', obj:'Creare urgenza e far emergere subito dubbi/perplessità.' },
@@ -7419,6 +7420,7 @@ function _leadDataFra(giorni){
 // Promemoria di default all'ingresso in uno stato: {azione, giorni} oppure null.
 function _promemoriaDefault(stato){
   switch (stato){
+    case 'Contattato':              return { azione:'1° contatto — attende risposta', giorni:LEAD_GG.sollecito };
     case 'In conversazione':        return { azione:'Prosegui / attendi risposta', giorni:LEAD_GG.conversazione };
     case 'Qualificato':             return { azione:'Invia il preventivo (offerta a tempo)', giorni:LEAD_GG.qualificato };
     case 'Preventivo inviato':      return { azione:'Follow-up preventivo', giorni:LEAD_GG.preventivoFU };
@@ -7448,28 +7450,31 @@ async function _leadVaiA(id, nuovoStato, extra, opts){
 }
 
 // ─── Azioni contestuali (pulsanti card / "Da fare oggi") ───
-// "Contattato": Nuovo → In conversazione + presa in carico (chi/quando).
+// "Contattato": Nuovo → Contattato (primo messaggio di presentazione) + presa in carico.
 async function segnaContattato(id){
   const cur = _leadList.find(r=>r.id===id); if (!cur) return;
-  const extra = {};
+  const extra = { prossima_azione:'1° contatto — attende risposta', data_prossima_azione:_leadDataFra(LEAD_GG.sollecito),
+                  fase_storico:_leadStorico(cur, '1° contatto: messaggio di presentazione inviato') };
   if (!cur.contattato_at){ extra.contattato_at = new Date().toISOString(); extra.contattato_da = window.__UTENTE_EMAIL__ || null; }
-  if (await _leadVaiA(id, 'In conversazione', extra)){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+  if (await _leadVaiA(id, 'Contattato', extra, { mantieniProm:true })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
 }
-// "Ha risposto": azzera i solleciti e rimette un promemoria pulito.
+// "Ha risposto": il cliente ha risposto → In conversazione.
 async function leadHaRisposto(id){
   const cur = _leadList.find(r=>r.id===id); if (!cur) return;
-  if (await _aggiornaLead(id, { prossima_azione:'Prosegui la conversazione', data_prossima_azione:_leadDataFra(LEAD_GG.conversazione), fase_storico:_leadStorico(cur, 'Ha risposto') })){
+  if (await _leadVaiA(id, 'In conversazione', { fase_storico:_leadStorico(cur, 'Ha risposto') })){
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
-// "Nessuna risposta": sollecito +2gg, poi +2gg, poi → Nurture.
+// "Ricontattato" / "Sollecitato": registra un nuovo tentativo; dopo 3 → Nurture.
 async function leadSollecito(id){
   const cur = _leadList.find(r=>r.id===id); if (!cur) return;
-  const m = String(cur.prossima_azione||'').match(/(\d+)°\s*sollecito/i);
-  const n = m ? parseInt(m[1],10) : 0;
-  if (n >= 2){ if (await _leadVaiA(id, 'Nurture')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } return; }
-  const patch = { prossima_azione:`${n+1}° sollecito`, data_prossima_azione:_leadDataFra(LEAD_GG.sollecito),
-                  fase_storico:_leadStorico(cur, `${n+1}° sollecito · nessuna risposta, ricontattare tra ${LEAD_GG.sollecito} gg`) };
+  const s = _stato(cur);
+  const parola = (s === 'Preventivo inviato') ? 'follow-up' : 'contatto';
+  const m = String(cur.prossima_azione||'').match(/(\d+)°\s*(?:contatto|follow-up|sollecito)/i);
+  const n = m ? parseInt(m[1],10) : 1;
+  if (n >= 3){ if (await _leadVaiA(id, 'Nurture', { fase_storico:_leadStorico(cur, 'Nessuna risposta dopo i tentativi → Nurture') })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } return; }
+  const patch = { prossima_azione:`${n+1}° ${parola} — attende risposta`, data_prossima_azione:_leadDataFra(LEAD_GG.sollecito),
+                  fase_storico:_leadStorico(cur, `${n+1}° ${parola} inviato · attende risposta (ricontattare tra ${LEAD_GG.sollecito} gg)`) };
   if (await _aggiornaLead(id, patch)){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
 }
 // Avanzamenti diretti.
@@ -7490,8 +7495,13 @@ async function leadAccontoVersato(id){
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
-// "Ricontattato" (da Nurture): torna In conversazione.
-async function leadRicontattato(id){ if (await _leadVaiA(id, 'In conversazione')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
+// "Riprendi" (da Nurture): rimanda un messaggio → torna Contattato (attende risposta).
+async function leadRicontattato(id){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  const extra = { prossima_azione:'Ripreso il contatto — attende risposta', data_prossima_azione:_leadDataFra(LEAD_GG.sollecito),
+                  fase_storico:_leadStorico(cur, 'Ripreso il contatto dopo il Nurture') };
+  if (await _leadVaiA(id, 'Contattato', extra, { mantieniProm:true })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
 // Riapre un lead chiuso (Perso/Negativo).
 async function riapriLead(id){ if (await _leadVaiA(id, 'In conversazione', { chiuso_at:null })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
 
@@ -7538,24 +7548,27 @@ function _leadPulsanti(x){
   const B = (fn,lab,cls,tit)=>`<button class="btn btn-sm ${cls||'btn-ghost'}" style="font-size:11px" title="${tit||''}" onclick="event.stopPropagation();${fn}('${x.id}')">${lab}</button>`;
   let b = '';
   if (s === 'Nuovo'){
-    b += B('segnaContattato','✅ Contattato','btn-primary','Segna che l’hai contattato → In conversazione');
+    b += B('segnaContattato','✅ Contattato','btn-primary','Ho mandato il 1° messaggio di presentazione → Contattato');
+  } else if (s === 'Contattato'){
+    b += B('leadHaRisposto','💬 Ha risposto','btn-primary','Il cliente ha risposto → In conversazione');
+    b += B('leadSollecito','📨 Ricontattato','','Ho scritto di nuovo (non ha ancora risposto): +2gg, dopo 3 → Nurture');
   } else if (s === 'In conversazione'){
     b += B('leadQualificato','⭐ Qualificato','btn-primary','Ha un interesse concreto');
     b += B('leadPreventivoInviato','📄 Preventivo','','Hai inviato il preventivo');
-    b += B('leadSollecito','Nessuna risposta','','Sollecita (+2gg, poi Nurture)');
+    b += B('leadSollecito','📨 Ricontattato','','Ho scritto di nuovo (non risponde): +2gg, dopo 3 → Nurture');
   } else if (s === 'Qualificato'){
     b += B('leadPreventivoInviato','📄 Preventivo inviato','btn-primary','Invia il preventivo');
-    b += B('leadSollecito','Nessuna risposta','','Sollecita (+2gg, poi Nurture)');
+    b += B('leadSollecito','📨 Ricontattato','','Ho scritto di nuovo (non risponde): +2gg, dopo 3 → Nurture');
   } else if (s === 'Preventivo inviato'){
     b += B('leadHaAccettato','🤝 Ha accettato','btn-primary','Il cliente ha accettato il preventivo');
-    b += B('leadSollecito','Sollecitato','','Follow-up (+2gg, poi Nurture)');
+    b += B('leadSollecito','📨 Sollecitato','','Follow-up preventivo (+2gg, dopo 3 → Nurture)');
   } else if (s === 'Accettazione preventivo'){
     if (!x.acconto_versato){
       b += B('leadAccontoVersato','Acconto versato','btn-primary','Segna l’acconto incassato → produzione');
       b += B('leadSollecitoAcconto','Sollecitato','','Rimanda il sollecito acconto di 2gg');
     }
   } else if (s === 'Nurture'){
-    b += B('leadRicontattato','↩ Ricontattato','btn-primary','Torna In conversazione');
+    b += B('leadRicontattato','↩ Riprendi','btn-primary','Rimanda un messaggio → Contattato');
   } else if (s === 'Perso' || s === 'Negativo'){
     b += B('riapriLead','↩ Riapri','','Rimetti in lavorazione');
   }
