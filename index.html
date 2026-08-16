@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.45 — 16/08/2026 · Lead: nuova pipeline a STATO (8 fasi con obiettivo), fonte + UTM, promemoria separato, card con “Sposta a…” e trascinamento</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.46 — 16/08/2026 · Lead: card colorate per urgenza (🔴 scaduto, 🟡 in scadenza); rimosso il lungo elenco solleciti, resta l’avviso preventivi accettati</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.45';
+window.APP_VERSION = '2.46';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7577,6 +7577,12 @@ function _leadRemLine(x, suffix){
   return `<div style="font-size:11px;color:${cc}">${x.prossima_azione?_at(x.prossima_azione)+' · ':''}${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}${suffix||''}</div>`;
 }
 // Card di un lead nel Kanban.
+// Giorni alla scadenza del promemoria (negativo = scaduto, 0 = oggi).
+function _leadGgScad(dateStr){
+  const oggi = new Date(); oggi.setHours(0,0,0,0);
+  const d = new Date(String(dateStr).slice(0,10) + 'T00:00:00');
+  return Math.round((d - oggi) / 86400000);
+}
 function _leadCard(x){
   const s = _stato(x);
   const contatto = ([x.email,x.telefono].filter(Boolean).join(' · ') || x.contatto) || '';
@@ -7601,7 +7607,14 @@ function _leadCard(x){
   }
   const azioni = _leadPulsanti(x);
   const sposta = (s === 'Perso' || s === 'Negativo') ? '' : _leadSposta(x);
-  return `<div class="lead-card" data-id="${x.id}" style="background:#fff;border:0.5px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+  // Colore per urgenza del promemoria: rosso = scaduto, giallo = in scadenza (entro 2 giorni).
+  let cardBg = '#fff', cardBL = '';
+  if (_leadAttivo(x) && x.data_prossima_azione){
+    const gg = _leadGgScad(x.data_prossima_azione);
+    if (gg < 0){ cardBg = 'var(--red-bg)'; cardBL = 'border-left:3px solid var(--red);'; }
+    else if (gg <= 2){ cardBg = 'var(--amber-bg)'; cardBL = 'border-left:3px solid var(--amber);'; }
+  }
+  return `<div class="lead-card" data-id="${x.id}" style="background:${cardBg};border:0.5px solid var(--border);${cardBL}border-radius:8px;padding:10px;margin-bottom:8px">
     <div style="font-weight:600;font-size:13px">${_at(x.nome||'—')}${tag}</div>
     <div style="font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_at(contatto)||'—'}</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 2px">${chips}</div>
@@ -7742,36 +7755,21 @@ function disegnaLeadMkt() {
     </div>`;
   }
 
-  // ── "Da fare oggi": preventivi ACCETTATI + lead con promemoria scaduto/oggi ──
-  const _daFare = list.filter(x => _leadAttivo(x) && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) !== 'futuro')
-                      .sort((a,b) => a.data_prossima_azione.localeCompare(b.data_prossima_azione));
-  const _senzaAzione = list.filter(x => _leadAttivo(x) && _stato(x) !== 'Nuovo' && !x.data_prossima_azione).length;
-  if (_daFare.length || _senzaAzione || _prevAcc.length) {
+  // ── Avviso preventivi ACCETTATI (i lead urgenti si vedono ora dalle card colorate) ──
+  if (_prevAcc.length) {
     const righeAcc = _prevAcc.map(p => {
       const _l = _leadList.find(l => l.id===p.lead_id);
       const chi = p.cliente_nome || (_l && _l.nome) || '—';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border)">
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);flex-wrap:wrap">
         <span style="min-width:82px;font-weight:700;font-size:11px;color:var(--green)">✅ ACCETTATO</span>
-        <span style="flex:1;font-size:13px">Preventivo <b>${_at(p.numero||'')}</b> accettato da <b>${_at(chi)}</b> · ${_prevEuro(p.totale)}</span>
+        <span style="flex:1;min-width:150px;font-size:13px">Preventivo <b>${_at(p.numero||'')}</b> accettato da <b>${_at(chi)}</b> · ${_prevEuro(p.totale)}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="apriEditorPreventivo('${p.lead_id}','${p.id}')">Apri</button>
         <button class="btn btn-sm btn-primary" style="font-size:11px" onclick="marcaPreventivoLavorato('${p.id}')">Preso in carico</button>
       </div>`;
     }).join('');
-    const righeDF = _daFare.map(x => {
-      const st = statoPromemoria(x.data_prossima_azione);
-      const col = st === 'scaduto' ? 'var(--red)' : 'var(--amber)';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);flex-wrap:wrap">
-        <span class="text-mono" style="color:${col};font-weight:700;font-size:12px;min-width:82px">${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}</span>
-        <span style="flex:1;min-width:140px;font-size:13px"><b>${_at(x.nome||'—')}</b> · ${x.prossima_azione ? _at(x.prossima_azione) : '<span style="color:var(--ink3)">azione non specificata</span>'}</span>
-        ${_leadPulsanti(x)}
-      </div>`;
-    }).join('');
-    const _tot = _daFare.length + _prevAcc.length;
-    html += `<div style="background:var(--bg2);border:1px solid var(--amber);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:2px">📌 Da fare oggi${_tot?` <span style="color:var(--ink3);font-weight:400">(${_tot})</span>`:''}</div>
+    html += `<div style="background:var(--green-bg);border:1px solid var(--green);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:2px">🎉 Preventivi accettati da gestire <span style="color:var(--ink3);font-weight:400">(${_prevAcc.length})</span></div>
       ${righeAcc}
-      ${righeDF}
-      ${_senzaAzione?`<div style="font-size:11px;color:var(--ink3);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">⚠ ${_senzaAzione} lead attiv${_senzaAzione===1?'o':'i'} senza promemoria: impostalo dalla card.</div>`:''}
     </div>`;
   }
 
@@ -7791,7 +7789,11 @@ function disegnaLeadMkt() {
     </div>`;
   }).join('');
   html += `<div class="kanban" id="lead-kanban-board">${board}</div>
-  <div style="font-size:11px;color:var(--ink3);margin-top:10px">Su telefono le colonne scorrono in orizzontale. Nurture / Perso / Negativo compaiono con “Mostra Nurture &amp; chiusi”. Puoi anche trascinare una card in un’altra colonna (tienila premuta un attimo su telefono).</div>`;
+  <div style="font-size:11px;color:var(--ink3);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--red-bg);border-left:3px solid var(--red);vertical-align:middle"></span> promemoria scaduto</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--amber-bg);border-left:3px solid var(--amber);vertical-align:middle"></span> in scadenza (entro 2 gg)</span>
+    <span>Nurture / Perso / Negativo: spunta “Mostra Nurture &amp; chiusi”. Trascina una card per spostarla (tienila premuta un attimo su telefono).</span>
+  </div>`;
   c.innerHTML = html;
   _leadDragInit();
 }
