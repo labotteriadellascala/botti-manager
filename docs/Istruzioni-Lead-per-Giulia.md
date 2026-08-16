@@ -1,135 +1,147 @@
 # 📒 Guida al modulo **Lead** — Botti Manager
 
 *Per Giulia — spiegazione semplice di cosa c'è, come si usa e perché.*
-**Aggiornata alla versione v2.33 (10/08/2026).**
+**Aggiornata alla versione v2.46 (16/08/2026).**
 
 ---
 
 ## A cosa serve questo modulo
 
-Ogni richiesta che arriva — DM su Instagram, WhatsApp, form del sito, contatto in fiera — diventa una **riga** qui dentro. Il modulo Lead serve a fare **tre cose**, che sono i tre momenti in cui un contatto rischia di raffreddarsi e perdersi:
+Ogni richiesta che arriva — DM su Instagram, WhatsApp, form del sito, commento su Facebook/Instagram — diventa una **scheda (card)** qui dentro. Il modulo Lead serve a **non perdere nessun cliente per dimenticanza**: ti dice sempre *a che punto è ogni contatto* e *cosa fare adesso*.
 
-1. **Rispondere in fretta** a chi ha appena scritto (un lead nuovo lasciato lì ore si perde da solo).
-2. **Non dimenticare la prossima mossa** dopo che ci hai parlato.
-3. **Non lasciare a metà** chi ha ricevuto un preventivo e poi è sparito.
+Funziona con **due informazioni separate**, tienile a mente perché è tutta qui la logica:
 
-L'idea di fondo: **ogni lead vivo deve sempre avere una "prossima azione" con una data.** Se non ce l'ha, per il sistema è un lead che si sta perdendo — e te lo mette davanti agli occhi, così non devi cercartelo tu.
+1. **STATO** = a che punto è il cliente nel percorso (le **colonne** che vedi). Un cliente sta in **una sola** colonna alla volta.
+2. **PROMEMORIA** = quando ricontattarlo. È una data + una frase ("cosa fare"). Serve solo a ricordartelo: **i messaggi li scrivi sempre tu a mano**, il sistema non manda niente da solo.
 
 ---
 
 ## Come apri il modulo
 
-Menu a sinistra → **Lead**. Se accanto alla voce c'è un **numero rosso**, sono i lead che chiedono la tua attenzione (vedi *Il pallino rosso* più sotto).
+Menu a sinistra → **Lead**. Se accanto alla voce c'è un **numero rosso**, sono i lead che chiedono la tua attenzione (vedi *Il pallino rosso* più sotto). Funziona **anche da telefono**: le colonne scorrono in orizzontale.
 
 ---
 
-## Cosa vedi nella schermata
+## Le 8 colonne (gli STATI)
 
-### 1) I numeri in alto (statistiche del mese)
-Contatti online, chiusi, percentuale di chiusura, valore incassato, silenti da ricontattare, fermi da 4+ giorni. Servono a te e ad Andrea per capire come va il mese. I contatori **Silenti** e **Fermi** guardano *tutto* il registro, non solo il mese.
+Le schede sono organizzate in colonne = le fasi del percorso. Sotto il titolo di ogni colonna trovi una **breve descrizione** e l'**OBIETTIVO** di quella fase (in bordeaux). Ecco cosa significano:
 
-### 2) 📌 La cassetta **"Da fare oggi"** *(novità)*
-Il riquadro con il bordo ambra, in alto. Contiene i lead **attivi** la cui **prossima azione** è **per oggi o già scaduta**:
-- **In rosso e in cima** = **scaduti** (dovevi farli prima). Con l'orologio ⏰.
-- **In ambra** = **da fare oggi**.
-- In fondo, una riga ti avvisa quanti lead attivi **non hanno ancora** una prossima azione impostata.
+| Colonna | Cosa vuol dire | Obiettivo |
+|---|---|---|
+| 🆕 **Nuovo** | Richiesta appena arrivata, ancora da contattare. | Rispondere in fretta e rompere il ghiaccio. |
+| 💬 **In conversazione** | Ci stiamo scrivendo, sto capendo cosa cerca. | Dare un range di prezzo con max 200€ tra minimo e massimo. |
+| ⭐ **Qualificato** | Range di prezzo accettato e rendering inviato. | Massimo hype nel vedere il rendering che sognava. |
+| 📄 **Preventivo inviato** | Confermati rendering e caratteristiche: si manda il preventivo con **offerta unica a tempo**. | Creare urgenza e far emergere subito dubbi/perplessità. |
+| 🤝 **Accettazione preventivo** | Ha accettato il preventivo: manca **solo l'acconto** per partire. | Incassare l'acconto (promemoria ogni 2 giorni). |
+| 🌱 **Nurture** | Interessato ma non ora: si ricontatta più avanti (**non** è perso). | Restare nel radar e riaccendere l'interesse al momento giusto. |
+| 🚫 **Perso** | Sparito dopo i solleciti (ghosting): non risponde più. | Capire perché è svanito e imparare per i prossimi. |
+| ❌ **Negativo** | Ha risposto ma ha **rifiutato** il preventivo (prezzo/altra scelta). | Capire il vero motivo del no. |
 
-È la tua **lista della giornata**: parti da qui.
+Le prime 5 colonne sono sempre visibili. **Nurture / Perso / Negativo** compaiono solo se metti la spunta **"Mostra Nurture & chiusi"** (così non ti riempiono lo schermo).
 
-### 3) I filtri e la ricerca
-Sotto le statistiche: puoi filtrare per **mese**, **esito**, **fonte**, oppure cercare per nome/contatto/note.
+> **Perso e Negativo sono diversi:** *Perso* = è sparito e non risponde; *Negativo* = ha risposto ma ha detto no. Teniamoli separati perché la lezione da imparare è diversa.
 
-### 4) La tabella dei lead
-Ogni riga è un contatto. Le colonne importanti:
-- **Presa in carico** — chi e quando ha risposto per primo (vedi sotto).
-- **Fase** *(novità v2.32)* — la **barra a 3 fasi** (Contatto → Preventivo/Trattativa → Esito) con lo stadio attuale evidenziato. Cliccala per **gestire** il lead.
-- **Prossima azione** — cosa fare e quando. Colorata **rossa** se scaduta, **ambra** se è oggi. Se un lead attivo **non ha** una prossima azione, vedi **⚠ Imposta**.
-- **Esito** — lo stato del lead (In trattativa, Chiuso, Perso, Silente).
+---
+
+## I colori delle schede *(novità)*
+
+Il sistema colora le schede in base al **promemoria**, così vedi al volo cosa è urgente:
+
+- 🔴 **Rosso** = promemoria **scaduto** (dovevi farlo prima).
+- 🟡 **Giallo** = promemoria **in scadenza** (entro 2 giorni).
+- ⬜ **Bianco** = tutto tranquillo, la data è più in là.
+
+La tua giornata parte da qui: **prima le rosse, poi le gialle.**
+
+---
+
+## Cosa vedi, oltre alle colonne
+
+- **In alto i numeri del mese**: contatti, accettati, % di chiusura, valore accettato, Nurture da ricontattare, preventivi fermi.
+- **Banner verde "🎉 Preventivi accettati da gestire"**: compare solo quando un cliente ha **accettato un preventivo dal sito**. È la priorità massima (qualcuno ha detto sì): aprilo e premi **Preso in carico**.
+- **Filtri e ricerca**: per mese, per fonte, o cerca per nome/contatto/note.
+- Su ogni scheda: nome, contatto, la **fonte** (es. Sito, WhatsApp) e — se il lead arriva dal sito — dei riquadrini azzurri con i dati della pubblicità (UTM). Non devi farci nulla, servono ad Andrea per capire da quale campagna arrivano.
 
 ---
 
 ## Le cose che fai ogni giorno (passo per passo)
 
 ### ➕ Registrare un lead nuovo
-Pulsante **"+ Nuovo lead"** in alto a destra. Metti almeno **Data** e **Fonte** (obbligatorie), poi nome, contatti (email/telefono/Instagram), prodotto richiesto e note. Salva.
+Pulsante **"+ Nuovo lead"** in alto. Metti almeno **Data** e **Fonte** (obbligatorie), poi nome, contatti (email/telefono/Instagram), prodotto richiesto e note. Lo Stato parte da **Nuovo**. Salva.
+*(I lead che arrivano dal form del sito si registrano da soli e finiscono in **Nuovo**.)*
 
-### ✅ Prendere in carico un lead ("Contattato")
-Quando **rispondi per la prima volta** a un lead nuovo, premi il pulsante **"Contattato"** nella sua riga (colonna *Presa in carico*). Il sistema registra **chi sei tu e a che ora**, e mostra **quanto tempo** è passato dall'arrivo (es. "✅ Giulia · 2h"). Finché nessuno l'ha preso in carico, vedi "in attesa da …": è il segnale di rispondere in fretta.
+### ✅ Prendere in carico ("Contattato")
+Quando **rispondi per la prima volta** a un lead **Nuovo**, premi **"✅ Contattato"** sulla scheda. Il lead passa a **In conversazione**, il sistema registra **chi sei tu e quando**, e ti mette già un promemoria per proseguire.
 
-### 🚦 Il funnel automatico *(novità v2.32) — la parte più importante*
-Da adesso **non devi più scriverti tu la prossima mossa**: la propone il sistema in base a dove sei nel percorso. Funziona così:
+### ➡️ Spostare un lead da una colonna all'altra
+Hai **tre modi**, usa quello che ti è più comodo:
+1. **Pulsante primario** sulla scheda = il passo più probabile (es. su *In conversazione* trovi **⭐ Qualificato** e **📄 Preventivo**; su *Preventivo inviato* trovi **🤝 Ha accettato**).
+2. Menù **"Sposta a…"** = per mandarlo in qualsiasi altra colonna.
+3. **Trascinamento**: prendi la scheda e trascinala nella colonna che vuoi. Col mouse è immediato; **da telefono tienila premuta un attimo** e poi trascina.
 
-- Quando premi **Contattato**, parte il funnel: il sistema ti dice da solo *"fra 2 giorni fai il 2° contatto"*.
-- Nella tabella, sulla colonna **Fase**, clicca la barra (o il pulsante **🎯 Gestisci**): si apre una finestrella con lo stadio, la prossima azione e i **pulsanti giusti per quel momento**.
-- I pulsanti che vedrai, a seconda della fase:
-  - **✅ Fatto, aspetto risposta** → hai fatto il contatto/sollecito; il sistema **programma da solo il passo dopo** (2°→3°→ poi Silente).
-  - **💬 Ha risposto** → il cliente ti ha scritto: passi a *"in conversazione"*.
-  - **📄 Preventivo inviato** → salti alla fase Preventivo (poi ti ricorda i follow-up da solo).
-  - **🤝 Sta trattando** / **✅ Vinto** → nella fase preventivo/trattativa.
-- **Regola d'oro del sistema:** se non fai nulla, lui **assume che il cliente non abbia risposto** e continua a ricordarti il prossimo sollecito. Nella peggiore delle ipotesi ti ricorda una cosa che avevi già fatto: basta correggere con un click.
+### ⏰ I solleciti (quando non risponde)
+Se un lead non ti risponde, premi **"Nessuna risposta"**: il sistema mette un promemoria **fra 2 giorni**. Se anche dopo non risponde, un altro **+2 giorni**. Al **terzo** buco, lo porta da solo in **🌱 Nurture** (non perso: da ricontattare più avanti).
+Se invece ti risponde, premi **"Ha risposto"** e riparti puliti.
 
-Ogni click va anche a finire nello **storico** del lead (per capire, col tempo, dove si perdono i clienti). E il to-do è **assegnato a chi ha iniziato la conversazione**.
+### 📄 Dal preventivo all'acconto
+- Quando mandi il preventivo, porta il lead in **📄 Preventivo inviato** (pulsante **📄 Preventivo**). Ricordati: qui l'idea è **offerta a tempo**, per creare un po' di urgenza.
+- Se il cliente **accetta**, premi **🤝 Ha accettato**: va in **Accettazione preventivo** e la scheda mostra **⏳ Attende acconto** con un promemoria **ogni 2 giorni** per sollecitare il pagamento.
+- Quando **arriva l'acconto**, premi **"Acconto versato"**: la scheda diventa *"pronto per la produzione"*.
+  👉 **L'ordine in produzione lo crei tu a mano** (Nuovo ordine), come sempre.
 
-### 📅 Impostare o aggiornare la **prossima azione** (a mano, se serve)
-Nella colonna *Prossima azione* premi **⚠ Imposta** (se manca) o **Aggiorna** (se c'è già). Si apre un riquadro dove scrivi:
-- **Data prossima azione** — quando devi rifarti sotto.
-- **Cosa fare** — una frase breve: *"richiamare", "inviare preventivo", "sollecitare acconto"…*
+### 🌱 Nurture (i "non ora")
+Un lead in **Nurture** si ricontatta di default dopo **45 giorni** (se il cliente ti ha detto una data precisa, mettila tu a mano nel promemoria). Quando lo risenti, premi **"↩ Ricontattato"**: torna *In conversazione*.
 
-Salva. Da quel momento quel lead comparirà in **"Da fare oggi"** alla data giusta.
-👉 *Per togliere la prossima azione, lascia la data vuota e salva.*
+### 🔒 Chiudere un lead che non va in porto *(non cancella!)*
+Premi **"Sposta a… → Perso"** oppure **"→ Negativo"** (o usa il menù). Scegli:
+- **Perso** — sparito, non risponde (ghosting).
+- **Negativo** — ha risposto ma ha rifiutato il preventivo.
 
-### 🔒 Chiudere un lead che non va in porto *(novità — non cancella più!)*
-Quando un lead è **perso** o **da mettere in pausa**, premi **"Chiudi"** nella riga (o dentro "Da fare oggi"). Scegli:
-- **Perso** — non se ne fa nulla.
-- **Silente** — da ricontattare più avanti.
-
-e **scrivi il motivo** (è obbligatorio: es. *prezzo, tempi, ha scelto altro, non risponde*).
-Il lead **non viene cancellato**: resta nel registro, lo puoi rivedere e, se serve, riaprire. Così non perdiamo la memoria del perché.
+e **scrivi il motivo** (obbligatorio). Il lead **non viene cancellato**: resta nel registro, lo puoi rivedere e riaprire.
 
 ### ↩ Riaprire un lead chiuso
-Sui lead **Perso/Silente** compare **"↩ Riapri"**: lo riporta *In trattativa*. Poi imposta una nuova prossima azione.
+Sulle schede **Perso/Negativo** c'è **"↩ Riapri"**: lo riporta *In conversazione*.
+
+### 📅 Cambiare il promemoria a mano
+Se un promemoria non c'è o vuoi cambiarlo: sulla scheda premi **"⚠ Imposta promemoria"** (se manca) oppure aprilo dai **Dettagli**. Scrivi **quando** e **cosa fare**. Per toglierlo, lascia la data vuota.
 
 ### 🗑 Eliminare davvero (solo spam o prove)
-Il cestino 🗑 grigio a fine riga cancella il lead **per sempre**. Usalo **solo** per spam o lead di test — per tutto il resto usa **Chiudi**, che conserva lo storico.
+Il cestino 🗑 grigio cancella il lead **per sempre**. Usalo **solo** per spam o test — per tutto il resto usa **Perso/Negativo**, che conservano lo storico.
+
+### 🧾 Fare un preventivo
+Apri i **Dettagli** del lead → **+ Genera preventivo** (oppure **+ Nuovo preventivo** in alto, che collega o crea il lead). Compili voci, misure, allegati; **Salva bozza** o **Salva e genera link** da inviare al cliente. Quando il cliente accetta dal sito, te lo ritrovi nel banner verde in cima.
 
 ---
 
 ## 🔴 Il pallino rosso nel menu "Lead"
-Il numero rosso accanto a **Lead** conta i lead che **richiedono un'azione adesso**:
-- lead **non ancora presi in carico**, **più**
-- lead attivi con **prossima azione scaduta o di oggi**.
+Il numero rosso conta i lead che **richiedono un'azione adesso**:
+- lead **Nuovi** non ancora presi in carico, **più**
+- lead attivi con **promemoria scaduto o di oggi**, **più**
+- **preventivi accettati** da gestire.
 
 Quando è a zero, sei in pari. 🎯
 
 ---
 
 ## Perché lavorare così (in due righe)
-Non è burocrazia: è il modo per **non perdere clienti per dimenticanza**. Se ogni lead vivo ha sempre una **prossima azione datata**, non devi più ricordarti nulla a memoria — apri il modulo, guardi **"Da fare oggi"**, e sai esattamente cosa fare. I lead freddi non si nascondono più.
+Non è burocrazia: apri il modulo, guardi le **schede rosse e gialle**, e sai esattamente cosa fare oggi — senza doverti ricordare niente a memoria. Lo **stato** ti dice a che punto è ognuno; il **colore** ti dice cosa è urgente.
 
 ---
 
 ## Un paio di cose pratiche
-
-- **Quando esce un aggiornamento**, ti comparirà in basso una **fascetta "È disponibile una versione aggiornata"** con il pulsante **Ricarica**. Premilo **quando hai salvato** quello che stavi facendo (non ricarica mai da sola).
-- Se vedi il messaggio **"Questo lead è stato modificato da un altro dispositivo"**, vuol dire che nel frattempo l'ha toccato Andrea (o un'altra scheda aperta). Il sistema **ricarica** i dati: rifai la tua modifica sull'ultima versione. È una protezione, non un errore.
-- Puoi usare il modulo **anche da telefono**.
+- **Quando esce un aggiornamento**, in basso compare la fascetta **"È disponibile una versione aggiornata"** con **Ricarica**. Premila **dopo aver salvato** quello che stavi facendo (non ricarica mai da sola).
+- Se vedi **"Questo lead è stato modificato da un altro dispositivo"**, vuol dire che nel frattempo l'ha toccato Andrea (o un'altra scheda aperta): il sistema **ricarica** i dati e tu rifai la tua modifica. È una protezione, non un errore.
+- Puoi usare tutto **anche da telefono**.
 
 ---
 
-## 🆕 Novità della v2.33 (10/08/2026)
-- **Preventivi agganciati ai lead**: dentro **🎯 Gestisci** trovi **+ Genera preventivo**; in alto c'è **+ Nuovo preventivo** (che collega o crea il lead).
-- Editor con voci (sconto sempre visibile), misure, allegati rendering, **IVA esplicita**; **Salva bozza** o **Salva e genera link** da inviare al cliente.
-- *(La pagina che il cliente apre per accettare arriva con la prossima versione.)*
-
-## 🆕 Novità della v2.32 (09/08/2026)
-- **Funnel automatico a 3 fasi** (Contatto → Preventivo/Trattativa → Esito): nuova colonna **Fase** con la barra di avanzamento e il pulsante **🎯 Gestisci**.
-- I **to-do si generano da soli**: avanzi con i pulsanti (✅ Fatto / 💬 Ha risposto / 📄 Preventivo inviato…), il sistema calcola la mossa e la data successive.
-- Ogni passaggio finisce nello **storico** del lead.
-
-## 🆕 Novità della v2.31 (09/08/2026)
-- Nuova colonna **Prossima azione** e cassetta **"Da fare oggi"**.
-- **Chiusura non distruttiva**: "Chiudi" con motivo (Perso/Silente) al posto della cancellazione; i lead chiusi restano e si possono **riaprire**.
-- Il **pallino rosso** ora conta anche le prossime azioni scadute/di oggi.
+## 🆕 Cosa è cambiato con la v2.45 / v2.46 (16/08/2026)
+- **Nuova organizzazione a STATI** (le 8 colonne qui sopra), con **descrizione e obiettivo** sotto ogni titolo. Prima c'era una "barra a fasi", ora è tutto più chiaro a colpo d'occhio.
+- **Stato e promemoria separati**: lo stato dice *dove sei*, il promemoria *quando ricontattare*.
+- **Schede colorate** per urgenza (🔴 scaduto, 🟡 in scadenza): via il lungo elenco di solleciti, ora l'urgenza si legge dalle schede.
+- **Sposta i lead** con pulsante, menù "Sposta a…" o **trascinamento**.
+- **Perso e Negativo** distinti; **Nurture** per i "non ora" (ricontatto a 45 giorni).
+- **Accettazione preventivo** con sollecito acconto ogni 2 giorni; l'ordine di produzione si crea **a mano**.
 
 ---
 

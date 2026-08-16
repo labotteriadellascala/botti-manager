@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.46 — 16/08/2026 · Lead: card colorate per urgenza (🔴 scaduto, 🟡 in scadenza); rimosso il lungo elenco solleciti, resta l’avviso preventivi accettati</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.47 — 16/08/2026 · Lead: rosso “scaduto” più acceso sulle card + libretto Giulia aggiornato al flusso a stati</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.46';
+window.APP_VERSION = '2.47';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7611,7 +7611,7 @@ function _leadCard(x){
   let cardBg = '#fff', cardBL = '';
   if (_leadAttivo(x) && x.data_prossima_azione){
     const gg = _leadGgScad(x.data_prossima_azione);
-    if (gg < 0){ cardBg = 'var(--red-bg)'; cardBL = 'border-left:3px solid var(--red);'; }
+    if (gg < 0){ cardBg = '#f6caca'; cardBL = 'border:1px solid var(--red);border-left:4px solid var(--red);'; }
     else if (gg <= 2){ cardBg = 'var(--amber-bg)'; cardBL = 'border-left:3px solid var(--amber);'; }
   }
   return `<div class="lead-card" data-id="${x.id}" style="background:${cardBg};border:0.5px solid var(--border);${cardBL}border-radius:8px;padding:10px;margin-bottom:8px">
@@ -7790,7 +7790,7 @@ function disegnaLeadMkt() {
   }).join('');
   html += `<div class="kanban" id="lead-kanban-board">${board}</div>
   <div style="font-size:11px;color:var(--ink3);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
-    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--red-bg);border-left:3px solid var(--red);vertical-align:middle"></span> promemoria scaduto</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f6caca;border:1px solid var(--red);border-left:3px solid var(--red);vertical-align:middle"></span> promemoria scaduto</span>
     <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--amber-bg);border-left:3px solid var(--amber);vertical-align:middle"></span> in scadenza (entro 2 gg)</span>
     <span>Nurture / Perso / Negativo: spunta “Mostra Nurture &amp; chiusi”. Trascina una card per spostarla (tienila premuta un attimo su telefono).</span>
   </div>`;
