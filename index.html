@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.47 — 16/08/2026 · Lead: rosso “scaduto” più acceso sulle card + libretto Giulia aggiornato al flusso a stati</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.48 — 16/08/2026 · Lead: Scheda con cronologia delle azioni + “Aggiungi nota”; solleciti e cambi promemoria ora registrati nello storico</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.47';
+window.APP_VERSION = '2.48';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7457,7 +7457,8 @@ async function segnaContattato(id){
 }
 // "Ha risposto": azzera i solleciti e rimette un promemoria pulito.
 async function leadHaRisposto(id){
-  if (await _aggiornaLead(id, { prossima_azione:'Prosegui la conversazione', data_prossima_azione:_leadDataFra(LEAD_GG.conversazione) })){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  if (await _aggiornaLead(id, { prossima_azione:'Prosegui la conversazione', data_prossima_azione:_leadDataFra(LEAD_GG.conversazione), fase_storico:_leadStorico(cur, 'Ha risposto') })){
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
@@ -7467,9 +7468,9 @@ async function leadSollecito(id){
   const m = String(cur.prossima_azione||'').match(/(\d+)°\s*sollecito/i);
   const n = m ? parseInt(m[1],10) : 0;
   if (n >= 2){ if (await _leadVaiA(id, 'Nurture')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } return; }
-  if (await _aggiornaLead(id, { prossima_azione:`${n+1}° sollecito`, data_prossima_azione:_leadDataFra(LEAD_GG.sollecito) })){
-    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
-  }
+  const patch = { prossima_azione:`${n+1}° sollecito`, data_prossima_azione:_leadDataFra(LEAD_GG.sollecito),
+                  fase_storico:_leadStorico(cur, `${n+1}° sollecito · nessuna risposta, ricontattare tra ${LEAD_GG.sollecito} gg`) };
+  if (await _aggiornaLead(id, patch)){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
 }
 // Avanzamenti diretti.
 async function leadQualificato(id){ if (await _leadVaiA(id, 'Qualificato')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
@@ -7477,13 +7478,15 @@ async function leadPreventivoInviato(id){ if (await _leadVaiA(id, 'Preventivo in
 async function leadHaAccettato(id){ if (await _leadVaiA(id, 'Accettazione preventivo', { acconto_versato:false })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
 // Accettazione: sollecito acconto (ripropone fra 2gg) / acconto incassato.
 async function leadSollecitoAcconto(id){
-  if (await _aggiornaLead(id, { prossima_azione:'Sollecita l’acconto', data_prossima_azione:_leadDataFra(LEAD_GG.acconto) })){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  if (await _aggiornaLead(id, { prossima_azione:'Sollecita l’acconto', data_prossima_azione:_leadDataFra(LEAD_GG.acconto), fase_storico:_leadStorico(cur, 'Sollecitato l’acconto') })){
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
 async function leadAccontoVersato(id){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
   if (!confirm('Confermi che l’acconto è stato versato?\nIl lead viene segnato come pronto per la produzione.')) return;
-  if (await _aggiornaLead(id, { acconto_versato:true, prossima_azione:null, data_prossima_azione:null })){
+  if (await _aggiornaLead(id, { acconto_versato:true, prossima_azione:null, data_prossima_azione:null, fase_storico:_leadStorico(cur, 'Acconto versato → pronto per la produzione') })){
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
@@ -7621,7 +7624,7 @@ function _leadCard(x){
     <div style="margin:4px 0">${meta}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${azioni}${sposta}</div>
     <div style="margin-top:8px;display:flex;gap:6px;border-top:1px solid var(--border);padding-top:6px">
-      <button class="btn btn-sm btn-ghost" style="font-size:11px;flex:1" onclick="event.stopPropagation();editLeadMkt('${x.id}')">Dettagli</button>
+      <button class="btn btn-sm btn-ghost" style="font-size:11px;flex:1" onclick="event.stopPropagation();gestisciLead('${x.id}')">Scheda</button>
       <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina (spam/test)" onclick="event.stopPropagation();eliminaLeadMkt('${x.id}')">🗑</button>
     </div>
   </div>`;
@@ -7988,15 +7991,56 @@ function impostaProssimaAzioneLead(id){
   ]);
 }
 async function salvaProssimaAzioneLead(id){
+  const cur = _leadList.find(r=>r.id===id);
   const data = document.getElementById('lead-pa-data').value || null;
   const testo = (document.getElementById('lead-pa-testo').value || '').trim() || null;
   if (testo && !data) { alert('Metti anche la data del promemoria (oppure togli il testo).'); return; }
-  if (await _aggiornaLead(id, { prossima_azione: testo, data_prossima_azione: data })) {
+  const patch = { prossima_azione: testo, data_prossima_azione: data };
+  if (cur) patch.fase_storico = _leadStorico(cur, data ? `Promemoria: ${testo||'(senza testo)'} · ${fmtDate(data)}` : 'Promemoria rimosso');
+  if (await _aggiornaLead(id, patch)) {
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
 
-// Finestra "Gestisci lead": stato + obiettivo + promemoria + pulsanti + preventivi.
+// Aggiunge una voce di testo alla cronologia (fase_storico) di un lead, con data e autore.
+function _leadStorico(cur, testo){
+  const arr = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
+  arr.push({ ts:new Date().toISOString(), chi: window.__UTENTE_EMAIL__ || null, testo:testo });
+  return arr;
+}
+// Cronologia del lead (cambi stato automatici + note manuali), dalla più recente.
+function _leadCronologiaHtml(x){
+  const arr = Array.isArray(x.fase_storico) ? x.fase_storico.slice() : [];
+  if (!arr.length) return '<div style="font-size:12px;color:var(--ink3)">Nessuna azione registrata ancora.</div>';
+  return arr.reverse().map(e => {
+    const quando = e.ts ? new Date(e.ts).toLocaleString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+    const chi = e.chi ? nomeUtente(e.chi) : '';
+    const testo = e.testo ? _at(e.testo) : (e.stato ? ('Stato → ' + _at(e.stato)) : '—');
+    return `<div style="display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--border)">
+      <span class="text-mono" style="font-size:10px;color:var(--ink3);min-width:92px">${quando}</span>
+      <span style="flex:1;font-size:12px">${testo}${chi?` <span style="color:var(--ink3)">· ${_at(chi)}</span>`:''}</span>
+    </div>`;
+  }).join('');
+}
+// Aggiungi una nota libera alla cronologia (es. "contattata la 2ª volta").
+function aggiungiNotaLead(id){
+  const x = _leadList.find(r=>r.id===id); if (!x) return;
+  const html = `
+    <div class="form-group full"><label>Nota</label><textarea id="lead-nota-testo" rows="3" placeholder="Es. contattata la 2ª volta, in attesa di risposta…"></textarea></div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Finisce nella cronologia con data e autore. Per cambiare quando ricontattarla usa “Imposta promemoria”.</div>`;
+  showModal('Aggiungi nota — ' + (x.nome||'lead'), html, [
+    {label:'Annulla', action:`gestisciLead('${id}')`},
+    {label:'Aggiungi', action:`salvaNotaLead('${id}')`, primary:true}
+  ]);
+}
+async function salvaNotaLead(id){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  const testo = (document.getElementById('lead-nota-testo').value || '').trim();
+  if (!testo){ alert('Scrivi la nota.'); return; }
+  if (await _aggiornaLead(id, { fase_storico:_leadStorico(cur, testo) })){ closeModal(); disegnaLeadMkt(); gestisciLead(id); }
+}
+
+// Finestra "Scheda lead": stato + obiettivo + promemoria + pulsanti + cronologia + preventivi.
 function gestisciLead(id){
   const x = _leadList.find(r=>r.id===id);
   if (!x) return;
@@ -8013,13 +8057,23 @@ function gestisciLead(id){
     <div style="margin-bottom:12px">${todo} ${_leadAttivo(x)?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="impostaProssimaAzioneLead('${x.id}')">✎ modifica</button>`:''}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">${_leadPulsanti(x)}${(s==='Perso'||s==='Negativo')?'':_leadSposta(x)}</div>
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--ink3);flex:1;font-weight:600">Cronologia</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="aggiungiNotaLead('${x.id}')">+ Aggiungi nota</button>
+      </div>
+      <div style="max-height:220px;overflow:auto">${_leadCronologiaHtml(x)}</div>
+    </div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <span style="font-size:12px;color:var(--ink3);flex:1;font-weight:600">Preventivi</span>
         <button class="btn btn-sm btn-primary" style="font-size:11px" onclick="apriEditorPreventivo('${x.id}',null)">+ Genera preventivo</button>
       </div>
       ${_prevListaHtml(x.id)}
     </div>`;
-  showModal('Gestisci lead — ' + (x.nome||'lead'), html, [ {label:'Chiudi finestra', action:'closeModal()'} ]);
+  showModal('Scheda lead — ' + (x.nome||'lead'), html, [
+    {label:'✎ Modifica campi', action:`editLeadMkt('${x.id}')`},
+    {label:'Chiudi', action:'closeModal()'}
+  ]);
 }
 
 // ═══════════════════════ MODULO PREVENTIVI (v2.33) ═══════════════════════
