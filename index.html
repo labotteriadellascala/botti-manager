@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.51 — 16/08/2026 · Lead: banner “In attesa di caparra” sempre in cima (i lead che hanno accettato ma non hanno versato l’acconto non si nascondono più fuori schermo)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.52 — 16/08/2026 · Lead: la board scorre davvero in orizzontale (colonne a larghezza fissa + barra di scorrimento visibile); prima le colonne in più andavano a capo</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.51';
+window.APP_VERSION = '2.52';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7840,7 +7840,15 @@ function _leadDragInit(){
   if (!board) return;
   if (!document.getElementById('lead-drag-css')){
     const stl = document.createElement('style'); stl.id = 'lead-drag-css';
-    stl.textContent = '.kanban-col.drop-hi{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-bg)}';
+    stl.textContent =
+        '.kanban-col.drop-hi{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-bg)}'
+      // La board dei Lead scorre in orizzontale (colonne a larghezza fissa), NON è la griglia 4x della produzione.
+      + '#lead-kanban-board{display:flex!important;grid-template-columns:none!important;overflow-x:auto;gap:12px;padding-bottom:12px;scroll-snap-type:x proximity}'
+      + '#lead-kanban-board .kanban-col{flex:0 0 280px;min-width:280px;scroll-snap-align:start}'
+      + '#lead-kanban-board::-webkit-scrollbar{height:12px}'
+      + '#lead-kanban-board::-webkit-scrollbar-track{background:var(--bg2);border-radius:6px}'
+      + '#lead-kanban-board::-webkit-scrollbar-thumb{background:var(--border2);border-radius:6px}'
+      + '#lead-kanban-board::-webkit-scrollbar-thumb:hover{background:var(--ink3)}';
     document.head.appendChild(stl);
   }
   if (board.__dragInit) return;
