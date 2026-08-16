@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.44 — 10/08/2026 · Preventivi: flag “Mostra IVA esposta” nell’editor (se spento il cliente vede solo il Totale); vale per lead e ordini</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.45 — 16/08/2026 · Lead: nuova pipeline a STATO (8 fasi con obiettivo), fonte + UTM, promemoria separato, card con “Sposta a…” e trascinamento</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.44';
+window.APP_VERSION = '2.45';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7352,148 +7352,269 @@ ${o.consegna?`<div class="consegna">
    diventa una riga qui. Cloud-first sulla tabella lead_marketing,
    con protezione updated_at anti-sovrascrittura (pattern ordini).
    ============================================================ */
-const LEAD_FONTI  = ['IG organico','Ads Meta','Sito','Fiera','Passaparola','Altro'];
+const LEAD_FONTI  = ['Sito','Instagram diretto','Commenti FB-IG','WhatsApp','IG organico','Ads Meta','Fiera','Passaparola','Altro'];
 const LEAD_CANALI = ['Online','Fiera'];
-const LEAD_MOTIVI = ['Per s\u00e9','Regalo','Matrimonio','Locale','Non dichiarato'];
-const LEAD_ESITI  = ['In trattativa','Chiuso','Perso','Silente'];
-const LEAD_ESITO_BADGE = {'In trattativa':'badge-amber','Chiuso':'badge-green','Perso':'badge-gray','Silente':'badge-blue'};
+const LEAD_MOTIVI = ['Per sé','Regalo','Matrimonio','Locale','Non dichiarato'];
 
-// ═══════════ FUNNEL LEAD (v2.32) — REGOLE MODIFICABILI ═══════════
-// Per ogni fase: label mostrata, macro-fase (1 Contatto / 2 Preventivo-Trattativa),
-// testo del to-do e fra quanti GIORNI, dove porta "Fatto (aspetto risposta)" e "Ha risposto".
-// Per cambiare tempi o testi modifica SOLO questa tabella: nient'altro.
-const LEAD_MACRO_LABEL = { 1:'Contatto', 2:'Preventivo / Trattativa', 3:'Esito' };
-const LEAD_FUNNEL = {
-  nuovo:         { label:'Nuovo',              macro:1, todo:'Contatta il lead',               giorni:0, fatto:null,            risposto:null },
-  contatto_1:    { label:'1° contatto',        macro:1, todo:'2° contatto',                    giorni:2, fatto:'contatto_2',    risposto:'in_dialogo' },
-  contatto_2:    { label:'2° contatto',        macro:1, todo:'3° e ultimo contatto',           giorni:4, fatto:'contatto_3',    risposto:'in_dialogo' },
-  contatto_3:    { label:'3° contatto',        macro:1, todo:'Ultimo tentativo (poi Silente)', giorni:7, fatto:'__silente',     risposto:'in_dialogo' },
-  in_dialogo:    { label:'In conversazione',   macro:1, todo:'Prosegui la conversazione',      giorni:2, fatto:null,            risposto:null },
-  preventivo:    { label:'Preventivo inviato', macro:2, todo:'Follow-up preventivo',           giorni:3, fatto:'preventivo_fu', risposto:'trattativa' },
-  preventivo_fu: { label:'Follow-up preventivo',macro:2, todo:'2° follow-up preventivo',       giorni:5, fatto:'__silente',     risposto:'trattativa' },
-  trattativa:    { label:'In trattativa',      macro:2, todo:'Risollecita',                    giorni:4, fatto:'trattativa',    risposto:'trattativa' }
+// ═══════════ STATO LEAD (v2.45) — pipeline a campo unico ═══════════
+// Un solo campo `stato` (8 valori) = le colonne del Kanban. Separato dal
+// motore promemoria (prossima_azione/data_prossima_azione) e dalla FONTE.
+// `esito` (NOT NULL) resta popolato per retrocompatibilità, derivato da
+// `stato` via _statoToEsito. `fase` non è più usata dalla logica.
+const LEAD_STATI = ['Nuovo','In conversazione','Qualificato','Preventivo inviato','Accettazione preventivo','Nurture','Perso','Negativo'];
+const LEAD_STATI_NASCOSTI = ['Nurture','Perso','Negativo'];   // fuori dal lavoro attivo: dietro il toggle
+const LEAD_STATO_BADGE = {
+  'Nuovo':'badge-amber','In conversazione':'badge-accent','Qualificato':'badge-accent',
+  'Preventivo inviato':'badge-accent','Accettazione preventivo':'badge-green',
+  'Nurture':'badge-blue','Perso':'badge-gray','Negativo':'badge-gray'
 };
+// Meta di colonna: etichetta + descrizione + OBIETTIVO (mostrati sotto il titolo).
+const LEAD_COLONNE = [
+  { key:'Nuovo', label:'🆕 Nuovo', desc:'Richiesta appena arrivata, ancora da contattare.', obj:'Rispondere in fretta e rompere il ghiaccio.' },
+  { key:'In conversazione', label:'💬 In conversazione', desc:'Ci stiamo scrivendo: sto capendo cosa cerca e se fa sul serio.', obj:'Dare un range di prezzo con max 200€ tra minimo e massimo.' },
+  { key:'Qualificato', label:'⭐ Qualificato', desc:'Range di prezzo accettato e rendering inviato.', obj:'Massimo hype nel vedere il rendering del prodotto che sognava.' },
+  { key:'Preventivo inviato', label:'📄 Preventivo inviato', desc:'Confermati rendering e caratteristiche: si invia il preventivo con OFFERTA UNICA A TEMPO.', obj:'Creare urgenza e far emergere subito dubbi/perplessità.' },
+  { key:'Accettazione preventivo', label:'🤝 Accettazione preventivo', desc:'Ha accettato il preventivo: manca solo l’acconto per andare in produzione.', obj:'Incassare l’acconto (sollecito automatico ogni 2 gg).' },
+  { key:'Nurture', label:'🌱 Nurture', desc:'Interessato ma non ora: si ricontatta più avanti (non è perso).', obj:'Restare nel radar e riaccendere l’interesse al momento giusto.' },
+  { key:'Perso', label:'🚫 Perso', desc:'Sparito dopo i solleciti (ghosting): nessuna risposta.', obj:'Capire perché è svanito e imparare per i prossimi.' },
+  { key:'Negativo', label:'❌ Negativo', desc:'Ha risposto ma ha rifiutato il preventivo (prezzo/altra scelta).', obj:'Capire il vero motivo del no, per migliorare offerta e prezzo.' }
+];
+// Motore promemoria: tempi in GIORNI (modificabili qui, nient'altro).
+const LEAD_GG = { sollecito:2, acconto:2, preventivoFU:4, qualificato:2, conversazione:2, nurture:45 };
 
-// Un lead è "in funnel" (deve avere una prossima azione) solo se In trattativa; Silente = parcheggio.
-function _leadInFunnel(x){ return !!x && x.esito==='In trattativa'; }
-// Fase corrente. Per i lead vecchi senza 'fase' la deduce in modo prudente.
-function _leadFase(x){
-  if (!x) return null;
-  if (x.esito==='Chiuso' || x.esito==='Perso' || x.esito==='Silente') return null; // fuori dal funnel attivo
-  if (x.fase && LEAD_FUNNEL[x.fase]) return x.fase;
-  return x.contattato_at ? 'in_dialogo' : 'nuovo';   // lead vecchi: se già preso in carico, "in conversazione"
+// Stato "vero" del lead: usa `stato`; per righe vecchie non migrate lo deduce.
+function _stato(x){
+  if (!x) return 'Nuovo';
+  if (x.stato && LEAD_STATI.indexOf(x.stato) >= 0) return x.stato;
+  if (x.esito === 'Chiuso')  return 'Accettazione preventivo';
+  if (x.esito === 'Perso')   return 'Perso';
+  if (x.esito === 'Silente') return 'Nurture';
+  if (x.fase === 'preventivo' || x.fase === 'preventivo_fu' || x.fase === 'trattativa') return 'Preventivo inviato';
+  if (x.fase && (String(x.fase).indexOf('contatto') === 0 || x.fase === 'in_dialogo')) return 'In conversazione';
+  return x.contattato_at ? 'In conversazione' : 'Nuovo';
 }
-// Macro-fase corrente: 1 Contatto, 2 Preventivo/Trattativa, 3 Esito (Chiuso/Perso).
-function _leadMacro(x){
-  if (x && (x.esito==='Chiuso' || x.esito==='Perso')) return 3;
-  const f = _leadFase(x);
-  return f ? LEAD_FUNNEL[f].macro : 1;
+// `esito` (NOT NULL) derivato dallo stato, per retrocompatibilità/statistiche vecchie.
+function _statoToEsito(s){
+  if (s === 'Perso' || s === 'Negativo') return 'Perso';
+  if (s === 'Nurture') return 'Silente';
+  if (s === 'Accettazione preventivo') return 'Chiuso';
+  return 'In trattativa';
 }
+// Un lead è "attivo" (da lavorare): non chiuso (Perso/Negativo) e non già in
+// produzione (accettato con acconto versato).
+function _leadAttivo(x){
+  if (!x) return false;
+  const s = _stato(x);
+  if (s === 'Perso' || s === 'Negativo') return false;
+  if (s === 'Accettazione preventivo' && x.acconto_versato) return false;
+  return true;
+}
+
 // Data (YYYY-MM-DD, ora locale) fra N giorni da oggi.
 function _leadDataFra(giorni){
   const d = new Date(); d.setDate(d.getDate() + (Number(giorni)||0));
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${da}`;
 }
-// Barra a 3 fasi (stepper) compatta per la riga lead. Cliccabile → apre "Gestisci lead".
-function _leadStepper(x){
-  const mac = _leadMacro(x);
-  const fin = (x.esito==='Chiuso' || x.esito==='Perso');
-  const seg = (n,label) => {
-    const on = n <= mac;
-    const cur = !fin && n===mac;
-    const bg = (fin && n===3) ? (x.esito==='Chiuso'?'var(--green)':'var(--red)') : (on ? 'var(--accent)' : 'var(--bg3)');
-    const col = on ? '#fff' : 'var(--ink3)';
-    return `<span title="${label}" style="flex:1;text-align:center;font-size:9px;font-weight:${cur?'700':'500'};background:${bg};color:${col};padding:2px 0;border-radius:3px">${n}</span>`;
-  };
-  const lab = fin ? x.esito : (_leadFase(x) ? LEAD_FUNNEL[_leadFase(x)].label : (x.esito==='Silente'?'Silente (in pausa)':'—'));
-  return `<div style="min-width:96px;cursor:pointer" title="Gestisci fase" onclick="gestisciLead('${x.id}')">`
-       + `<div style="display:flex;gap:2px;margin-bottom:2px">${seg(1,'Contatto')}${seg(2,'Preventivo / Trattativa')}${seg(3,'Esito')}</div>`
-       + `<div style="font-size:10px;color:var(--ink2);text-align:center">${lab}</div></div>`;
-}
-// Pulsanti di avanzamento contestuali alla fase del lead.
-function _leadPulsanti(x){
-  const f = _leadFase(x);
-  const B = (fn,lab,cls,tit)=>`<button class="btn btn-sm ${cls||'btn-ghost'}" style="font-size:11px" title="${tit||''}" onclick="${fn}('${x.id}')">${lab}</button>`;
-  let b = '';
-  if (f === 'nuovo') {
-    b += B('segnaContattato','Contattato','btn-primary','Segna che è stato contattato');
-  } else if (f === 'in_dialogo') {
-    b += B('leadPreventivoInviato','📄 Preventivo inviato','btn-primary','Hai inviato il preventivo/rendering');
-    b += B('impostaProssimaAzioneLead','Aggiorna','','Cambia la prossima azione o la data');
-  } else if (f==='contatto_1' || f==='contatto_2' || f==='contatto_3') {
-    b += B('leadFatto','✅ Fatto','btn-primary','Ho fatto il contatto, aspetto risposta');
-    b += B('leadHaRisposto','💬 Ha risposto','','Il cliente ha risposto');
-    b += B('leadPreventivoInviato','📄 Preventivo','','Hai già inviato il preventivo');
-  } else if (f==='preventivo' || f==='preventivo_fu') {
-    b += B('leadFatto','✅ Fatto','btn-primary','Follow-up fatto, aspetto risposta');
-    b += B('leadTrattativa','🤝 Sta trattando','','È partita la trattativa');
-    b += B('leadVinto','✅ Vinto','','Registra la vendita');
-  } else if (f==='trattativa') {
-    b += B('leadFatto','✅ Risollecitato','btn-primary','Risollecitato, ricordamelo ancora');
-    b += B('leadVinto','✅ Vinto','','Registra la vendita');
+// Promemoria di default all'ingresso in uno stato: {azione, giorni} oppure null.
+function _promemoriaDefault(stato){
+  switch (stato){
+    case 'In conversazione':        return { azione:'Prosegui / attendi risposta', giorni:LEAD_GG.conversazione };
+    case 'Qualificato':             return { azione:'Invia il preventivo (offerta a tempo)', giorni:LEAD_GG.qualificato };
+    case 'Preventivo inviato':      return { azione:'Follow-up preventivo', giorni:LEAD_GG.preventivoFU };
+    case 'Accettazione preventivo': return { azione:'Sollecita l’acconto', giorni:LEAD_GG.acconto };
+    case 'Nurture':                 return { azione:'Ricontatta', giorni:LEAD_GG.nurture };
+    default: return null;   // Nuovo / Perso / Negativo: nessun promemoria automatico
   }
-  b += B('chiudiLead','Chiudi','','Chiudi (Perso/Silente) con motivo');
-  return b;
+}
+// Porta il lead a `nuovoStato`: storico, esito derivato e promemoria di default.
+// opts.mantieniProm=true per non toccare prossima_azione/data.
+async function _leadVaiA(id, nuovoStato, extra, opts){
+  const cur = _leadList.find(r=>r.id===id);
+  if (!cur) return false;
+  opts = opts || {};
+  const nowIso = new Date().toISOString();
+  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
+  storico.push({ stato:nuovoStato, ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: _stato(cur) });
+  const patch = Object.assign({
+    stato:nuovoStato, esito:_statoToEsito(nuovoStato), fase_da:nowIso, fase_storico:storico
+  }, extra || {});
+  if (!opts.mantieniProm){
+    const pd = _promemoriaDefault(nuovoStato);
+    patch.prossima_azione = pd ? pd.azione : null;
+    patch.data_prossima_azione = pd ? _leadDataFra(pd.giorni) : null;
+  }
+  return await _aggiornaLead(id, patch);
 }
 
-// ═══ VISTA KANBAN LEAD (v2.38) — colonne = fasi del funnel ═══
-const LEAD_COLONNE = [
-  { key:'nuovo',      label:'🆕 Nuovo' },
-  { key:'contatto',   label:'📞 Contatto' },
-  { key:'preventivo', label:'📄 Preventivo' },
-  { key:'trattativa', label:'🤝 Trattativa' },
-  { key:'esito',      label:'✅ Esito' }
-];
-// A quale colonna appartiene un lead.
-function _leadColonna(x){
-  if (x.esito==='Chiuso' || x.esito==='Perso') return 'esito';
-  if (x.esito==='Silente') return 'silente';
-  const f = _leadFase(x);
-  if (f==='nuovo') return 'nuovo';
-  if (f==='preventivo' || f==='preventivo_fu') return 'preventivo';
-  if (f==='trattativa') return 'trattativa';
-  return 'contatto';   // contatto_1/2/3, in conversazione, e fallback
+// ─── Azioni contestuali (pulsanti card / "Da fare oggi") ───
+// "Contattato": Nuovo → In conversazione + presa in carico (chi/quando).
+async function segnaContattato(id){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  const extra = {};
+  if (!cur.contattato_at){ extra.contattato_at = new Date().toISOString(); extra.contattato_da = window.__UTENTE_EMAIL__ || null; }
+  if (await _leadVaiA(id, 'In conversazione', extra)){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+// "Ha risposto": azzera i solleciti e rimette un promemoria pulito.
+async function leadHaRisposto(id){
+  if (await _aggiornaLead(id, { prossima_azione:'Prosegui la conversazione', data_prossima_azione:_leadDataFra(LEAD_GG.conversazione) })){
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+// "Nessuna risposta": sollecito +2gg, poi +2gg, poi → Nurture.
+async function leadSollecito(id){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  const m = String(cur.prossima_azione||'').match(/(\d+)°\s*sollecito/i);
+  const n = m ? parseInt(m[1],10) : 0;
+  if (n >= 2){ if (await _leadVaiA(id, 'Nurture')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } return; }
+  if (await _aggiornaLead(id, { prossima_azione:`${n+1}° sollecito`, data_prossima_azione:_leadDataFra(LEAD_GG.sollecito) })){
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+// Avanzamenti diretti.
+async function leadQualificato(id){ if (await _leadVaiA(id, 'Qualificato')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
+async function leadPreventivoInviato(id){ if (await _leadVaiA(id, 'Preventivo inviato')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
+async function leadHaAccettato(id){ if (await _leadVaiA(id, 'Accettazione preventivo', { acconto_versato:false })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
+// Accettazione: sollecito acconto (ripropone fra 2gg) / acconto incassato.
+async function leadSollecitoAcconto(id){
+  if (await _aggiornaLead(id, { prossima_azione:'Sollecita l’acconto', data_prossima_azione:_leadDataFra(LEAD_GG.acconto) })){
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+async function leadAccontoVersato(id){
+  if (!confirm('Confermi che l’acconto è stato versato?\nIl lead viene segnato come pronto per la produzione.')) return;
+  if (await _aggiornaLead(id, { acconto_versato:true, prossima_azione:null, data_prossima_azione:null })){
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+// "Ricontattato" (da Nurture): torna In conversazione.
+async function leadRicontattato(id){ if (await _leadVaiA(id, 'In conversazione')){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
+// Riapre un lead chiuso (Perso/Negativo).
+async function riapriLead(id){ if (await _leadVaiA(id, 'In conversazione', { chiuso_at:null })){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } }
+
+// Cambio stato generico (menù "Sposta a…" o drag). Perso/Negativo → chiusura con motivo.
+async function cambiaStatoLead(id, stato){
+  if (!stato) return;
+  if (stato === 'Perso' || stato === 'Negativo'){ chiudiLead(id, stato); return; }
+  const extra = (stato === 'Accettazione preventivo') ? { acconto_versato:false } : {};
+  if (await _leadVaiA(id, stato, extra)){ closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
+}
+
+// Chiusura NON distruttiva (Perso/Negativo) con motivo obbligatorio.
+function chiudiLead(id, statoIniziale){
+  const x = _leadList.find(r=>r.id===id); if (!x) return;
+  const s0 = statoIniziale || (_stato(x) === 'Negativo' ? 'Negativo' : 'Perso');
+  const html = `
+    <div class="form-grid">
+      <div class="form-group full"><label>Come si chiude?</label>
+        <select id="lead-ch-stato">
+          <option value="Perso" ${s0==='Perso'?'selected':''}>Perso — sparito, non risponde (ghosting)</option>
+          <option value="Negativo" ${s0==='Negativo'?'selected':''}>Negativo — ha rifiutato il preventivo</option>
+        </select>
+      </div>
+      <div class="form-group full"><label>Motivo *</label><textarea id="lead-ch-motivo" rows="2" placeholder="Perché? Es. prezzo, tempi, ha scelto altro, non risponde…">${_at(x.motivo_chiusura||'')}</textarea></div>
+    </div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Il lead non viene cancellato: resta nel registro, consultabile e riapribile.</div>`;
+  showModal('Chiudi lead — ' + (x.nome||'lead'), html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:'Chiudi lead', action:`salvaChiusuraLead('${id}')`, primary:true}
+  ]);
+}
+async function salvaChiusuraLead(id){
+  const stato = document.getElementById('lead-ch-stato').value;
+  const motivo = (document.getElementById('lead-ch-motivo').value || '').trim();
+  if (!motivo){ alert('Il motivo è obbligatorio per chiudere un lead.'); return; }
+  if (await _leadVaiA(id, stato, { motivo_chiusura:motivo, chiuso_at:new Date().toISOString() })){
+    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  }
+}
+
+// Pulsanti primari contestuali allo stato del lead.
+function _leadPulsanti(x){
+  const s = _stato(x);
+  const B = (fn,lab,cls,tit)=>`<button class="btn btn-sm ${cls||'btn-ghost'}" style="font-size:11px" title="${tit||''}" onclick="event.stopPropagation();${fn}('${x.id}')">${lab}</button>`;
+  let b = '';
+  if (s === 'Nuovo'){
+    b += B('segnaContattato','✅ Contattato','btn-primary','Segna che l’hai contattato → In conversazione');
+  } else if (s === 'In conversazione'){
+    b += B('leadQualificato','⭐ Qualificato','btn-primary','Ha un interesse concreto');
+    b += B('leadPreventivoInviato','📄 Preventivo','','Hai inviato il preventivo');
+    b += B('leadSollecito','Nessuna risposta','','Sollecita (+2gg, poi Nurture)');
+  } else if (s === 'Qualificato'){
+    b += B('leadPreventivoInviato','📄 Preventivo inviato','btn-primary','Invia il preventivo');
+    b += B('leadSollecito','Nessuna risposta','','Sollecita (+2gg, poi Nurture)');
+  } else if (s === 'Preventivo inviato'){
+    b += B('leadHaAccettato','🤝 Ha accettato','btn-primary','Il cliente ha accettato il preventivo');
+    b += B('leadSollecito','Sollecitato','','Follow-up (+2gg, poi Nurture)');
+  } else if (s === 'Accettazione preventivo'){
+    if (!x.acconto_versato){
+      b += B('leadAccontoVersato','Acconto versato','btn-primary','Segna l’acconto incassato → produzione');
+      b += B('leadSollecitoAcconto','Sollecitato','','Rimanda il sollecito acconto di 2gg');
+    }
+  } else if (s === 'Nurture'){
+    b += B('leadRicontattato','↩ Ricontattato','btn-primary','Torna In conversazione');
+  } else if (s === 'Perso' || s === 'Negativo'){
+    b += B('riapriLead','↩ Riapri','','Rimetti in lavorazione');
+  }
+  return b;
+}
+// Menù "Sposta a…" con gli altri stati.
+function _leadSposta(x){
+  const s = _stato(x);
+  const altri = LEAD_STATI.filter(v=>v!==s);
+  return `<select onchange="cambiaStatoLead('${x.id}', this.value); this.selectedIndex=0" onclick="event.stopPropagation()" style="font-size:11px;padding:3px 6px;border:1px solid var(--border2);border-radius:6px;background:#fff;color:var(--ink)">
+    <option value="">Sposta a…</option>
+    ${altri.map(v=>`<option value="${_at(v)}">${_at(v)}</option>`).join('')}
+  </select>`;
+}
+// Riga promemoria colorata (o pulsante "imposta").
+function _leadRemLine(x, suffix){
+  if (!x.data_prossima_azione){
+    return `<button class="btn btn-sm btn-ghost" style="color:var(--amber);font-size:11px" onclick="event.stopPropagation();impostaProssimaAzioneLead('${x.id}')">⚠ Imposta promemoria</button>`;
+  }
+  const st = statoPromemoria(x.data_prossima_azione);
+  const cc = st==='scaduto' ? 'var(--red)' : (st==='oggi' ? 'var(--amber)' : 'var(--ink2)');
+  return `<div style="font-size:11px;color:${cc}">${x.prossima_azione?_at(x.prossima_azione)+' · ':''}${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}${suffix||''}</div>`;
 }
 // Card di un lead nel Kanban.
 function _leadCard(x){
-  const col = _leadColonna(x);
+  const s = _stato(x);
   const contatto = ([x.email,x.telefono].filter(Boolean).join(' · ') || x.contatto) || '';
   const tag = _prevList.some(p=>p.lead_id===x.id && p.stato==='accettato') ? ' <span class="badge badge-green" style="font-size:9px" title="Preventivo accettato">📄</span>' : '';
-  let meta='', azioni='';
-  if (col==='esito'){
-    meta = `<span class="badge ${x.esito==='Chiuso'?'badge-green':'badge-gray'}">${x.esito==='Chiuso'?'✅ Vinto':'❌ Perso'}</span>`
-         + (x.esito==='Chiuso' && x.valore!=null && x.valore!=='' ? ` <span style="font-size:11px;color:var(--ink3)">€ ${Number(x.valore).toLocaleString('it-IT')}</span>` : '')
-         + (x.esito==='Perso' && x.motivo_chiusura ? `<div style="font-size:11px;color:var(--ink3)">${_at(x.motivo_chiusura)}</div>` : '');
-    azioni = `<button class="btn btn-sm btn-ghost" style="font-size:12px" onclick="riapriLead('${x.id}')">↩ Riapri</button>`;
-  } else if (col==='silente'){
-    meta = `<span class="badge badge-blue">🔕 Silente</span>` + (x.motivo_chiusura?`<div style="font-size:11px;color:var(--ink3)">${_at(x.motivo_chiusura)}</div>`:'');
-    azioni = `<button class="btn btn-sm btn-ghost" style="font-size:12px" onclick="riapriLead('${x.id}')">↩ Riapri</button>`;
-  } else {
-    if (!x.contattato_at && col==='nuovo'){
-      meta = x.created_at ? `<span style="font-size:11px;color:var(--amber)">in attesa da ${_fmtDurata(Date.now()-new Date(x.created_at).getTime())}</span>` : '';
-    } else if (x.data_prossima_azione){
-      const st = statoPromemoria(x.data_prossima_azione);
-      const cc = st==='scaduto'?'var(--red)':(st==='oggi'?'var(--amber)':'var(--ink2)');
-      meta = `<span style="font-size:11px;color:${cc}">${x.prossima_azione?_at(x.prossima_azione)+' · ':''}${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}</span>`;
+  const chip = (t,utm)=>`<span style="font-size:9.5px;padding:1px 7px;border-radius:20px;background:${utm?'var(--blue-bg)':'var(--bg3)'};color:${utm?'var(--blue)':'var(--ink2)'}"${utm?` title="${utm}"`:''}>${_at(t)}</span>`;
+  let chips = chip(x.fonte||'—', null);
+  if (x.contenuto) chips += chip(x.contenuto, 'utm_content');
+  if (x.termine)   chips += chip(x.termine, 'utm_term');
+  let meta = '';
+  if (s === 'Accettazione preventivo'){
+    if (x.acconto_versato){
+      meta = `<div style="font-size:11px;font-weight:700;color:var(--green)">✓ Acconto versato${x.valore!=null&&x.valore!==''?' · € '+Number(x.valore).toLocaleString('it-IT'):''}</div><div style="font-size:11px;color:var(--ink3)">→ pronto per la produzione</div>`;
     } else {
-      meta = `<button class="btn btn-sm btn-ghost" style="color:var(--amber);font-size:11px" onclick="impostaProssimaAzioneLead('${x.id}')">⚠ Imposta azione</button>`;
+      meta = `<div style="font-size:11px;font-weight:700;color:var(--amber)">⏳ Attende acconto</div>` + _leadRemLine(x, ' (ogni 2 gg)');
     }
-    azioni = _leadPulsanti(x);
+  } else if (s === 'Perso' || s === 'Negativo'){
+    meta = x.motivo_chiusura ? `<div style="font-size:11px;color:var(--ink3)">Motivo: ${_at(x.motivo_chiusura)}</div>` : '';
+  } else if (s === 'Nuovo' && !x.contattato_at){
+    meta = x.created_at ? `<div style="font-size:11px;color:var(--amber)">⏳ in attesa da ${_fmtDurata(Date.now()-new Date(x.created_at).getTime())}</div>` : '';
+  } else {
+    meta = _leadRemLine(x, '');
   }
-  return `<div style="background:#fff;border:0.5px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
-    <div style="font-weight:600;font-size:13px">${x.nome||'—'}${tag}</div>
+  const azioni = _leadPulsanti(x);
+  const sposta = (s === 'Perso' || s === 'Negativo') ? '' : _leadSposta(x);
+  return `<div class="lead-card" data-id="${x.id}" style="background:#fff;border:0.5px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+    <div style="font-weight:600;font-size:13px">${_at(x.nome||'—')}${tag}</div>
     <div style="font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_at(contatto)||'—'}</div>
-    <div style="margin:6px 0">${meta}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${azioni}</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 2px">${chips}</div>
+    <div style="margin:4px 0">${meta}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${azioni}${sposta}</div>
     <div style="margin-top:8px;display:flex;gap:6px;border-top:1px solid var(--border);padding-top:6px">
-      <button class="btn btn-sm btn-ghost" style="font-size:11px;flex:1" onclick="editLeadMkt('${x.id}')">Dettagli</button>
-      <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina (spam/test)" onclick="eliminaLeadMkt('${x.id}')">🗑</button>
+      <button class="btn btn-sm btn-ghost" style="font-size:11px;flex:1" onclick="event.stopPropagation();editLeadMkt('${x.id}')">Dettagli</button>
+      <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina (spam/test)" onclick="event.stopPropagation();eliminaLeadMkt('${x.id}')">🗑</button>
     </div>
   </div>`;
 }
 
-// Presa in carico lead: mappa email di login -> nome amichevole (sconosciuti = parte prima della @)
+// Presa in carico lead: mappa email di login -> nome amichevole.
 const UTENTI_NOMI = { 'info@steelhead.it':'Andrea', 'giuliagarbuio@gmail.com':'Giulia' };
 function nomeUtente(email){ return email ? (UTENTI_NOMI[String(email).toLowerCase()] || String(email).split('@')[0]) : '—'; }
 // Formatta una durata in ms come "Xm" / "Yh Zm" / "Wg Vh"
@@ -7510,20 +7631,16 @@ let _leadList = [];       // cache locale; la verita' resta il cloud
 let _leadLoaded = false;
 let _leadEditId = null;
 
-// Badge rosso "lead da contattare" nel menu. Se i lead sono in cache conta da lì,
-// altrimenti usa il conteggio leggero calcolato all'avvio (window.__leadDaContattare).
+// Badge rosso "lead da gestire" nel menu.
 function aggiornaBadgeLead(nOverride) {
-  // "Da gestire" = lead non ancora contattato OPPURE lead attivo con prossima azione scaduta/oggi.
-  // Prima che il registro sia caricato dal cloud si usa il conteggio leggero d'avvio (solo non contattati).
   let n;
   if (typeof nOverride === 'number') { n = nOverride; }
   else {
     n = _leadLoaded ? _leadList.filter(x =>
-          !x.contattato_at ||
+          (_stato(x)==='Nuovo' && !x.contattato_at) ||
           (_leadAttivo(x) && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) !== 'futuro')
         ).length
       : (window.__leadDaContattare || 0);
-    // + preventivi accettati da gestire (un cliente ha detto sì: massima priorità)
     if (typeof _prevLoaded !== 'undefined' && _prevLoaded) n += _prevList.filter(p => p.lead_id && p.stato === 'accettato').length;
   }
   const badge = document.getElementById('badge-lead');
@@ -7535,58 +7652,47 @@ function aggiornaBadgeLead(nOverride) {
 async function renderLeadMkt() {
   const c = document.getElementById('lead-container');
   if (!_leadLoaded) {
-    c.innerHTML = '<div class="empty"><div class="empty-icon">\u23f3</div><div>Carico il registro dal cloud\u2026</div></div>';
+    c.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div>Carico il registro dal cloud…</div></div>';
     const { data, error } = await sb.from('lead_marketing').select('*')
       .order('data',{ascending:false}).order('created_at',{ascending:false});
     if (error) {
-      c.innerHTML = `<div class="empty"><div class="empty-icon">\u26a0\ufe0f</div><div>Errore di caricamento: ${error.message}<br><span style="font-size:11px;color:var(--ink3)">La tabella lead_marketing esiste su Supabase? Eseguire lo script SQL della v2.24.</span></div></div>`;
+      c.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div>Errore di caricamento: ${error.message}</div></div>`;
       return;
     }
     _leadList = data || []; _leadLoaded = true;
   }
-  await caricaPreventivi(true);   // rinfresca sempre: così accettazioni e stati sono aggiornati
+  await caricaPreventivi(true);
   disegnaLeadMkt();
-  aggiornaBadgeLead();   // ora i lead sono in cache: conteggio accurato dei "da contattare"
+  aggiornaBadgeLead();
 }
 
 function _leadMeseCorrente() { return new Date().toISOString().slice(0,7); }
 
-function _leadGiorniFermo(x) {
-  const rif = x.updated_at || x.created_at;
-  if (!rif) return 0;
-  return Math.floor((Date.now() - new Date(rif).getTime()) / 86400000);
-}
-
 function disegnaLeadMkt() {
   const c = document.getElementById('lead-container');
-  if (!c) return;   // non siamo nella vista Lead (es. preventivo aperto da un ordine): niente da disegnare
+  if (!c) return;   // non siamo nella vista Lead (es. preventivo aperto da un ordine)
   const list = _leadList;
 
   const selMeseEl = document.getElementById('ld-filter-mese');
-  const selEsitoEl = document.getElementById('ld-filter-esito');
   const selFonteEl = document.getElementById('ld-filter-fonte');
   const qEl = document.getElementById('ld-search');
   const mese = selMeseEl ? selMeseEl.value : _leadMeseCorrente();
-  const fEsito = selEsitoEl ? selEsitoEl.value : '';
   const fFonte = selFonteEl ? selFonteEl.value : '';
   const q = qEl ? qEl.value.toLowerCase() : '';
   const _silEl = document.getElementById('ld-silenti');
   const mostraSil = _silEl ? _silEl.checked : false;
 
-  // mesi disponibili (dal dato + mese corrente)
   const mesi = new Set(list.map(x => (x.data||'').slice(0,7)).filter(Boolean));
   mesi.add(_leadMeseCorrente());
   const mesiOrd = Array.from(mesi).sort().reverse();
 
-  // ---- statistiche del mese selezionato (solo canale Online: e' l'obiettivo) ----
+  // ---- statistiche del mese selezionato ----
   const delMese = list.filter(x => (x.data||'').slice(0,7) === mese);
-  const online = delMese.filter(x => x.canale === 'Online');
-  const chiusi = online.filter(x => x.esito === 'Chiuso');
-  const valore = chiusi.reduce((s,x) => s + (Number(x.valore)||0), 0);
-  const perc = online.length ? Math.round(chiusi.length / online.length * 100) : null;
-  // silenti e fermi: su TUTTO il registro, non solo sul mese (sono code di lavoro)
-  const silentiAperti = list.filter(x => x.esito === 'Silente').length;
-  const fermi = list.filter(x => x.esito === 'In trattativa' && _leadGiorniFermo(x) >= 4).length;
+  const accettati = delMese.filter(x => _stato(x) === 'Accettazione preventivo');
+  const valore = accettati.reduce((s,x) => s + (Number(x.valore)||0), 0);
+  const perc = delMese.length ? Math.round(accettati.length / delMese.length * 100) : null;
+  const nurture = list.filter(x => _stato(x) === 'Nurture').length;
+  const prevFermi = list.filter(x => _stato(x) === 'Preventivo inviato' && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) === 'scaduto').length;
 
   const statCard = (num, lab, warn, click) => `
     <div ${click?`onclick="${click}"`:''} style="background:var(--bg2);border:1px solid ${warn?'var(--amber)':'var(--border)'};border-radius:var(--radius);padding:10px 16px;text-align:center;min-width:104px${click?';cursor:pointer':''}">
@@ -7594,29 +7700,33 @@ function disegnaLeadMkt() {
       <div style="font-size:11px;color:var(--ink3)">${lab}</div>
     </div>`;
 
+  // fonti per il filtro: canoniche + quelle realmente presenti nei dati
+  const fontiSet = new Set(LEAD_FONTI);
+  list.forEach(x => { if (x.fonte) fontiSet.add(x.fonte); });
+
   let html = `
   <div class="search-bar" style="margin-bottom:12px;flex-wrap:wrap">
     <select id="ld-filter-mese" onchange="disegnaLeadMkt()" style="max-width:150px">
       ${mesiOrd.map(m=>`<option value="${m}" ${m===mese?'selected':''}>${m}</option>`).join('')}
       <option value="" ${mese===''?'selected':''}>Tutti i mesi</option>
     </select>
-    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);white-space:nowrap"><input type="checkbox" id="ld-silenti" style="width:auto" ${mostraSil?'checked':''} onchange="disegnaLeadMkt()"> Mostra silenti</label>
-    <select id="ld-filter-fonte" onchange="disegnaLeadMkt()" style="max-width:150px">
+    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);white-space:nowrap"><input type="checkbox" id="ld-silenti" style="width:auto" ${mostraSil?'checked':''} onchange="disegnaLeadMkt()"> Mostra Nurture &amp; chiusi</label>
+    <select id="ld-filter-fonte" onchange="disegnaLeadMkt()" style="max-width:170px">
       <option value="">Tutte le fonti</option>
-      ${LEAD_FONTI.map(s=>`<option ${fFonte===s?'selected':''}>${s}</option>`).join('')}
+      ${Array.from(fontiSet).map(s=>`<option ${fFonte===s?'selected':''}>${_at(s)}</option>`).join('')}
     </select>
-    <input type="text" id="ld-search" placeholder="\ud83d\udd0d Cerca nome, contatto, note\u2026" style="max-width:240px" oninput="disegnaLeadMkt()" value="${q.replace(/"/g,'&quot;')}">
+    <input type="text" id="ld-search" placeholder="🔍 Cerca nome, contatto, note…" style="max-width:240px" oninput="disegnaLeadMkt()" value="${_at(q)}">
   </div>
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-    ${statCard(online.length, 'Contatti online '+(mese||'tot'))}
-    ${statCard(chiusi.length, 'Chiusi')}
-    ${statCard(perc===null?'\u2014':perc+'%', '% chiusura')}
-    ${statCard('\u20ac '+valore.toLocaleString('it-IT'), 'Valore netto chiuso')}
-    ${statCard(silentiAperti, 'Silenti da ricontattare', silentiAperti>0)}
-    ${statCard(fermi, 'Fermi da 4+ giorni', fermi>0)}
+    ${statCard(delMese.length, 'Contatti '+(mese||'tot'))}
+    ${statCard(accettati.length, 'Accettati')}
+    ${statCard(perc===null?'—':perc+'%', '% chiusura')}
+    ${statCard('€ '+valore.toLocaleString('it-IT'), 'Valore accettato')}
+    ${statCard(nurture, 'Nurture da ricontattare', nurture>0, "document.getElementById('ld-silenti').checked=true; disegnaLeadMkt()")}
+    ${statCard(prevFermi, 'Preventivi fermi', prevFermi>0)}
   </div>`;
 
-  // ── Cruscotto preventivi (solo quelli legati ai LEAD; quelli da ordine restano fuori) ──
+  // ── Cruscotto preventivi (solo quelli legati ai LEAD) ──
   const _prevL    = _prevList.filter(p => p.lead_id);
   const _pBozze   = _prevL.filter(p => p.stato==='bozza').length;
   const _pInviati = _prevL.filter(p => p.stato==='inviato').length;
@@ -7632,10 +7742,10 @@ function disegnaLeadMkt() {
     </div>`;
   }
 
-  // ── "Da fare oggi": preventivi ACCETTATI in cima + lead con prossima azione scaduta/oggi ──
+  // ── "Da fare oggi": preventivi ACCETTATI + lead con promemoria scaduto/oggi ──
   const _daFare = list.filter(x => _leadAttivo(x) && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) !== 'futuro')
                       .sort((a,b) => a.data_prossima_azione.localeCompare(b.data_prossima_azione));
-  const _senzaAzione = list.filter(x => _leadInFunnel(x) && !x.data_prossima_azione).length;
+  const _senzaAzione = list.filter(x => _leadAttivo(x) && _stato(x) !== 'Nuovo' && !x.data_prossima_azione).length;
   if (_daFare.length || _senzaAzione || _prevAcc.length) {
     const righeAcc = _prevAcc.map(p => {
       const _l = _leadList.find(l => l.id===p.lead_id);
@@ -7650,9 +7760,9 @@ function disegnaLeadMkt() {
     const righeDF = _daFare.map(x => {
       const st = statoPromemoria(x.data_prossima_azione);
       const col = st === 'scaduto' ? 'var(--red)' : 'var(--amber)';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border)">
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);flex-wrap:wrap">
         <span class="text-mono" style="color:${col};font-weight:700;font-size:12px;min-width:82px">${fmtDate(x.data_prossima_azione)}${st==='scaduto'?' ⏰':''}</span>
-        <span style="flex:1;font-size:13px"><b>${x.nome||'—'}</b> · ${x.prossima_azione ? String(x.prossima_azione).replace(/</g,'&lt;') : '<span style="color:var(--ink3)">azione non specificata</span>'}</span>
+        <span style="flex:1;min-width:140px;font-size:13px"><b>${_at(x.nome||'—')}</b> · ${x.prossima_azione ? _at(x.prossima_azione) : '<span style="color:var(--ink3)">azione non specificata</span>'}</span>
         ${_leadPulsanti(x)}
       </div>`;
     }).join('');
@@ -7661,34 +7771,97 @@ function disegnaLeadMkt() {
       <div style="font-weight:700;font-size:13px;margin-bottom:2px">📌 Da fare oggi${_tot?` <span style="color:var(--ink3);font-weight:400">(${_tot})</span>`:''}</div>
       ${righeAcc}
       ${righeDF}
-      ${_senzaAzione?`<div style="font-size:11px;color:var(--ink3);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">⚠ ${_senzaAzione} lead attiv${_senzaAzione===1?'o':'i'} senza una prossima azione: impostala dalla colonna “Prossima azione”.</div>`:''}
+      ${_senzaAzione?`<div style="font-size:11px;color:var(--ink3);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">⚠ ${_senzaAzione} lead attiv${_senzaAzione===1?'o':'i'} senza promemoria: impostalo dalla card.</div>`:''}
     </div>`;
   }
 
-  // \u2500\u2500 Kanban lead: colonne = fasi del funnel (silenti nascosti salvo il toggle) \u2500\u2500
-  let lista = list.filter(x => x.esito !== 'Silente' || mostraSil);
+  // ── Kanban: colonne = STATI (Nurture/Perso/Negativo dietro il toggle) ──
+  let lista = list.slice();
   if (fFonte) lista = lista.filter(x => x.fonte === fFonte);
   if (q) lista = lista.filter(x => ((x.nome||'')+(x.contatto||'')+(x.email||'')+(x.telefono||'')+(x.prodotto||'')+(x.note||'')).toLowerCase().includes(q));
-  const _cols = LEAD_COLONNE.slice();
-  if (mostraSil) _cols.push({ key:'silente', label:'\ud83d\udd15 Silente' });
-  const _perCol = {}; _cols.forEach(cc => _perCol[cc.key] = []);
-  lista.forEach(x => { const k = _leadColonna(x); if (_perCol[k]) _perCol[k].push(x); });
-  const _board = _cols.map(cc => {
-    const items = (_perCol[cc.key] || []).sort((a,b) => String(a.data_prossima_azione||'9999-99-99').localeCompare(String(b.data_prossima_azione||'9999-99-99')));
-    return `<div class="kanban-col">
+  const cols = LEAD_COLONNE.filter(cc => mostraSil || LEAD_STATI_NASCOSTI.indexOf(cc.key) < 0);
+  const perCol = {}; cols.forEach(cc => perCol[cc.key] = []);
+  lista.forEach(x => { const k = _stato(x); if (perCol[k]) perCol[k].push(x); });
+  const board = cols.map(cc => {
+    const items = (perCol[cc.key] || []).sort((a,b) => String(a.data_prossima_azione||'9999-99-99').localeCompare(String(b.data_prossima_azione||'9999-99-99')));
+    return `<div class="kanban-col" data-col="${_at(cc.key)}">
       <div class="kanban-header"><span class="kanban-title">${cc.label}</span><span class="kanban-cnt">${items.length}</span></div>
-      ${items.map(_leadCard).join('') || '<div style="font-size:11px;color:var(--ink3);padding:8px 4px">\u2014</div>'}
+      <div style="font-size:10.5px;color:var(--ink3);line-height:1.35;margin:2px 0 8px;padding-bottom:8px;border-bottom:1px dashed var(--border)">${cc.desc}<span style="display:block;margin-top:3px;color:var(--accent);font-weight:600">OBIETTIVO: ${cc.obj}</span></div>
+      ${items.map(_leadCard).join('') || '<div style="font-size:11px;color:var(--ink3);padding:8px 4px">—</div>'}
     </div>`;
   }).join('');
-  html += `<div class="kanban" id="lead-kanban-board">${_board}</div>
-  <div style="font-size:11px;color:var(--ink3);margin-top:10px">Su telefono le colonne scorrono in orizzontale. I lead \u201cSilente\u201d sono nascosti: usa \u201cMostra silenti\u201d.</div>`;
+  html += `<div class="kanban" id="lead-kanban-board">${board}</div>
+  <div style="font-size:11px;color:var(--ink3);margin-top:10px">Su telefono le colonne scorrono in orizzontale. Nurture / Perso / Negativo compaiono con “Mostra Nurture &amp; chiusi”. Puoi anche trascinare una card in un’altra colonna (tienila premuta un attimo su telefono).</div>`;
   c.innerHTML = html;
-  return;
+  _leadDragInit();
+}
+
+// ── Drag & drop delle card fra colonne (pointer events: funziona anche a dito) ──
+function _leadDragInit(){
+  const board = document.getElementById('lead-kanban-board');
+  if (!board) return;
+  if (!document.getElementById('lead-drag-css')){
+    const stl = document.createElement('style'); stl.id = 'lead-drag-css';
+    stl.textContent = '.kanban-col.drop-hi{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-bg)}';
+    document.head.appendChild(stl);
+  }
+  if (board.__dragInit) return;
+  board.__dragInit = true;
+  let st = null;
+  const colUnder = (x,y)=>{ const el = document.elementFromPoint(x,y); return el ? el.closest('.kanban-col') : null; };
+  const clearHi = ()=> document.querySelectorAll('.kanban-col.drop-hi').forEach(e=>e.classList.remove('drop-hi'));
+  const reset = ()=>{ if (st){ if (st.timer) clearTimeout(st.timer); if (st.ghost) st.ghost.remove(); if (st.card) st.card.style.opacity=''; } clearHi(); st = null; };
+  const startDrag = (cx,cy)=>{
+    if (!st) return;
+    st.dragging = true;
+    try { board.setPointerCapture(st.pointerId); } catch(e){}
+    const g = st.card.cloneNode(true);
+    g.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;width:'+st.card.offsetWidth+'px;opacity:.92;transform:translate(-50%,-50%);box-shadow:0 8px 24px rgba(0,0,0,.25);left:'+cx+'px;top:'+cy+'px';
+    document.body.appendChild(g); st.ghost = g;
+    st.card.style.opacity = '.4';
+  };
+  board.addEventListener('pointerdown', ev=>{
+    const card = ev.target.closest('.lead-card');
+    if (!card) return;
+    if (ev.target.closest('button,select,a,input,textarea')) return;
+    st = { id:card.getAttribute('data-id'), card, startX:ev.clientX, startY:ev.clientY, dragging:false, ghost:null, pointerType:ev.pointerType, pointerId:ev.pointerId, timer:null };
+    if (ev.pointerType !== 'mouse') st.timer = setTimeout(()=>{ if (st && !st.dragging) startDrag(st.startX, st.startY); }, 250);
+  });
+  board.addEventListener('pointermove', ev=>{
+    if (!st) return;
+    const dx = ev.clientX - st.startX, dy = ev.clientY - st.startY;
+    if (!st.dragging){
+      if (st.pointerType === 'mouse'){ if (Math.abs(dx) > 6 || Math.abs(dy) > 6) startDrag(ev.clientX, ev.clientY); }
+      else if (Math.abs(dx) > 10 || Math.abs(dy) > 10){ reset(); }   // mosso prima del tenuto premuto → è uno scroll
+      if (!st || !st.dragging) return;
+    }
+    ev.preventDefault();
+    if (st.ghost){ st.ghost.style.left = ev.clientX+'px'; st.ghost.style.top = ev.clientY+'px'; }
+    clearHi();
+    const col = colUnder(ev.clientX, ev.clientY);
+    if (col) col.classList.add('drop-hi');
+  });
+  board.addEventListener('pointerup', ev=>{
+    if (!st) return;
+    if (st.dragging){
+      const col = colUnder(ev.clientX, ev.clientY);
+      const id = st.id, target = col ? col.getAttribute('data-col') : null;
+      reset();
+      if (target && id){ const cur = _leadList.find(r=>r.id===id); if (cur && _stato(cur) !== target) cambiaStatoLead(id, target); }
+    } else reset();
+  });
+  board.addEventListener('pointercancel', reset);
+}
+
+function _leadGiorniFermo(x) {
+  const rif = x.updated_at || x.created_at;
+  if (!rif) return 0;
+  return Math.floor((Date.now() - new Date(rif).getTime()) / 86400000);
 }
 
 function nuovoLeadMkt() {
   _leadEditId = null;
-  mostraFormLeadMkt({ data:new Date().toISOString().slice(0,10), nome:'', email:'', telefono:'', contatto:'', fonte:'', canale:'Online', motivo:'', prodotto:'', esito:'In trattativa', valore:'', corredo_proposto:false, corredo_tenuto:false, note:'' });
+  mostraFormLeadMkt({ data:new Date().toISOString().slice(0,10), nome:'', email:'', telefono:'', contatto:'', fonte:'', canale:'Online', motivo:'', prodotto:'', stato:'Nuovo', valore:'', acconto_versato:false, corredo_proposto:false, corredo_tenuto:false, note:'' });
 }
 
 function editLeadMkt(id) {
@@ -7699,27 +7872,36 @@ function editLeadMkt(id) {
 }
 
 function mostraFormLeadMkt(x) {
-  const opt = (arr, sel, vuoto) => (vuoto?`<option value="">\u2014 scegli \u2014</option>`:'') + arr.map(v=>`<option ${v===sel?'selected':''}>${v}</option>`).join('');
+  const opt = (arr, sel, vuoto) => {
+    let a = arr.slice();
+    if (sel && a.indexOf(sel) < 0) a = [sel].concat(a);
+    return (vuoto?`<option value="">— scegli —</option>`:'') + a.map(v=>`<option ${v===sel?'selected':''}>${_at(v)}</option>`).join('');
+  };
+  const utm = [];
+  if (x.contenuto) utm.push('contenuto: '+x.contenuto);
+  if (x.termine)   utm.push('termine: '+x.termine);
   const html = `
     <div class="form-grid">
       <div class="form-group"><label>Data *</label><input type="date" id="ld-data" value="${(x.data||'').slice(0,10)}"></div>
+      <div class="form-group"><label>Stato</label><select id="ld-stato">${opt(LEAD_STATI, _stato(x), false)}</select></div>
       <div class="form-group"><label>Fonte *</label><select id="ld-fonte">${opt(LEAD_FONTI, x.fonte, true)}</select></div>
       <div class="form-group"><label>Canale *</label><select id="ld-canale">${opt(LEAD_CANALI, x.canale||'Online', false)}</select></div>
       <div class="form-group"><label>Motivo</label><select id="ld-motivo">${opt(LEAD_MOTIVI, x.motivo, true)}</select></div>
-      <div class="form-group full"><label>Nome</label><input type="text" id="ld-nome" value="${(x.nome||'').replace(/"/g,'&quot;')}" placeholder="Nome del contatto"></div>
-      <div class="form-group"><label>Email</label><input type="email" id="ld-email" value="${(x.email||'').replace(/"/g,'&quot;')}" placeholder="email del contatto"></div>
-      <div class="form-group"><label>Telefono</label><input type="text" id="ld-telefono" value="${(x.telefono||'').replace(/"/g,'&quot;')}" placeholder="numero / WhatsApp"></div>
-      <div class="form-group full"><label>Altro contatto <span style="font-size:10px;color:var(--ink3)">(IG, storico…)</span></label><input type="text" id="ld-contatto" value="${(x.contatto||'').replace(/"/g,'&quot;')}" placeholder="handle Instagram o recapito storico"></div>
-      <div class="form-group full"><label>Prodotto richiesto</label><input type="text" id="ld-prodotto" value="${(x.prodotto||'').replace(/"/g,'&quot;')}" placeholder="Es. mezza botte, refrigerata 15, angolare\u2026"></div>
-      <div class="form-group"><label>Esito</label><select id="ld-esito">${opt(LEAD_ESITI, x.esito||'In trattativa', false)}</select></div>
-      <div class="form-group"><label>Valore netto \u20ac <span style="font-size:10px;color:var(--ink3)">(se chiuso, senza IVA)</span></label><input type="number" id="ld-valore" value="${x.valore!=null?x.valore:''}" min="0" step="1"></div>
+      <div class="form-group full"><label>Nome</label><input type="text" id="ld-nome" value="${_at(x.nome||'')}" placeholder="Nome del contatto"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="ld-email" value="${_at(x.email||'')}" placeholder="email del contatto"></div>
+      <div class="form-group"><label>Telefono</label><input type="text" id="ld-telefono" value="${_at(x.telefono||'')}" placeholder="numero / WhatsApp"></div>
+      <div class="form-group full"><label>Altro contatto <span style="font-size:10px;color:var(--ink3)">(IG, storico…)</span></label><input type="text" id="ld-contatto" value="${_at(x.contatto||'')}" placeholder="handle Instagram o recapito storico"></div>
+      <div class="form-group full"><label>Prodotto richiesto</label><input type="text" id="ld-prodotto" value="${_at(x.prodotto||'')}" placeholder="Es. mezza botte, refrigerata 15, angolare…"></div>
+      <div class="form-group"><label>Valore € <span style="font-size:10px;color:var(--ink3)">(se accettato, netto)</span></label><input type="number" id="ld-valore" value="${x.valore!=null?x.valore:''}" min="0" step="1"></div>
       <div class="form-group full">
-        <div style="display:flex;gap:18px;margin-top:4px">
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)"><input type="checkbox" id="ld-cor-prop" style="width:auto" ${x.corredo_proposto?'checked':''}> Corredo proposto nel rendering</label>
+        <div style="display:flex;gap:18px;margin-top:4px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)"><input type="checkbox" id="ld-acconto" style="width:auto" ${x.acconto_versato?'checked':''}> Acconto versato</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)"><input type="checkbox" id="ld-cor-prop" style="width:auto" ${x.corredo_proposto?'checked':''}> Corredo proposto</label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)"><input type="checkbox" id="ld-cor-ten" style="width:auto" ${x.corredo_tenuto?'checked':''}> Corredo tenuto</label>
         </div>
       </div>
-      <div class="form-group full"><label>Note</label><textarea id="ld-note" rows="2" placeholder="Spazio, colori, passioni, occasione\u2026">${(x.note||'')}</textarea></div>
+      <div class="form-group full"><label>Note</label><textarea id="ld-note" rows="2" placeholder="Spazio, colori, passioni, occasione…">${_at(x.note||'')}</textarea></div>
+      ${utm.length?`<div class="form-group full"><div style="font-size:11px;color:var(--ink3)">UTM: ${_at(utm.join(' · '))}</div></div>`:''}
     </div>`;
   showModal(_leadEditId ? 'Modifica lead' : 'Nuovo lead', html, [
     {label:'Annulla', action:'closeModal()'},
@@ -7729,6 +7911,7 @@ function mostraFormLeadMkt(x) {
 
 async function salvaLeadMkt() {
   const v = id => document.getElementById(id);
+  const stato = v('ld-stato').value;
   const riga = {
     data: v('ld-data').value,
     fonte: v('ld-fonte').value,
@@ -7739,28 +7922,27 @@ async function salvaLeadMkt() {
     telefono: v('ld-telefono').value.trim() || null,
     contatto: v('ld-contatto').value.trim() || null,
     prodotto: v('ld-prodotto').value.trim() || null,
-    esito: v('ld-esito').value,
+    stato: stato,
+    esito: _statoToEsito(stato),
+    acconto_versato: v('ld-acconto').checked,
     valore: v('ld-valore').value !== '' ? Number(v('ld-valore').value) : null,
     corredo_proposto: v('ld-cor-prop').checked,
     corredo_tenuto: v('ld-cor-ten').checked,
     note: v('ld-note').value.trim() || null
   };
   if (!riga.data || !riga.fonte) { alert('Data e Fonte sono obbligatorie.'); return; }
-  if (riga.esito === 'Chiuso' && (riga.valore == null || isNaN(riga.valore))) {
-    if (!confirm('Esito "Chiuso" senza valore: il cruscotto non conter\u00e0 il fatturato di questo ordine.\nSalvare comunque?')) return;
+  if (stato === 'Accettazione preventivo' && (riga.valore == null || isNaN(riga.valore))) {
+    if (!confirm('Accettazione senza valore: il cruscotto non conterà il fatturato.\nSalvare comunque?')) return;
   }
 
   if (_leadEditId) {
     const cur = _leadList.find(r=>r.id===_leadEditId);
-    // Protezione anti-sovrascrittura (pattern ordini): se la riga e' cambiata
-    // nel frattempo su un altro dispositivo, updated_at non corrisponde piu'
-    // e l'update non tocca nulla \u2192 si ricarica e si ripete.
     let q = sb.from('lead_marketing').update(riga).eq('id', _leadEditId);
     if (cur && cur.updated_at) q = q.eq('updated_at', cur.updated_at);
     const { data, error } = await q.select();
     if (error) { alert('Errore salvataggio: ' + error.message); return; }
     if (!data || !data.length) {
-      alert('\u26a0\ufe0f Questo lead \u00e8 stato modificato da un altro dispositivo.\nRicarico il registro: ripeti la modifica.');
+      alert('⚠️ Questo lead è stato modificato da un altro dispositivo.\nRicarico il registro: ripeti la modifica.');
       _leadLoaded = false; closeModal(); renderLeadMkt(); return;
     }
     Object.assign(cur, data[0]);
@@ -7772,50 +7954,7 @@ async function salvaLeadMkt() {
   closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
 }
 
-async function cambiaEsitoLead(id, esito) {
-  const cur = _leadList.find(r=>r.id===id);
-  if (!cur) return;
-  let q = sb.from('lead_marketing').update({esito:esito}).eq('id', id);
-  if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);
-  const { data, error } = await q.select();
-  if (error) { alert('Errore: ' + error.message); return; }
-  if (!data || !data.length) { _leadLoaded=false; renderLeadMkt(); return; }
-  Object.assign(cur, data[0]);
-  disegnaLeadMkt();
-}
-
-// Presa in carico: registra chi (utente loggato) e quando ha contattato il lead.
-// Rispetta il locking ottimistico su updated_at (come cambiaEsitoLead).
-async function segnaContattato(id) {
-  const cur = _leadList.find(r=>r.id===id);
-  if (!cur) return;
-  if (cur.contattato_at) return;   // già preso in carico
-  // Presa in carico = avvio del funnel: fase contatto_1 + primo to-do automatico + storico.
-  const nowIso = new Date().toISOString();
-  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
-  storico.push({ fase:'contatto_1', ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: cur.fase || null });
-  const patch = { contattato_at: nowIso, contattato_da: window.__UTENTE_EMAIL__ || null,
-                  fase:'contatto_1', fase_da:nowIso, fase_storico:storico,
-                  prossima_azione: LEAD_FUNNEL.contatto_1.todo, data_prossima_azione: _leadDataFra(LEAD_FUNNEL.contatto_1.giorni) };
-  let q = sb.from('lead_marketing').update(patch).eq('id', id);
-  if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);
-  const { data, error } = await q.select();
-  if (error) { alert('Errore: ' + error.message); return; }
-  if (!data || !data.length) {
-    alert('⚠️ Questo lead è stato modificato da un altro dispositivo.\nRicarico il registro.');
-    _leadLoaded=false; renderLeadMkt(); return;
-  }
-  Object.assign(cur, data[0]);
-  closeModal();
-  disegnaLeadMkt();
-  aggiornaBadgeLead();
-}
-
-// Un lead \u00e8 "attivo" (ancora da lavorare) se \u00e8 In trattativa o Silente.
-function _leadAttivo(x){ return !!x && (x.esito==='In trattativa' || x.esito==='Silente'); }
-
-// Update di un lead con locking ottimistico (stesso schema di cambiaEsitoLead/segnaContattato).
-// Ritorna true se salvato; in caso di conflitto ricarica il registro e ritorna false.
+// Update di un lead con locking ottimistico. Ritorna true se salvato.
 async function _aggiornaLead(id, patch){
   const cur = _leadList.find(r=>r.id===id);
   if (!cur) return false;
@@ -7824,24 +7963,24 @@ async function _aggiornaLead(id, patch){
   const { data, error } = await q.select();
   if (error) { alert('Errore: ' + error.message); return false; }
   if (!data || !data.length) {
-    alert('\u26a0\ufe0f Questo lead \u00e8 stato modificato da un altro dispositivo.\nRicarico il registro: ripeti la modifica.');
+    alert('⚠️ Questo lead è stato modificato da un altro dispositivo.\nRicarico il registro: ripeti la modifica.');
     _leadLoaded = false; closeModal(); renderLeadMkt(); return false;
   }
   Object.assign(cur, data[0]);
   return true;
 }
 
-// Popup per impostare/aggiornare la prossima azione (cosa fare + quando) di un lead.
+// Popup per impostare/aggiornare il promemoria (cosa fare + quando) di un lead.
 function impostaProssimaAzioneLead(id){
   const x = _leadList.find(r=>r.id===id);
   if (!x) return;
   const html = `
     <div class="form-grid">
-      <div class="form-group"><label>Data prossima azione</label><input type="date" id="lead-pa-data" value="${(x.data_prossima_azione||'').slice(0,10)}"></div>
-      <div class="form-group full"><label>Cosa fare</label><input type="text" id="lead-pa-testo" value="${(x.prossima_azione||'').replace(/"/g,'&quot;')}" placeholder="Es. richiamare, inviare preventivo, sollecitare acconto\u2026"></div>
+      <div class="form-group"><label>Data promemoria</label><input type="date" id="lead-pa-data" value="${(x.data_prossima_azione||'').slice(0,10)}"></div>
+      <div class="form-group full"><label>Cosa fare</label><input type="text" id="lead-pa-testo" value="${_at(x.prossima_azione||'')}" placeholder="Es. richiamare, inviare preventivo, sollecitare acconto…"></div>
     </div>
-    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Lascia la data vuota per togliere la prossima azione.</div>`;
-  showModal('Prossima azione \u2014 ' + (x.nome||'lead'), html, [
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Lascia la data vuota per togliere il promemoria.</div>`;
+  showModal('Promemoria — ' + (x.nome||'lead'), html, [
     {label:'Annulla', action:'closeModal()'},
     {label:'Salva', action:`salvaProssimaAzioneLead('${id}')`, primary:true}
   ]);
@@ -7849,133 +7988,29 @@ function impostaProssimaAzioneLead(id){
 async function salvaProssimaAzioneLead(id){
   const data = document.getElementById('lead-pa-data').value || null;
   const testo = (document.getElementById('lead-pa-testo').value || '').trim() || null;
-  if (testo && !data) { alert('Metti anche la data della prossima azione (oppure togli il testo).'); return; }
+  if (testo && !data) { alert('Metti anche la data del promemoria (oppure togli il testo).'); return; }
   if (await _aggiornaLead(id, { prossima_azione: testo, data_prossima_azione: data })) {
     closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
   }
 }
 
-// Popup: chiusura NON distruttiva (Perso/Silente) con motivo obbligatorio. Il lead resta consultabile.
-function chiudiLead(id){
-  const x = _leadList.find(r=>r.id===id);
-  if (!x) return;
-  const html = `
-    <div class="form-grid">
-      <div class="form-group full"><label>Come si chiude?</label>
-        <select id="lead-ch-esito">
-          <option value="Perso">Perso \u2014 non se ne fa nulla</option>
-          <option value="Silente" ${x.esito==='Silente'?'selected':''}>Silente \u2014 da ricontattare pi\u00f9 avanti</option>
-        </select>
-      </div>
-      <div class="form-group full"><label>Motivo *</label><textarea id="lead-ch-motivo" rows="2" placeholder="Perch\u00e9? Es. prezzo, tempi, ha scelto altro, non risponde\u2026">${(x.motivo_chiusura||'').replace(/</g,'&lt;')}</textarea></div>
-    </div>
-    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Il lead non viene cancellato: resta nel registro, consultabile e riapribile.</div>`;
-  showModal('Chiudi lead \u2014 ' + (x.nome||'lead'), html, [
-    {label:'Annulla', action:'closeModal()'},
-    {label:'Chiudi lead', action:`salvaChiusuraLead('${id}')`, primary:true}
-  ]);
-}
-async function salvaChiusuraLead(id){
-  const esito = document.getElementById('lead-ch-esito').value;
-  const motivo = (document.getElementById('lead-ch-motivo').value || '').trim();
-  if (!motivo) { alert('Il motivo \u00e8 obbligatorio per chiudere un lead.'); return; }
-  const patch = { esito: esito, motivo_chiusura: motivo, chiuso_at: new Date().toISOString(),
-                  prossima_azione: null, data_prossima_azione: null };
-  if (await _aggiornaLead(id, patch)) {
-    closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
-  }
-}
-
-// Riapre un lead chiuso/parcheggiato: torna In trattativa e rigenera il to-do della sua fase.
-async function riapriLead(id){
-  const cur = _leadList.find(r=>r.id===id);
-  if (!cur) return;
-  const f = (cur.fase && LEAD_FUNNEL[cur.fase]) ? cur.fase : 'in_dialogo';
-  const conf = LEAD_FUNNEL[f];
-  const patch = { esito:'In trattativa', chiuso_at:null, fase:f };
-  if (conf){ patch.prossima_azione = conf.todo; patch.data_prossima_azione = _leadDataFra(conf.giorni); }
-  if (await _aggiornaLead(id, patch)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
-}
-
-// ── Motore avanzamento funnel ──────────────────────────────────────────────
-// Porta il lead alla 'nuovaFase', registra il passaggio nello storico e genera
-// da solo il prossimo to-do (testo + data) secondo la tabella LEAD_FUNNEL.
-async function _vaiAFase(id, nuovaFase){
-  const cur = _leadList.find(r=>r.id===id);
-  if (!cur) return false;
-  const nowIso = new Date().toISOString();
-  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
-  storico.push({ fase:nuovaFase, ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: cur.fase || null });
-  const conf = LEAD_FUNNEL[nuovaFase] || {};
-  const patch = {
-    fase: nuovaFase, fase_da: nowIso, fase_storico: storico,
-    prossima_azione: conf.todo || null,
-    data_prossima_azione: conf.todo ? _leadDataFra(conf.giorni) : null
-  };
-  return await _aggiornaLead(id, patch);
-}
-// Manda un lead in Silente in automatico (tentativi esauriti), con motivo di sistema.
-async function _leadInSilente(id){
-  const cur = _leadList.find(r=>r.id===id);
-  if (!cur) return false;
-  const nowIso = new Date().toISOString();
-  const storico = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
-  storico.push({ fase:'silente', ts:nowIso, chi: window.__UTENTE_EMAIL__ || null, da: cur.fase || null });
-  return await _aggiornaLead(id, { esito:'Silente', chiuso_at:nowIso, fase_storico:storico,
-    prossima_azione:null, data_prossima_azione:null,
-    motivo_chiusura: cur.motivo_chiusura || 'Nessuna risposta dopo i tentativi previsti' });
-}
-
-// "Fatto, aspetto risposta": passa al tentativo successivo (o Silente se esauriti).
-async function leadFatto(id){
-  const cur = _leadList.find(r=>r.id===id);
-  const f = cur && _leadFase(cur);
-  const conf = f && LEAD_FUNNEL[f];
-  if (!conf) return;
-  if (conf.fatto === '__silente') { if (await _leadInSilente(id)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); } return; }
-  if (!conf.fatto) { impostaProssimaAzioneLead(id); return; }   // fasi manuali (es. in conversazione): apri l'editor
-  if (await _vaiAFase(id, conf.fatto)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
-}
-// "Ha risposto": salta in avanti secondo la regola della fase.
-async function leadHaRisposto(id){
-  const cur = _leadList.find(r=>r.id===id);
-  const f = cur && _leadFase(cur);
-  const conf = f && LEAD_FUNNEL[f];
-  if (!conf || !conf.risposto) return;
-  if (await _vaiAFase(id, conf.risposto)) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
-}
-// "Preventivo inviato" → Fase 2.
-async function leadPreventivoInviato(id){
-  if (await _vaiAFase(id, 'preventivo')) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
-}
-// "Sta trattando" → Trattativa.
-async function leadTrattativa(id){
-  if (await _vaiAFase(id, 'trattativa')) { closeModal(); disegnaLeadMkt(); aggiornaBadgeLead(); }
-}
-// "Vinto": apre la scheda per registrare l'importo e chiudere come Chiuso.
-function leadVinto(id){
-  const x = _leadList.find(r=>r.id===id);
-  if (!x) return;
-  _leadEditId = id;
-  mostraFormLeadMkt(Object.assign({}, x, { esito:'Chiuso' }));
-}
-// Finestra "Gestisci lead": stepper + prossima azione + pulsanti della fase.
+// Finestra "Gestisci lead": stato + obiettivo + promemoria + pulsanti + preventivi.
 function gestisciLead(id){
   const x = _leadList.find(r=>r.id===id);
   if (!x) return;
-  const fin = (x.esito==='Chiuso' || x.esito==='Perso');
-  const faseLbl = fin ? x.esito : (_leadFase(x) ? LEAD_FUNNEL[_leadFase(x)].label : (x.esito||'—'));
+  const s = _stato(x);
+  const meta = LEAD_COLONNE.find(c=>c.key===s) || { label:s, desc:'', obj:'' };
   const todo = x.prossima_azione
-    ? `<b>${String(x.prossima_azione).replace(/</g,'&lt;')}</b>${x.data_prossima_azione?` · <span class="text-mono">${fmtDate(x.data_prossima_azione)}</span>`:''}`
-    : '<span style="color:var(--ink3)">nessuna azione impostata</span>';
+    ? `<b>${_at(x.prossima_azione)}</b>${x.data_prossima_azione?` · <span class="text-mono">${fmtDate(x.data_prossima_azione)}</span>`:''}`
+    : '<span style="color:var(--ink3)">nessun promemoria impostato</span>';
   const html = `
-    <div style="margin-bottom:14px">${_leadStepper(x)}</div>
-    <div style="font-size:12px;color:var(--ink3)">Fase attuale</div>
-    <div style="font-weight:600;margin-bottom:10px">${faseLbl}${x.contattato_da?` · <span style="font-size:12px;color:var(--ink2)">${nomeUtente(x.contattato_da)}</span>`:''}</div>
+    <div style="margin-bottom:6px"><span class="badge ${LEAD_STATO_BADGE[s]||'badge-gray'}">${meta.label}</span>${x.contattato_da?` · <span style="font-size:12px;color:var(--ink2)">${_at(nomeUtente(x.contattato_da))}</span>`:''}</div>
+    <div style="font-size:12px;color:var(--ink2);margin-bottom:2px">${meta.desc}</div>
+    <div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:12px">OBIETTIVO: ${meta.obj}</div>
     <div style="font-size:12px;color:var(--ink3)">Prossima azione</div>
-    <div style="margin-bottom:14px">${todo}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${_leadPulsanti(x)}</div>
-    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+    <div style="margin-bottom:12px">${todo} ${_leadAttivo(x)?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="impostaProssimaAzioneLead('${x.id}')">✎ modifica</button>`:''}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">${_leadPulsanti(x)}${(s==='Perso'||s==='Negativo')?'':_leadSposta(x)}</div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <span style="font-size:12px;color:var(--ink3);flex:1;font-weight:600">Preventivi</span>
         <button class="btn btn-sm btn-primary" style="font-size:11px" onclick="apriEditorPreventivo('${x.id}',null)">+ Genera preventivo</button>
@@ -8058,7 +8093,7 @@ async function _prevTrovaOCrea(){
     if (!confirm(`Trovato lead esistente: ${lead.nome||'(senza nome)'}.\nCollego il nuovo preventivo a questo lead?`)) return;
     closeModal(); apriEditorPreventivo(lead.id,null); return;
   }
-  const riga={ data:new Date().toISOString().slice(0,10), fonte:'Passaparola', canale:'Online', esito:'In trattativa',
+  const riga={ data:new Date().toISOString().slice(0,10), fonte:'Passaparola', canale:'Online', stato:'Qualificato', esito:'In trattativa',
                nome:nome||null, email:email||null, telefono:tel||null };
   const {data,error}=await sb.from('lead_marketing').insert(riga).select().single();
   if (error){ alert('Errore creazione lead: '+error.message); return; }
