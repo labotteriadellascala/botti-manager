@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.54 — 17/08/2026 · Lead: note della cronologia modificabili (✎) e nuovo campo “Note generali” nella Scheda per tutte le info del cliente</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.55 — 17/08/2026 · Preventivi: tasto “→ Crea ordine” su un preventivo accettato → apre Nuovo ordine precompilato (cliente, indirizzi, totale, voci del preventivo nelle note)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.54';
+window.APP_VERSION = '2.55';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8227,9 +8227,65 @@ function _prevListaHtml(leadId){
       <span class="badge ${PREV_STATO_BADGE[p.stato]||'badge-gray'}" style="font-size:10px">${p.stato||'bozza'}</span>
       <span style="flex:1;text-align:right;font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
       <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="apriEditorPreventivo('${leadId}','${p.id}')">Apri</button>
+      ${(p.stato==='accettato'||p.stato==='lavorato')?`<button class="btn btn-sm btn-primary" style="font-size:11px" title="Crea un ordine precompilato con i dati di questo preventivo" onclick="creaOrdineDaPreventivo('${p.id}')">→ Crea ordine</button>`:''}
       ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Copia link</button>`:''}
       <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina preventivo" onclick="eliminaPreventivo('${p.id}')">🗑</button>
     </div>`).join('');
+}
+
+// Crea un ORDINE precompilato con i dati di un preventivo accettato (l'ordine lo confermi tu).
+async function creaOrdineDaPreventivo(prevId){
+  const { data:p, error } = await sb.from('preventivi').select('*').eq('id', prevId).single();
+  if (error || !p){ alert('Preventivo non trovato: ' + ((error&&error.message)||'')); return; }
+  const lead = _leadList.find(l => l.id === p.lead_id);
+  const g = (obj, ...keys) => { for (const k of keys){ if (obj[k] != null && obj[k] !== '') return obj[k]; } return ''; };
+  // Le voci del preventivo sono testo libero: finiscono nelle Note dell'ordine (i prodotti a catalogo li scegli tu).
+  const voci = Array.isArray(p.righe) ? p.righe.map(r => {
+    const desc = r.desc || r.descrizione || '';
+    if (!desc) return '';
+    const q  = (r.qta!=null && r.qta!=='') ? ` ×${r.qta}` : '';
+    const pr = (r.prezzo!=null && r.prezzo!=='') ? ` — ${_prevEuro(r.prezzo)}` : '';
+    const sc = r.sconto ? ` (sconto ${_prevEuro(r.sconto)})` : '';
+    return `• ${desc}${q}${pr}${sc}`;
+  }).filter(Boolean).join('\n') : '';
+  let misTxt = '';
+  if (p.misure && typeof p.misure === 'object'){
+    const parts = Object.entries(p.misure).filter(([k,v]) => v!=='' && v!=null).map(([k,v]) => `${k}: ${v}`);
+    if (parts.length) misTxt = 'Misure: ' + parts.join(', ');
+  }
+  const sdi = g(p,'cliente_sdi'), pec = g(p,'cliente_pec');
+  const nota = [
+    `Da preventivo ${p.numero||''} (accettato). Totale ${_prevEuro(p.totale)} (IVA inclusa).`,
+    voci ? 'Voci:\n' + voci : '',
+    misTxt,
+    (sdi||pec) ? `SDI: ${sdi||'—'} · PEC: ${pec||'—'}` : '',
+    p.note ? 'Note preventivo:\n' + p.note : ''
+  ].filter(Boolean).join('\n');
+  const pre = {
+    cliente: p.cliente_nome || (lead&&lead.nome) || '',
+    tel: g(p,'cliente_telefono','cliente_tel') || (lead&&lead.telefono) || '',
+    email: p.cliente_email || (lead&&lead.email) || '',
+    cf: g(p,'cliente_cf_piva','cliente_cf','cliente_piva'),
+    canale: '',
+    consegna: '',
+    stato: 'Inserito',
+    prezzoTotale: (p.totale!=null) ? Number(p.totale) : 0,
+    noteOrdine: nota,
+    indirizzoSpedizione: {
+      via: g(p,'cliente_indirizzo','cliente_via'),
+      cap: g(p,'cliente_cap'),
+      citta: g(p,'cliente_citta','cliente_città'),
+      provincia: g(p,'cliente_prov','cliente_provincia')
+    },
+    fattUgualeSpedizione: true,
+    indirizzoFatturazione: {}
+  };
+  closeModal();
+  nav('nuovo-ordine', null);
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const tt = document.getElementById('topbar-title'); if (tt) tt.textContent = 'Nuovo ordine (da preventivo ' + (p.numero||'') + ')';
+  renderFormOrdine(null, pre);
+  alert('Ordine precompilato dal preventivo ' + (p.numero||'') + '.\nControlla i prodotti a catalogo, la data di consegna e registra l’acconto già versato tra i pagamenti, poi Conferma ordine.');
 }
 
 // Nuovo preventivo con "collega-o-crea" (cerca lead per email/telefono, altrimenti lo crea)
