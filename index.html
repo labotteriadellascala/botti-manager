@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.55 — 17/08/2026 · Preventivi: tasto “→ Crea ordine” su un preventivo accettato → apre Nuovo ordine precompilato (cliente, indirizzi, totale, voci del preventivo nelle note)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.56 — 17/08/2026 · Aggiornamento automatico: quando esce una nuova versione il gestionale si ricarica da solo appena è sicuro (mai mentre stai scrivendo); niente più refresh a mano</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.55';
+window.APP_VERSION = '2.56';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -11092,7 +11092,7 @@ window.renderFinResoconto = renderResoconto;
     barra.setAttribute('role','status');
     barra.innerHTML =
       '<div class="bm-upd-txt">✨ <b>È disponibile una versione aggiornata del gestionale.</b> '
-      + 'Salva il lavoro e ricarica quando puoi.</div>'
+      + 'Si installerà da sola appena chiudi questa finestra; oppure ricarica ora.</div>'
       + '<button class="bm-upd-btn" type="button">Ricarica</button>'
       + '<button class="bm-upd-x" type="button" title="Nascondi" aria-label="Nascondi">×</button>';
     barra.querySelector('.bm-upd-btn').addEventListener('click', function(){ location.reload(); });
@@ -11101,6 +11101,25 @@ window.renderFinResoconto = renderResoconto;
     return barra;
   }
   function mostraBarra(){ creaBarra().style.display = 'flex'; }
+
+  // NON è sicuro ricaricare se stai lavorando a qualcosa che si perderebbe:
+  // una finestra/modale aperta, l'editor preventivi, o la compilazione di un nuovo ordine.
+  function _reloadNonSicuro(){
+    var mr = document.getElementById('modal-root');
+    if(mr && mr.children.length) return true;                 // modale generico aperto
+    var mi = document.getElementById('modal-imp');
+    if(mi && mi.style.display !== 'none' && mi.offsetParent !== null) return true;  // Impostazioni
+    if(document.querySelector('.pv-ov')) return true;         // editor preventivo aperto
+    var np = document.getElementById('page-nuovo-ordine');
+    if(np && np.classList.contains('active')) return true;    // form Nuovo ordine in compilazione
+    return false;
+  }
+  // Ricarica da sola se è sicuro; altrimenti mostra la fascetta e riproverà appena possibile.
+  function ricaricaSeSicuro(){
+    if(_reloadNonSicuro()){ mostraBarra(); return false; }
+    location.reload();
+    return true;
+  }
 
   var trovato = false;      // aggiornamento già rilevato
   var ultimoCheck = 0;      // anti-rimbalzo
@@ -11115,21 +11134,21 @@ window.renderFinResoconto = renderResoconto;
       .then(function(j){
         if(j && j.version && remotaPiuAlta(j.version, LOCALE)){
           trovato = true;
-          mostraBarra();
+          ricaricaSeSicuro();
         }
       })
       .catch(function(){ /* offline o file assente: silenzio totale, nessun errore */ });
   }
 
-  // Al ritorno sulla finestra: se già rilevato, ri-mostra la fascetta (anche se
-  // era stata nascosta); altrimenti fai un controllo (rispettando l'anti-rimbalzo).
-  function alRitorno(){ if(trovato) mostraBarra(); else controlla(); }
+  // Al ritorno sulla finestra: se già rilevato prova a ricaricare (se sicuro); altrimenti controlla.
+  function alRitorno(){ if(trovato) ricaricaSeSicuro(); else controlla(); }
 
   window.addEventListener('focus', alRitorno);
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible') alRitorno();
   });
-  setInterval(controlla, 300000);   // ogni 5 minuti
+  setInterval(controlla, 300000);   // ogni 5 minuti: cerca una nuova versione
+  setInterval(function(){ if(trovato) ricaricaSeSicuro(); }, 30000);  // trovata: ricarica appena è sicuro
   setTimeout(controlla, 4000);      // primo controllo poco dopo l'avvio, senza rallentare il boot
 })();
 </script>
