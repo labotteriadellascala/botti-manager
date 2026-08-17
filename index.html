@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.52 — 16/08/2026 · Lead: la board scorre davvero in orizzontale (colonne a larghezza fissa + barra di scorrimento visibile); prima le colonne in più andavano a capo</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.54 — 17/08/2026 · Lead: note della cronologia modificabili (✎) e nuovo campo “Note generali” nella Scheda per tutte le info del cliente</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.52';
+window.APP_VERSION = '2.54';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7817,7 +7817,8 @@ function disegnaLeadMkt() {
   const perCol = {}; cols.forEach(cc => perCol[cc.key] = []);
   lista.forEach(x => { const k = _stato(x); if (perCol[k]) perCol[k].push(x); });
   const board = cols.map(cc => {
-    const items = (perCol[cc.key] || []).sort((a,b) => String(a.data_prossima_azione||'9999-99-99').localeCompare(String(b.data_prossima_azione||'9999-99-99')));
+    // Ordine: ultima azione più recente in alto (updated_at = ultimo tocco; poi fase_da/created_at).
+    const items = (perCol[cc.key] || []).sort((a,b) => String(b.updated_at||b.fase_da||b.created_at||'').localeCompare(String(a.updated_at||a.fase_da||a.created_at||'')));
     return `<div class="kanban-col" data-col="${_at(cc.key)}">
       <div class="kanban-header"><span class="kanban-title">${cc.label}</span><span class="kanban-cnt">${items.length}</span></div>
       <div style="font-size:10.5px;color:var(--ink3);line-height:1.35;margin:2px 0 8px;padding-bottom:8px;border-bottom:1px dashed var(--border)">${cc.desc}<span style="display:block;margin-top:3px;color:var(--accent);font-weight:600">OBIETTIVO: ${cc.obj}</span></div>
@@ -8051,15 +8052,17 @@ function _leadStorico(cur, testo){
 }
 // Cronologia del lead (cambi stato automatici + note manuali), dalla più recente.
 function _leadCronologiaHtml(x){
-  const arr = Array.isArray(x.fase_storico) ? x.fase_storico.slice() : [];
+  const arr = Array.isArray(x.fase_storico) ? x.fase_storico : [];
   if (!arr.length) return '<div style="font-size:12px;color:var(--ink3)">Nessuna azione registrata ancora.</div>';
-  return arr.reverse().map(e => {
+  return arr.map((e, idx) => ({ e, idx })).reverse().map(({ e, idx }) => {
     const quando = e.ts ? new Date(e.ts).toLocaleString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
     const chi = e.chi ? nomeUtente(e.chi) : '';
     const testo = e.testo ? _at(e.testo) : (e.stato ? ('Stato → ' + _at(e.stato)) : '—');
-    return `<div style="display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--border)">
+    const edit = e.testo ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 5px" title="Modifica / elimina" onclick="modificaNotaCronologia('${x.id}',${idx})">✎</button>` : '';
+    return `<div style="display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--border);align-items:flex-start">
       <span class="text-mono" style="font-size:10px;color:var(--ink3);min-width:92px">${quando}</span>
       <span style="flex:1;font-size:12px">${testo}${chi?` <span style="color:var(--ink3)">· ${_at(chi)}</span>`:''}</span>
+      ${edit}
     </div>`;
   }).join('');
 }
@@ -8080,6 +8083,46 @@ async function salvaNotaLead(id){
   if (!testo){ alert('Scrivi la nota.'); return; }
   if (await _aggiornaLead(id, { fase_storico:_leadStorico(cur, testo) })){ closeModal(); disegnaLeadMkt(); gestisciLead(id); }
 }
+// Modifica (o elimina) una voce di testo della cronologia, per indice.
+function modificaNotaCronologia(id, idx){
+  const x = _leadList.find(r=>r.id===id); if (!x) return;
+  const arr = Array.isArray(x.fase_storico) ? x.fase_storico : [];
+  const e = arr[idx]; if (!e) return;
+  const html = `
+    <div class="form-group full"><label>Testo della voce</label><textarea id="lead-nota-edit" rows="3">${_at(e.testo||'')}</textarea></div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Svuota il testo e salva per <b>eliminare</b> la voce.</div>`;
+  showModal('Modifica nota', html, [
+    {label:'Annulla', action:`gestisciLead('${id}')`},
+    {label:'Salva', action:`salvaNotaCronologia('${id}',${idx})`, primary:true}
+  ]);
+}
+async function salvaNotaCronologia(id, idx){
+  const cur = _leadList.find(r=>r.id===id); if (!cur) return;
+  const arr = Array.isArray(cur.fase_storico) ? cur.fase_storico.slice() : [];
+  if (!arr[idx]) { alert('Voce non trovata (ricarico).'); _leadLoaded=false; closeModal(); renderLeadMkt(); return; }
+  const testo = (document.getElementById('lead-nota-edit').value || '').trim();
+  if (!testo){
+    if (!confirm('Eliminare questa voce dalla cronologia?')) return;
+    arr.splice(idx, 1);
+  } else {
+    arr[idx] = Object.assign({}, arr[idx], { testo:testo, modificata_at:new Date().toISOString() });
+  }
+  if (await _aggiornaLead(id, { fase_storico:arr })){ closeModal(); disegnaLeadMkt(); gestisciLead(id); }
+}
+// Note generali del lead (campo `note`): tutte le info del cliente, modificabili dalla Scheda.
+function modificaNoteGeneraliLead(id){
+  const x = _leadList.find(r=>r.id===id); if (!x) return;
+  const html = `
+    <div class="form-group full"><label>Note generali — tutte le info del cliente</label><textarea id="lead-note-gen" rows="7" placeholder="Budget, gusti, spazio, occasione, preferenze, com'è arrivato, storico…">${_at(x.note||'')}</textarea></div>`;
+  showModal('Note generali — ' + (x.nome||'lead'), html, [
+    {label:'Annulla', action:`gestisciLead('${id}')`},
+    {label:'Salva', action:`salvaNoteGeneraliLead('${id}')`, primary:true}
+  ]);
+}
+async function salvaNoteGeneraliLead(id){
+  const testo = (document.getElementById('lead-note-gen').value || '').trim() || null;
+  if (await _aggiornaLead(id, { note:testo })){ closeModal(); disegnaLeadMkt(); gestisciLead(id); }
+}
 
 // Finestra "Scheda lead": stato + obiettivo + promemoria + pulsanti + cronologia + preventivi.
 function gestisciLead(id){
@@ -8099,8 +8142,7 @@ function gestisciLead(id){
     + rRiga('Prodotto', x.prodotto?_at(x.prodotto):'')
     + rRiga('Motivo', x.motivo?_at(x.motivo):'')
     + rRiga('Valore', (x.valore!=null&&x.valore!=='')?('€ '+Number(x.valore).toLocaleString('it-IT')):'')
-    + rRiga('Arrivato il', x.data?fmtDate(x.data):'')
-    + (x.note?`<div style="margin-top:6px"><span style="color:var(--ink3)">Note / richiesta</span><div style="white-space:pre-wrap;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:3px">${_at(x.note)}</div></div>`:'');
+    + rRiga('Arrivato il', x.data?fmtDate(x.data):'');
   const html = `
     <div style="margin-bottom:6px"><span class="badge ${LEAD_STATO_BADGE[s]||'badge-gray'}">${meta.label}</span>${x.contattato_da?` · <span style="font-size:12px;color:var(--ink2)">${_at(nomeUtente(x.contattato_da))}</span>`:''}</div>
     ${contatti?`<div style="font-size:12px;color:var(--ink2);margin-bottom:8px">${_at(contatti)}</div>`:''}
@@ -8112,6 +8154,13 @@ function gestisciLead(id){
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <span style="font-size:12px;color:var(--ink3);font-weight:600;display:block;margin-bottom:6px">Richiesta</span>
       <div style="font-size:12px;line-height:1.5">${richiesta || '<span style="color:var(--ink3)">Nessun dettaglio inserito.</span>'}</div>
+    </div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--ink3);flex:1;font-weight:600">Note generali</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="modificaNoteGeneraliLead('${x.id}')">✎ Modifica</button>
+      </div>
+      ${x.note?`<div style="white-space:pre-wrap;font-size:12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px">${_at(x.note)}</div>`:'<div style="font-size:12px;color:var(--ink3)">Nessuna nota. Metti qui tutte le info del cliente.</div>'}
     </div>
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
