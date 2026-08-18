@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.56 — 17/08/2026 · Aggiornamento automatico: quando esce una nuova versione il gestionale si ricarica da solo appena è sicuro (mai mentre stai scrivendo); niente più refresh a mano</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.57 — 17/08/2026 · Lead: la ricerca non perde più il fuoco a ogni tasto; cerca anche per telefono (ignora spazi/trattini) ed email</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.56';
+window.APP_VERSION = '2.57';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7707,7 +7707,8 @@ function disegnaLeadMkt() {
   const qEl = document.getElementById('ld-search');
   const mese = selMeseEl ? selMeseEl.value : _leadMeseCorrente();
   const fFonte = selFonteEl ? selFonteEl.value : '';
-  const q = qEl ? qEl.value.toLowerCase() : '';
+  const qRaw = qEl ? qEl.value : '';
+  const q = qRaw.toLowerCase();
   const _silEl = document.getElementById('ld-silenti');
   const mostraSil = _silEl ? _silEl.checked : false;
 
@@ -7744,7 +7745,7 @@ function disegnaLeadMkt() {
       <option value="">Tutte le fonti</option>
       ${Array.from(fontiSet).map(s=>`<option ${fFonte===s?'selected':''}>${_at(s)}</option>`).join('')}
     </select>
-    <input type="text" id="ld-search" placeholder="🔍 Cerca nome, contatto, note…" style="max-width:240px" oninput="disegnaLeadMkt()" value="${_at(q)}">
+    <input type="text" id="ld-search" placeholder="🔍 Cerca nome, telefono, email, note…" style="max-width:240px" oninput="disegnaLeadMkt()" value="${_at(qRaw)}">
   </div>
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
     ${statCard(delMese.length, 'Contatti '+(mese||'tot'))}
@@ -7812,7 +7813,18 @@ function disegnaLeadMkt() {
   // ── Kanban: colonne = STATI (Nurture/Perso/Negativo dietro il toggle) ──
   let lista = list.slice();
   if (fFonte) lista = lista.filter(x => x.fonte === fFonte);
-  if (q) lista = lista.filter(x => ((x.nome||'')+(x.contatto||'')+(x.email||'')+(x.telefono||'')+(x.prodotto||'')+(x.note||'')).toLowerCase().includes(q));
+  if (q) {
+    const qDigits = q.replace(/\D/g,'');   // se cerchi un numero, confronto solo le cifre (ignoro spazi/trattini/prefissi)
+    lista = lista.filter(x => {
+      const testo = ((x.nome||'')+' '+(x.contatto||'')+' '+(x.email||'')+' '+(x.telefono||'')+' '+(x.prodotto||'')+' '+(x.note||'')).toLowerCase();
+      if (testo.includes(q)) return true;
+      if (qDigits.length >= 3){
+        const tel = ((x.telefono||'')+' '+(x.contatto||'')).replace(/\D/g,'');
+        if (tel.includes(qDigits)) return true;
+      }
+      return false;
+    });
+  }
   const cols = LEAD_COLONNE.filter(cc => mostraSil || LEAD_STATI_NASCOSTI.indexOf(cc.key) < 0);
   const perCol = {}; cols.forEach(cc => perCol[cc.key] = []);
   lista.forEach(x => { const k = _stato(x); if (perCol[k]) perCol[k].push(x); });
@@ -7831,7 +7843,14 @@ function disegnaLeadMkt() {
     <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--amber-bg);border-left:3px solid var(--amber);vertical-align:middle"></span> in scadenza (entro 2 gg)</span>
     <span>Nurture / Perso / Negativo: spunta “Mostra Nurture &amp; chiusi”. Trascina una card per spostarla (tienila premuta un attimo su telefono).</span>
   </div>`;
+  // se stavi scrivendo nella ricerca, il ridisegno ricrea l'input: gli restituisco fuoco e cursore
+  const _fsearch = document.activeElement && document.activeElement.id === 'ld-search';
+  const _fpos = _fsearch ? document.activeElement.selectionStart : null;
   c.innerHTML = html;
+  if (_fsearch){
+    const el = document.getElementById('ld-search');
+    if (el){ el.focus(); try { const p = (_fpos==null?el.value.length:_fpos); el.setSelectionRange(p,p); } catch(e){} }
+  }
   _leadDragInit();
 }
 
