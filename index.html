@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.57 — 17/08/2026 · Lead: la ricerca non perde più il fuoco a ogni tasto; cerca anche per telefono (ignora spazi/trattini) ed email</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.58 — 17/08/2026 · Preventivi: nuovo preventivo con testo condizioni precompilato (caparra €150, saldo…) modificabile, e flag IVA esposta spento di default</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.57';
+window.APP_VERSION = '2.58';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8361,6 +8361,13 @@ function _prevCss(){
 }
 function chiudiEditorPreventivo(){ const o=document.getElementById('pv-ov'); if(o) o.remove(); }
 
+// Testo di default per le condizioni di un NUOVO preventivo (resta modificabile prima di salvare).
+const PREV_NOTE_DEFAULT = `Spedizione a carico nostro.
+
+Per la conferma basta una caparra di €150, il saldo alla fine, da definire se:
+- ad avviso di merce pronta
+- contrassegno + €25
+- rate klarna + €25`;
 async function apriEditorPreventivo(leadId, prevId, ordineId){
   _prevCss();
   await caricaPreventivi();
@@ -8388,7 +8395,7 @@ async function apriEditorPreventivo(leadId, prevId, ordineId){
     if (_prevOrdineId){ const o2=(DB.get('ordini')||[]).find(x=>x.id===_prevOrdineId); sorgente = o2&&o2.num?('ordine '+o2.num):'ordine'; }
     else if (_prevLeadId){ const l2=_leadList.find(x=>x.id===_prevLeadId); sorgente = l2&&l2.nome?('lead: '+_at(l2.nome)):''; }
   } else {
-    p = { numero:_prevProssimoNumero(), iva_percent:22, righe:[], misure:{}, note:'', allegati:[],
+    p = { numero:_prevProssimoNumero(), iva_percent:22, righe:[], misure:{}, note:PREV_NOTE_DEFAULT, allegati:[], iva_esposta:false,
           cliente_nome: prefill.nome, cliente_email: prefill.email, cliente_telefono: prefill.telefono };
   }
   _prevAllegati = Array.isArray(p.allegati) ? p.allegati.slice() : [];
