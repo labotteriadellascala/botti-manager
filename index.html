@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.58 — 17/08/2026 · Preventivi: nuovo preventivo con testo condizioni precompilato (caparra €150, saldo…) modificabile, e flag IVA esposta spento di default</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.59 — 17/08/2026 · Lead: sulla riga del nome, pillola col referente interno (👤 Andrea/Giulia), colorata per persona</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.58';
+window.APP_VERSION = '2.59';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7630,8 +7630,13 @@ function _leadCard(x){
     if (gg < 0){ cardBg = '#f6caca'; cardBL = 'border:1px solid var(--red);border-left:4px solid var(--red);'; }
     else if (gg <= 2){ cardBg = 'var(--amber-bg)'; cardBL = 'border-left:3px solid var(--amber);'; }
   }
+  const gi = x.contattato_da && /giulia/i.test(nomeUtente(x.contattato_da));
+  const ref = x.contattato_da ? `<span style="font-size:9.5px;font-weight:700;padding:1px 8px;border-radius:20px;white-space:nowrap;background:${gi?'var(--blue-bg)':'var(--accent-bg)'};color:${gi?'var(--blue)':'var(--accent)'}" title="Referente interno">👤 ${_at(nomeUtente(x.contattato_da))}</span>` : '';
   return `<div class="lead-card" data-id="${x.id}" style="background:${cardBg};border:0.5px solid var(--border);${cardBL}border-radius:8px;padding:10px;margin-bottom:8px">
-    <div style="font-weight:600;font-size:13px">${_at(x.nome||'—')}${tag}</div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-weight:600;font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_at(x.nome||'—')}${tag}</span>
+      ${ref}
+    </div>
     <div style="font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_at(contatto)||'—'}</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 2px">${chips}</div>
     <div style="margin:4px 0">${meta}</div>
