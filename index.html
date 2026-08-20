@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.61 — 17/08/2026 · Lead: l’export Excel ora chiede l’intervallo di date (Dal/Al + scorciatoie mese/anno/tutti)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.62 — 17/08/2026 · Lead: il valore del lead ora eredita il totale del preventivo accettato (stat “Valore accettato”, card, caparra, Scheda ed export ora coerenti)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.61';
+window.APP_VERSION = '2.62';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7410,6 +7410,19 @@ function _leadAttivo(x){
   if (s === 'Accettazione preventivo' && x.acconto_versato) return false;
   return true;
 }
+// Valore "vero" del lead: se ha un preventivo accettato/lavorato usa il totale del preventivo
+// (l'ultimo per data), altrimenti il campo `valore` scritto a mano. Ritorna un numero.
+function _leadValore(x){
+  if (!x) return 0;
+  if (typeof _prevList !== 'undefined' && Array.isArray(_prevList)){
+    const acc = _prevList.filter(p => p.lead_id===x.id && (p.stato==='accettato'||p.stato==='lavorato') && p.totale!=null);
+    if (acc.length){
+      acc.sort((a,b)=> String(b.created_at||'').localeCompare(String(a.created_at||'')));
+      return Number(acc[0].totale)||0;
+    }
+  }
+  return (x.valore!=null && x.valore!=='') ? (Number(x.valore)||0) : 0;
+}
 
 // Data (YYYY-MM-DD, ora locale) fra N giorni da oggi.
 function _leadDataFra(giorni){
@@ -7610,7 +7623,7 @@ function _leadCard(x){
   let meta = '';
   if (s === 'Accettazione preventivo'){
     if (x.acconto_versato){
-      meta = `<div style="font-size:11px;font-weight:700;color:var(--green)">✓ Acconto versato${x.valore!=null&&x.valore!==''?' · € '+Number(x.valore).toLocaleString('it-IT'):''}</div><div style="font-size:11px;color:var(--ink3)">→ pronto per la produzione</div>`;
+      meta = `<div style="font-size:11px;font-weight:700;color:var(--green)">✓ Acconto versato${_leadValore(x)?' · € '+_leadValore(x).toLocaleString('it-IT'):''}</div><div style="font-size:11px;color:var(--ink3)">→ pronto per la produzione</div>`;
     } else {
       meta = `<div style="font-size:11px;font-weight:700;color:var(--amber)">⏳ Attende acconto</div>` + _leadRemLine(x, ' (ogni 2 gg)');
     }
@@ -7724,7 +7737,7 @@ function disegnaLeadMkt() {
   // ---- statistiche del mese selezionato ----
   const delMese = list.filter(x => (x.data||'').slice(0,7) === mese);
   const accettati = delMese.filter(x => _stato(x) === 'Accettazione preventivo');
-  const valore = accettati.reduce((s,x) => s + (Number(x.valore)||0), 0);
+  const valore = accettati.reduce((s,x) => s + _leadValore(x), 0);
   const perc = delMese.length ? Math.round(accettati.length / delMese.length * 100) : null;
   const nurture = list.filter(x => _stato(x) === 'Nurture').length;
   const prevFermi = list.filter(x => _stato(x) === 'Preventivo inviato' && x.data_prossima_azione && statoPromemoria(x.data_prossima_azione) === 'scaduto').length;
@@ -7803,7 +7816,7 @@ function disegnaLeadMkt() {
       const rem = x.data_prossima_azione ? `${fmtDate(x.data_prossima_azione)}${statoPromemoria(x.data_prossima_azione)==='scaduto'?' ⏰':''}` : '';
       return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);flex-wrap:wrap">
         <span style="min-width:82px;font-weight:700;font-size:11px;color:var(--amber)">⏳ CAPARRA</span>
-        <span style="flex:1;min-width:150px;font-size:13px"><b>${_at(x.nome||'—')}</b>${x.valore!=null&&x.valore!==''?` · € ${Number(x.valore).toLocaleString('it-IT')}`:''}${rem?` · <span style="color:var(--ink3)">sollecito ${rem}</span>`:''}</span>
+        <span style="flex:1;min-width:150px;font-size:13px"><b>${_at(x.nome||'—')}</b>${_leadValore(x)?` · € ${_leadValore(x).toLocaleString('it-IT')}`:''}${rem?` · <span style="color:var(--ink3)">sollecito ${rem}</span>`:''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="leadSollecitoAcconto('${x.id}')">Sollecitato</button>
         <button class="btn btn-sm btn-primary" style="font-size:11px" onclick="leadAccontoVersato('${x.id}')">Acconto versato</button>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="gestisciLead('${x.id}')">Scheda</button>
@@ -7986,7 +7999,7 @@ async function _esportaLeadExcelRange(){
       'Telefono': x.telefono||'',
       'Altro contatto': x.contatto||'',
       'Prodotto': x.prodotto||'',
-      'Valore €': (x.valore!=null?x.valore:''),
+      'Valore €': (_leadValore(x) || ''),
       'Acconto versato': x.acconto_versato?'Sì':'No',
       'Preso in carico': x.contattato_at?'Sì':'No',
       'Referente': x.contattato_da?nomeUtente(x.contattato_da):'',
@@ -8243,7 +8256,7 @@ function gestisciLead(id){
       rRiga('Fonte', (x.fonte?_at(x.fonte):'—') + (utmChips?' '+utmChips:''))
     + rRiga('Prodotto', x.prodotto?_at(x.prodotto):'')
     + rRiga('Motivo', x.motivo?_at(x.motivo):'')
-    + rRiga('Valore', (x.valore!=null&&x.valore!=='')?('€ '+Number(x.valore).toLocaleString('it-IT')):'')
+    + rRiga('Valore', _leadValore(x)?('€ '+_leadValore(x).toLocaleString('it-IT')+(_prevList.some(p=>p.lead_id===x.id&&(p.stato==='accettato'||p.stato==='lavorato'))?' <span style="color:var(--ink3);font-size:11px">(da preventivo)</span>':'')):'')
     + rRiga('Arrivato il', x.data?fmtDate(x.data):'');
   const html = `
     <div style="margin-bottom:6px"><span class="badge ${LEAD_STATO_BADGE[s]||'badge-gray'}">${meta.label}</span>${x.contattato_da?` · <span style="font-size:12px;color:var(--ink2)">${_at(nomeUtente(x.contattato_da))}</span>`:''}</div>
