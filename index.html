@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.59 — 17/08/2026 · Lead: sulla riga del nome, pillola col referente interno (👤 Andrea/Giulia), colorata per persona</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.60 — 17/08/2026 · Lead: pulsante “📊 Esporta lead” (Excel) con tutti i campi utili all’analisi (stato, fonte, valore, tempi, referente, UTM…)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.59';
+window.APP_VERSION = '2.60';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3267,7 +3267,7 @@ function nav(page, el) {
   if(page==='impostazioni') renderImpostazioni();
   if(page==='ordini-evento') renderOrdiniEvento();
   if(page==='contatti') renderContatti();
-  if(page==='lead') { document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" onclick="nuovoLeadMkt()">+ Nuovo lead</button> <button class="btn" onclick="nuovoPreventivo()">+ Nuovo preventivo</button>`; renderLeadMkt(); }
+  if(page==='lead') { document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" onclick="nuovoLeadMkt()">+ Nuovo lead</button> <button class="btn" onclick="nuovoPreventivo()">+ Nuovo preventivo</button> <button class="btn" title="Scarica tutti i lead in Excel per analizzarli" onclick="esportaLeadExcel()">📊 Esporta lead</button>`; renderLeadMkt(); }
   if(page==='calcolo-prezzi') initCalcoloPrezzi();
   if(page==='promemoria') renderPromemoria();
   if(page==='finanze') renderFinanze();
@@ -7928,6 +7928,46 @@ function _leadGiorniFermo(x) {
   const rif = x.updated_at || x.created_at;
   if (!rif) return 0;
   return Math.floor((Date.now() - new Date(rif).getTime()) / 86400000);
+}
+
+// Esporta tutti i lead in Excel (per analisi). Usa la cache già caricata dalla vista Lead.
+async function esportaLeadExcel(){
+  if (!_leadLoaded || !_leadList.length){ alert('Nessun lead da esportare.'); return; }
+  try { await _loadSheetJS(); } catch(e){ alert(e.message); return; }
+  const rows = _leadList.map(x => {
+    let ore = '';
+    if (x.contattato_at && x.created_at){ ore = Math.round((new Date(x.contattato_at) - new Date(x.created_at))/3600000*10)/10; }
+    return {
+      'Data': (x.data||'').slice(0,10),
+      'Mese': (x.created_at||x.data||'').slice(0,7),
+      'Stato': _stato(x),
+      'Fonte': x.fonte||'',
+      'Canale': x.canale||'',
+      'Motivo acquisto': x.motivo||'',
+      'Nome': x.nome||'',
+      'Email': x.email||'',
+      'Telefono': x.telefono||'',
+      'Altro contatto': x.contatto||'',
+      'Prodotto': x.prodotto||'',
+      'Valore €': (x.valore!=null?x.valore:''),
+      'Acconto versato': x.acconto_versato?'Sì':'No',
+      'Preso in carico': x.contattato_at?'Sì':'No',
+      'Referente': x.contattato_da?nomeUtente(x.contattato_da):'',
+      'Ore alla presa': ore,
+      'Prossima azione': x.prossima_azione||'',
+      'Data prossima azione': (x.data_prossima_azione||'').slice(0,10),
+      'Motivo chiusura': x.motivo_chiusura||'',
+      'UTM contenuto': x.contenuto||'',
+      'UTM termine': x.termine||'',
+      'Creato il': (x.created_at||'').slice(0,10),
+      'Note': x.note||''
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:11},{wch:8},{wch:20},{wch:16},{wch:9},{wch:14},{wch:20},{wch:24},{wch:14},{wch:18},{wch:24},{wch:9},{wch:9},{wch:9},{wch:10},{wch:8},{wch:22},{wch:12},{wch:26},{wch:14},{wch:12},{wch:11},{wch:40}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Lead');
+  XLSX.writeFile(wb, 'lead_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
 
 function nuovoLeadMkt() {
