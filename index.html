@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.60 — 17/08/2026 · Lead: pulsante “📊 Esporta lead” (Excel) con tutti i campi utili all’analisi (stato, fonte, valore, tempi, referente, UTM…)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.61 — 17/08/2026 · Lead: l’export Excel ora chiede l’intervallo di date (Dal/Al + scorciatoie mese/anno/tutti)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.60';
+window.APP_VERSION = '2.61';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7930,11 +7930,48 @@ function _leadGiorniFermo(x) {
   return Math.floor((Date.now() - new Date(rif).getTime()) / 86400000);
 }
 
-// Esporta tutti i lead in Excel (per analisi). Usa la cache già caricata dalla vista Lead.
-async function esportaLeadExcel(){
+// Esporta i lead in Excel (per analisi): apre la scelta dell'intervallo di date.
+function esportaLeadExcel(){
   if (!_leadLoaded || !_leadList.length){ alert('Nessun lead da esportare.'); return; }
+  const oggi = new Date().toISOString().slice(0,10);
+  const html = `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:8px">Intervallo per data del lead (lascia vuoto = tutti).</div>
+    <div class="form-grid">
+      <div class="form-group"><label>Dal</label><input type="date" id="exp-da"></div>
+      <div class="form-group"><label>Al</label><input type="date" id="exp-a" value="${oggi}"></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn btn-sm" onclick="_expLeadPreset('mese')">Questo mese</button>
+      <button class="btn btn-sm" onclick="_expLeadPreset('anno')">Quest'anno</button>
+      <button class="btn btn-sm" onclick="_expLeadPreset('tutto')">Tutti</button>
+    </div>`;
+  showModal('📊 Esporta lead', html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:'Esporta', action:'_esportaLeadExcelRange()', primary:true}
+  ]);
+}
+function _expLeadPreset(tipo){
+  const da=document.getElementById('exp-da'), a=document.getElementById('exp-a');
+  const o=new Date(), iso=o.toISOString();
+  if(tipo==='tutto'){ da.value=''; a.value=''; }
+  else if(tipo==='mese'){ da.value=iso.slice(0,7)+'-01'; a.value=iso.slice(0,10); }
+  else if(tipo==='anno'){ da.value=o.getFullYear()+'-01-01'; a.value=iso.slice(0,10); }
+}
+async function _esportaLeadExcelRange(){
+  const da=(document.getElementById('exp-da')||{}).value||'';
+  const a=(document.getElementById('exp-a')||{}).value||'';
+  if(da && a && da>a){ alert('La data "Dal" è successiva alla data "Al".'); return; }
+  const inRange = x => {
+    const d=(x.data||x.created_at||'').slice(0,10);
+    if(!d) return (!da && !a);
+    if(da && d<da) return false;
+    if(a && d>a) return false;
+    return true;
+  };
+  const lista = _leadList.filter(inRange);
+  if(!lista.length){ alert('Nessun lead in questo intervallo.'); return; }
   try { await _loadSheetJS(); } catch(e){ alert(e.message); return; }
-  const rows = _leadList.map(x => {
+  const rows = lista.map(x => {
     let ore = '';
     if (x.contattato_at && x.created_at){ ore = Math.round((new Date(x.contattato_at) - new Date(x.created_at))/3600000*10)/10; }
     return {
@@ -7967,7 +8004,8 @@ async function esportaLeadExcel(){
   ws['!cols'] = [{wch:11},{wch:8},{wch:20},{wch:16},{wch:9},{wch:14},{wch:20},{wch:24},{wch:14},{wch:18},{wch:24},{wch:9},{wch:9},{wch:9},{wch:10},{wch:8},{wch:22},{wch:12},{wch:26},{wch:14},{wch:12},{wch:11},{wch:40}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Lead');
-  XLSX.writeFile(wb, 'lead_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  closeModal();
+  XLSX.writeFile(wb, 'lead_' + (da||'inizio') + '_' + (a||new Date().toISOString().slice(0,10)) + '.xlsx');
 }
 
 function nuovoLeadMkt() {
