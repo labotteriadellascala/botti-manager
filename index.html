@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.64 — 17/08/2026 · Lead: il riepilogo in cima ora è “🏭 Pagati — da convertire in ordine” (accettati + acconto versato) con “→ Crea ordine”; via il vecchio “accettati da gestire”</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.65 — 17/08/2026 · Preventivi: “→ Crea ordine” apre il preventivo in una scheda a fianco (voci, misure, note, rendering, stampabile in PDF) da consultare mentre compili l’ordine</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.64';
+window.APP_VERSION = '2.65';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8357,10 +8357,52 @@ function _prevListaHtml(leadId){
     </div>`).join('');
 }
 
+// Apre una scheda-riferimento (stampabile in PDF) del preventivo: voci, misure, note, rendering.
+function _scriviRiferimentoPreventivo(win, p){
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const eur = n => '€ ' + (Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const righe = Array.isArray(p.righe) ? p.righe : [];
+  const righeHtml = righe.map(r=>`<tr><td>${esc(r.desc||r.descrizione||'')}</td><td style="text-align:center">${esc(r.qta!=null?r.qta:'')}</td><td style="text-align:right">${r.prezzo!=null?eur(r.prezzo):''}</td><td style="text-align:right">${r.sconto?('-'+eur(r.sconto)):''}</td></tr>`).join('') || '<tr><td colspan="4" style="color:#999">Nessuna voce</td></tr>';
+  let misHtml = '';
+  if (p.misure && typeof p.misure==='object'){
+    const parts = Object.entries(p.misure).filter(([k,v])=>v!==''&&v!=null).map(([k,v])=>`<b>${esc(k)}:</b> ${esc(v)}`);
+    if (parts.length) misHtml = '<h3>Misure / finiture</h3><div>'+parts.join(' &nbsp;·&nbsp; ')+'</div>';
+  }
+  const alleg = Array.isArray(p.allegati) ? p.allegati : [];
+  const imgHtml = alleg.map(a=>`<figure><img src="${a.url||a.dataURL||''}" alt="${esc(a.nome||'')}"><figcaption>${esc(a.nome||'')}</figcaption></figure>`).join('');
+  const cliente = [p.cliente_nome, p.cliente_telefono||p.cliente_tel, p.cliente_email].filter(Boolean).map(esc).join(' · ');
+  const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Preventivo ${esc(p.numero||'')}</title>
+    <style>
+      body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1a16;max-width:820px;margin:0 auto;padding:24px;line-height:1.45}
+      h1{font-size:20px;margin:0 0 2px} .sub{font-size:13px;color:#666;margin:0 0 16px}
+      h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8b3a1a;margin:20px 0 6px}
+      table{width:100%;border-collapse:collapse;font-size:13px} th,td{padding:6px 8px;border-bottom:1px solid #eee} th{text-align:left;color:#666}
+      .note{white-space:pre-wrap;background:#f7f3ec;border:1px solid #eee;border-radius:6px;padding:10px;font-size:13px}
+      figure{margin:8px 0} img{max-width:100%;border:1px solid #eee;border-radius:6px} figcaption{font-size:11px;color:#999}
+      .tot{text-align:right;font-size:16px;font-weight:700;color:#8b3a1a;margin-top:10px}
+      .noprint{margin:0 0 16px} @media print{.noprint{display:none}}
+    </style></head><body>
+      <div class="noprint"><button onclick="window.print()" style="font-size:13px;padding:6px 12px;cursor:pointer">🖨 Stampa / Salva PDF</button></div>
+      <h1>Preventivo ${esc(p.numero||'')}</h1>
+      <div class="sub">${cliente||''}</div>
+      <h3>Voci</h3>
+      <table><thead><tr><th>Descrizione</th><th style="text-align:center">Q.tà</th><th style="text-align:right">Prezzo</th><th style="text-align:right">Sconto</th></tr></thead><tbody>${righeHtml}</tbody></table>
+      <div class="tot">Totale (IVA inclusa): ${eur(p.totale)}</div>
+      ${misHtml}
+      ${p.note?`<h3>Note</h3><div class="note">${esc(p.note)}</div>`:''}
+      ${imgHtml?`<h3>Rendering</h3>${imgHtml}`:''}
+    </body></html>`;
+  win.document.open(); win.document.write(html); win.document.close();
+}
+
 // Crea un ORDINE precompilato con i dati di un preventivo accettato (l'ordine lo confermi tu).
 async function creaOrdineDaPreventivo(prevId){
+  // Apro subito una scheda-riferimento del preventivo (PRIMA dell'await, così il popup non viene bloccato).
+  const _win = window.open('', '_blank');
+  if (_win){ try { _win.document.write('<!doctype html><meta charset="utf-8"><p style="font-family:sans-serif;padding:24px;color:#666">Carico il preventivo…</p>'); } catch(e){} }
   const { data:p, error } = await sb.from('preventivi').select('*').eq('id', prevId).single();
-  if (error || !p){ alert('Preventivo non trovato: ' + ((error&&error.message)||'')); return; }
+  if (error || !p){ if (_win) _win.close(); alert('Preventivo non trovato: ' + ((error&&error.message)||'')); return; }
+  if (_win){ try { _scriviRiferimentoPreventivo(_win, p); } catch(e){} }
   const lead = _leadList.find(l => l.id === p.lead_id);
   const g = (obj, ...keys) => { for (const k of keys){ if (obj[k] != null && obj[k] !== '') return obj[k]; } return ''; };
   // Le voci del preventivo sono testo libero: finiscono nelle Note dell'ordine (i prodotti a catalogo li scegli tu).
@@ -8409,7 +8451,7 @@ async function creaOrdineDaPreventivo(prevId){
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const tt = document.getElementById('topbar-title'); if (tt) tt.textContent = 'Nuovo ordine (da preventivo ' + (p.numero||'') + ')';
   renderFormOrdine(null, pre);
-  alert('Ordine precompilato dal preventivo ' + (p.numero||'') + '.\nControlla i prodotti a catalogo, la data di consegna e registra l’acconto già versato tra i pagamenti, poi Conferma ordine.');
+  alert('Ordine precompilato dal preventivo ' + (p.numero||'') + '.\nHo aperto il preventivo in una scheda a fianco (voci, misure, rendering): tienila aperta mentre compili.\nControlla i prodotti a catalogo, la data di consegna e registra l’acconto già versato tra i pagamenti, poi Conferma ordine.');
 }
 
 // Dal banner "Pagati — da convertire": apre l'ordine precompilato dal preventivo del lead.
