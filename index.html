@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.62 — 17/08/2026 · Lead: il valore del lead ora eredita il totale del preventivo accettato (stat “Valore accettato”, card, caparra, Scheda ed export ora coerenti)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.63 — 17/08/2026 · Lead: chi ha versato l’acconto esce dalla colonna “Accettazione preventivo” (è passato in produzione); resta visibile con “Mostra Nurture &amp; chiusi”</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.62';
+window.APP_VERSION = '2.63';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7845,7 +7845,12 @@ function disegnaLeadMkt() {
   }
   const cols = LEAD_COLONNE.filter(cc => mostraSil || LEAD_STATI_NASCOSTI.indexOf(cc.key) < 0);
   const perCol = {}; cols.forEach(cc => perCol[cc.key] = []);
-  lista.forEach(x => { const k = _stato(x); if (perCol[k]) perCol[k].push(x); });
+  lista.forEach(x => {
+    const k = _stato(x);
+    // acconto già versato = passato in produzione: fuori dalla colonna Accettazione (recuperabile con "Mostra Nurture & chiusi")
+    if (k === 'Accettazione preventivo' && x.acconto_versato && !mostraSil) return;
+    if (perCol[k]) perCol[k].push(x);
+  });
   const board = cols.map(cc => {
     // Ordine: ultima azione più recente in alto (updated_at = ultimo tocco; poi fase_da/created_at).
     const items = (perCol[cc.key] || []).sort((a,b) => String(b.updated_at||b.fase_da||b.created_at||'').localeCompare(String(a.updated_at||a.fase_da||a.created_at||'')));
