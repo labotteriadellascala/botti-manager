@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.65 — 17/08/2026 · Preventivi: “→ Crea ordine” apre il preventivo in una scheda a fianco (voci, misure, note, rendering, stampabile in PDF) da consultare mentre compili l’ordine</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.66 — 17/08/2026 · Ordini: convertendo un preventivo, alla conferma dell’ordine il PDF del preventivo (voci, misure, note, rendering) viene allegato in automatico come documento ufficiale</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.65';
+window.APP_VERSION = '2.66';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -4253,6 +4253,8 @@ function renderFormOrdine(id, ordPrecompilato) {
         motivoDuplicazione: ordPrecompilato.motivoDuplicazione||'',
         categoriaDuplicazione: ordPrecompilato.categoriaDuplicazione||'' }
     : null;
+  // Preventivo da allegare come PDF (solo se il form nasce da "Crea ordine da preventivo"); azzerato altrimenti.
+  window._prevPerAllegato = (ordPrecompilato && ordPrecompilato._prevPerAllegato) || null;
 
   // migrazione ordini vecchi (mono-prodotto) → righe
   if(ord && ord.righe && ord.righe.length) {
@@ -4854,6 +4856,9 @@ function salvaOrdine() {
   delete ordineToccato.promemoriaData; delete ordineToccato.promemoriaNota; delete ordineToccato.promemoriaDest;
   DB.set('ordini', ordini);              // aggiorna la copia in memoria
   salvaOrdineSingolo(ordineToccato);     // sincronizza nel cloud SOLO questo ordine
+  // Se l'ordine nasce da un preventivo: allega il PDF ufficiale del preventivo (in background).
+  if (!_editId && window._prevPerAllegato) { _allegaPreventivoPdf(ordineToccato, window._prevPerAllegato); }
+  window._prevPerAllegato = null;
   window._duplicaMeta = null;            // consumati: il prossimo ordine non li eredita
   nav('ordini', document.querySelectorAll('.nav-item')[1]);
 }
@@ -8395,6 +8400,61 @@ function _scriviRiferimentoPreventivo(win, p){
   win.document.open(); win.document.write(html); win.document.close();
 }
 
+// Carica jsPDF (per generare il PDF ufficiale del preventivo da allegare all'ordine).
+function _loadJsPDF(){
+  return new Promise((res,rej)=>{
+    if (window.jspdf && window.jspdf.jsPDF) return res();
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    s.onload=()=>res(); s.onerror=()=>rej(new Error('Impossibile caricare la libreria PDF (verifica la connessione).'));
+    document.head.appendChild(s);
+  });
+}
+function _imgSize(src){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight}); im.onerror=()=>res(null); im.src=src; }); }
+// Genera un Blob PDF del preventivo (voci, misure, note, totale, rendering).
+async function _preventivoPdfBlob(p){
+  await _loadJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const M=15, PW=210, PH=297, CW=PW-2*M; let y=M;
+  const eur=n=>'EUR '+(Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const line=(txt,size,style,color)=>{
+    doc.setFontSize(size||10); doc.setFont('helvetica',style||'normal'); doc.setTextColor(color?color[0]:30, color?color[1]:26, color?color[2]:22);
+    doc.splitTextToSize(String(txt==null?'':txt),CW).forEach(l=>{ if(y>PH-M){ doc.addPage(); y=M; } doc.text(l,M,y); y+=(size||10)*0.5; });
+  };
+  line('Preventivo '+(p.numero||''),16,'bold',[139,58,26]); y+=1;
+  const cliente=[p.cliente_nome, p.cliente_telefono||p.cliente_tel, p.cliente_email].filter(Boolean).join('   -   ');
+  if(cliente) line(cliente,10,'normal',[90,86,72]);
+  y+=3; line('VOCI',9,'bold',[139,58,26]);
+  (Array.isArray(p.righe)?p.righe:[]).forEach(r=>{ const d=r.desc||r.descrizione||''; if(!d) return;
+    const q=(r.qta!=null&&r.qta!=='')?('  x'+r.qta):''; const pr=(r.prezzo!=null&&r.prezzo!=='')?('  '+eur(r.prezzo)):''; const sc=r.sconto?('  (sconto '+eur(r.sconto)+')'):'';
+    line('- '+d+q+pr+sc,10); });
+  y+=1; line('Totale (IVA inclusa): '+eur(p.totale),12,'bold',[139,58,26]);
+  if(p.misure && typeof p.misure==='object'){ const parts=Object.entries(p.misure).filter(([k,v])=>v!==''&&v!=null).map(([k,v])=>k+': '+v); if(parts.length){ y+=3; line('MISURE / FINITURE',9,'bold',[139,58,26]); line(parts.join('   -   '),10); } }
+  if(p.note){ y+=3; line('NOTE',9,'bold',[139,58,26]); line(p.note,10); }
+  const alleg=(Array.isArray(p.allegati)?p.allegati:[]).map(a=>a&&(a.url||a.dataURL)).filter(Boolean);
+  if(alleg.length){ y+=3; line('RENDERING',9,'bold',[139,58,26]); }
+  for(const src of alleg){ const sz=await _imgSize(src); if(!sz||!sz.w) continue;
+    let w=CW, h=w*(sz.h/sz.w); if(h>PH-2*M){ h=PH-2*M; w=h*(sz.w/sz.h); }
+    if(y+h>PH-M){ doc.addPage(); y=M; }
+    try{ doc.addImage(src, /^data:image\/png/i.test(src)?'PNG':'JPEG', M, y, w, h); }catch(e){}
+    y+=h+4; }
+  return doc.output('blob');
+}
+// Dopo il salvataggio di un ordine nuovo nato da preventivo: genera il PDF e lo allega all'ordine.
+async function _allegaPreventivoPdf(o, p){
+  try{
+    const blob = await _preventivoPdfBlob(p);
+    const nome = 'Preventivo ' + String(p.numero||'').replace(/[\/\\]/g,'-') + '.pdf';
+    const path = o.id + '/' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8) + '-' + _sanNomeFile(nome);
+    const { error } = await sb.storage.from('allegati').upload(path, blob, { contentType:'application/pdf', upsert:false });
+    if (error){ console.error('Allega preventivo:', error.message); return; }
+    o.allegati = Array.isArray(o.allegati) ? o.allegati : [];
+    o.allegati.push({ nome, path, tipo:'pdf', dim: blob.size, ts: new Date().toISOString() });
+    await salvaOrdineSingolo(o);
+  }catch(e){ console.error('Allega preventivo PDF:', e); }
+}
+
 // Crea un ORDINE precompilato con i dati di un preventivo accettato (l'ordine lo confermi tu).
 async function creaOrdineDaPreventivo(prevId){
   // Apro subito una scheda-riferimento del preventivo (PRIMA dell'await, così il popup non viene bloccato).
@@ -8444,14 +8504,15 @@ async function creaOrdineDaPreventivo(prevId){
       provincia: g(p,'cliente_prov','cliente_provincia')
     },
     fattUgualeSpedizione: true,
-    indirizzoFatturazione: {}
+    indirizzoFatturazione: {},
+    _prevPerAllegato: p   // il preventivo intero: alla conferma dell'ordine verrà allegato come PDF ufficiale
   };
   closeModal();
   nav('nuovo-ordine', null);
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const tt = document.getElementById('topbar-title'); if (tt) tt.textContent = 'Nuovo ordine (da preventivo ' + (p.numero||'') + ')';
   renderFormOrdine(null, pre);
-  alert('Ordine precompilato dal preventivo ' + (p.numero||'') + '.\nHo aperto il preventivo in una scheda a fianco (voci, misure, rendering): tienila aperta mentre compili.\nControlla i prodotti a catalogo, la data di consegna e registra l’acconto già versato tra i pagamenti, poi Conferma ordine.');
+  alert('Ordine precompilato dal preventivo ' + (p.numero||'') + '.\nHo aperto il preventivo in una scheda a fianco (voci, misure, rendering): tienila aperta mentre compili.\nAlla conferma dell’ordine, il PDF del preventivo verrà allegato in automatico come documento ufficiale.\nControlla i prodotti a catalogo, la data di consegna e registra l’acconto già versato tra i pagamenti, poi Conferma ordine.');
 }
 
 // Dal banner "Pagati — da convertire": apre l'ordine precompilato dal preventivo del lead.
