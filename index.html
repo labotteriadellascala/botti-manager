@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.66 — 17/08/2026 · Ordini: convertendo un preventivo, alla conferma dell’ordine il PDF del preventivo (voci, misure, note, rendering) viene allegato in automatico come documento ufficiale</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.67 — 17/08/2026 · Preventivi: aggiornato il testo di default delle condizioni (caparra €150, saldo ad avviso merce pronta: bonifico / rate Klarna)</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.66';
+window.APP_VERSION = '2.67';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8589,10 +8589,9 @@ function chiudiEditorPreventivo(){ const o=document.getElementById('pv-ov'); if(
 // Testo di default per le condizioni di un NUOVO preventivo (resta modificabile prima di salvare).
 const PREV_NOTE_DEFAULT = `Spedizione a carico nostro.
 
-Per la conferma basta una caparra di €150, il saldo alla fine, da definire se:
-- ad avviso di merce pronta
-- contrassegno + €25
-- rate klarna + €25`;
+Per la conferma basta una caparra di €150, il saldo ad avviso di merce pronta nelle seguenti modalità:
+- Bonifico
+- Rate klarna`;
 async function apriEditorPreventivo(leadId, prevId, ordineId){
   _prevCss();
   await caricaPreventivi();
