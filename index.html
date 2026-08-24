@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.67 — 17/08/2026 · Preventivi: aggiornato il testo di default delle condizioni (caparra €150, saldo ad avviso merce pronta: bonifico / rate Klarna)</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.68 — 20/08/2026 · Costificatore (Fase 1): in anagrafica materiale nuovi campi costo per tipo — materia prima (€/mq + pannello), semilavorato (lato1/lato2 + sfrido), acquisto (costo/unità). Nessun DDL.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1299,7 +1299,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.67';
+window.APP_VERSION = '2.68';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6105,6 +6105,63 @@ function filtraGiacenze() {
   });
 }
 
+// ─── COSTIFICATORE · Fase 1: campi costo/dimensioni in anagrafica materiale ───
+// Mostra/nasconde i gruppi di campi in base ai tipi spuntati (pfx = 'nm' nuovo, 'em' modifica).
+function _nmToggleTipo(pfx){
+  const on = suf => { const el=document.getElementById(pfx+'-tipo-'+suf); return !!(el && el.checked); };
+  const show = (suf, vis) => { const el=document.getElementById(pfx+'-'+suf+'-fields'); if(el) el.style.display = vis?'block':'none'; };
+  show('mp', on('mp')); show('sl', on('sl')); show('ac', on('ac'));
+}
+// Costo del pannello intero di verifica = €/mq × (lato1_m × lato2_m).
+function _nmCostoPannello(pfx){
+  const num = id => parseFloat((document.getElementById(pfx+'-'+id)||{}).value)||0;
+  const c = num('costo-mq') * ((num('pl1')/1000) * (num('pl2')/1000));
+  const out = document.getElementById(pfx+'-costo-pann');
+  if(out) out.value = '€ ' + c.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+// HTML dei gruppi di campi costo, riusato da nuovo/modifica; m = materiale esistente o {} per nuovo.
+function _nmCampiCostoHtml(pfx, m){
+  m = m || {};
+  const v = x => (x==null?'':x);
+  return `
+      <div class="form-group full" id="${pfx}-mp-fields" style="display:none;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Costo materia prima · netto IVA</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Costo €/mq</label><input type="number" id="${pfx}-costo-mq" step="0.01" min="0" value="${v(m.costo_mq)}" placeholder="0" oninput="_nmCostoPannello('${pfx}')"></div>
+          <div class="form-group"><label>Pannello lato 1 (mm)</label><input type="number" id="${pfx}-pl1" step="1" min="0" value="${v(m.pannello_l1)}" placeholder="0" oninput="_nmCostoPannello('${pfx}')"></div>
+          <div class="form-group"><label>Pannello lato 2 (mm)</label><input type="number" id="${pfx}-pl2" step="1" min="0" value="${v(m.pannello_l2)}" placeholder="0" oninput="_nmCostoPannello('${pfx}')"></div>
+          <div class="form-group"><label>Costo pannello intero</label><input type="text" id="${pfx}-costo-pann" readonly value="€ 0,00" style="background:var(--bg2)"></div>
+        </div>
+      </div>
+      <div class="form-group full" id="${pfx}-sl-fields" style="display:none;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Dimensioni pezzo · semilavorato</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Lato 1 (mm)</label><input type="number" id="${pfx}-lato1" step="1" min="0" value="${v(m.lato1)}" placeholder="0"></div>
+          <div class="form-group"><label>Lato 2 (mm)</label><input type="number" id="${pfx}-lato2" step="1" min="0" value="${v(m.lato2)}" placeholder="0"></div>
+          <div class="form-group"><label>Sfrido % <span style="font-size:10px;color:var(--ink3)">(vuoto = default)</span></label><input type="number" id="${pfx}-scarto" step="0.1" min="0" value="${m.scarto_override==null?'':m.scarto_override}" placeholder="default"></div>
+        </div>
+      </div>
+      <div class="form-group full" id="${pfx}-ac-fields" style="display:none;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Costo acquisto · netto IVA</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Costo € per unità (${_esc(m.um||'pz')})</label><input type="number" id="${pfx}-costo-ac" step="0.01" min="0" value="${v(m.costo)}" placeholder="0"></div>
+        </div>
+      </div>`;
+}
+// Legge i campi costo/dimensioni dal form (pfx) → oggetto da fondere nel materiale.
+function _nmLeggiCampiCosto(pfx){
+  const numOr = (id, def) => { const el=document.getElementById(pfx+'-'+id); if(!el) return def; const s=String(el.value||'').trim(); if(s==='') return def; const n=parseFloat(s.replace(',','.')); return isNaN(n)?def:n; };
+  return {
+    costo_mq:        numOr('costo-mq', 0),
+    pannello_l1:     numOr('pl1', 0),
+    pannello_l2:     numOr('pl2', 0),
+    lato1:           numOr('lato1', 0),
+    lato2:           numOr('lato2', 0),
+    scarto_override: numOr('scarto', null),   // vuoto = null (usa il default del costificatore)
+    costo:           numOr('costo-ac', 0)
+  };
+}
+
 function showModalNuovoMateriale() {
   const mat = (DB.get('materiali')||[]).sort((a,b)=>a.nome.localeCompare(b.nome));
   const optsMP = `<option value="">— nessuna —</option>` + mat.map(m=>`<option value="${m.nome}">${m.nome}</option>`).join('');
@@ -6117,13 +6174,13 @@ function showModalNuovoMateriale() {
         <label>Tipo * <span style="font-size:11px;color:var(--ink3)">(seleziona almeno uno)</span></label>
         <div style="display:flex;gap:16px;margin-top:6px">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)">
-            <input type="checkbox" id="nm-tipo-mp" style="width:auto"> Materia prima
+            <input type="checkbox" id="nm-tipo-mp" style="width:auto" onchange="_nmToggleTipo('nm')"> Materia prima
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)">
-            <input type="checkbox" id="nm-tipo-sl" style="width:auto"> Semilavorato
+            <input type="checkbox" id="nm-tipo-sl" style="width:auto" onchange="_nmToggleTipo('nm')"> Semilavorato
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)">
-            <input type="checkbox" id="nm-tipo-ac" style="width:auto"> Acquisto
+            <input type="checkbox" id="nm-tipo-ac" style="width:auto" onchange="_nmToggleTipo('nm')"> Acquisto
           </label>
         </div>
       </div>
@@ -6139,12 +6196,14 @@ function showModalNuovoMateriale() {
         <select id="nm-mp">${optsMP}</select>
         <div style="font-size:11px;color:var(--ink3);margin-top:3px">Indica da quale materia prima grezza viene ricavato questo semilavorato (opzionale)</div>
       </div>
+      ${_nmCampiCostoHtml('nm', {})}
     </div>
   `;
   showModal('Nuovo materiale', html, [
     {label:'Annulla', action:'closeModal()'},
     {label:'Aggiungi', action:'salvaNuovoMateriale()', primary:true},
   ]);
+  _nmToggleTipo('nm');
 }
 
 // Duplica un materiale: apre il modulo "Nuovo materiale" precompilato con le
@@ -6164,6 +6223,15 @@ window.duplicaMaterialePerNome = function(nome){
   setChk('nm-tipo-mp', t.materiaPrima); setChk('nm-tipo-sl', t.semilavorato); setChk('nm-tipo-ac', t.acquisto);
   setSel('nm-um', m.um||'pz');
   setSel('nm-mp', m.materiaPrima||'');
+  _nmToggleTipo('nm');   // rivela i gruppi costo secondo i tipi copiati
+  set('nm-costo-mq', m.costo_mq!=null?m.costo_mq:'');
+  set('nm-pl1', m.pannello_l1!=null?m.pannello_l1:'');
+  set('nm-pl2', m.pannello_l2!=null?m.pannello_l2:'');
+  set('nm-lato1', m.lato1!=null?m.lato1:'');
+  set('nm-lato2', m.lato2!=null?m.lato2:'');
+  set('nm-scarto', m.scarto_override!=null?m.scarto_override:'');
+  set('nm-costo-ac', m.costo!=null?m.costo:'');
+  _nmCostoPannello('nm');
   const inp=document.getElementById('nm-nome'); if(inp){ inp.focus(); inp.select(); }   // scrivi subito il codice nuovo
 };
 
@@ -6176,13 +6244,13 @@ function salvaNuovoMateriale() {
   if(!tipoMp && !tipoSl && !tipoAc) { alert('Seleziona almeno un tipo'); return; }
   const mat = DB.get('materiali')||[];
   if(mat.find(m=>m.nome===nome)) { alert('Materiale già presente'); return; }
-  mat.push({
+  mat.push(Object.assign({
     nome,
     um: document.getElementById('nm-um').value,
     giacenza: parseFloat(document.getElementById('nm-giacenza').value)||0,
     materiaPrima: document.getElementById('nm-mp').value || '',
     tipo: { materiaPrima: tipoMp, semilavorato: tipoSl, acquisto: tipoAc }
-  });
+  }, _nmLeggiCampiCosto('nm')));
   mat.sort((a,b)=>a.nome.localeCompare(b.nome));
   DB.set('materiali', mat);
   closeModal();
@@ -6205,13 +6273,13 @@ function showModalModificaMateriale(i) {
         <label>Tipo * <span style="font-size:11px;color:var(--ink3)">(seleziona almeno uno)</span></label>
         <div style="display:flex;gap:16px;margin-top:6px">
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)">
-            <input type="checkbox" id="em-tipo-mp" style="width:auto" ${tipo.materiaPrima?'checked':''}> Materia prima
+            <input type="checkbox" id="em-tipo-mp" style="width:auto" ${tipo.materiaPrima?'checked':''} onchange="_nmToggleTipo('em')"> Materia prima
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)">
-            <input type="checkbox" id="em-tipo-sl" style="width:auto" ${tipo.semilavorato?'checked':''}> Semilavorato
+            <input type="checkbox" id="em-tipo-sl" style="width:auto" ${tipo.semilavorato?'checked':''} onchange="_nmToggleTipo('em')"> Semilavorato
           </label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-family:var(--sans)">
-            <input type="checkbox" id="em-tipo-ac" style="width:auto" ${tipo.acquisto?'checked':''}> Acquisto
+            <input type="checkbox" id="em-tipo-ac" style="width:auto" ${tipo.acquisto?'checked':''} onchange="_nmToggleTipo('em')"> Acquisto
           </label>
         </div>
       </div>
@@ -6227,12 +6295,15 @@ function showModalModificaMateriale(i) {
         <select id="em-mp">${optsMP}</select>
         <div style="font-size:11px;color:var(--ink3);margin-top:3px">Indica da quale materia prima grezza viene ricavato questo semilavorato (opzionale)</div>
       </div>
+      ${_nmCampiCostoHtml('em', m)}
     </div>
   `;
   showModal(`Modifica — ${m.nome}`, html, [
     {label:'Annulla', action:'closeModal()'},
     {label:'Salva', action:`salvaModificaMateriale(${i})`, primary:true},
   ]);
+  _nmToggleTipo('em');
+  _nmCostoPannello('em');
 }
 
 function salvaModificaMateriale(i) {
@@ -6246,6 +6317,7 @@ function salvaModificaMateriale(i) {
   mat[i].giacenza    = parseFloat(document.getElementById('em-giacenza').value)||0;
   mat[i].materiaPrima= document.getElementById('em-mp').value || '';
   mat[i].tipo        = { materiaPrima: tipoMp, semilavorato: tipoSl, acquisto: tipoAc };
+  Object.assign(mat[i], _nmLeggiCampiCosto('em'));
   DB.set('materiali', mat);
   closeModal();
   renderMateriali();
