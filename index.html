@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.68 — 20/08/2026 · Costificatore (Fase 1): in anagrafica materiale nuovi campi costo per tipo — materia prima (€/mq + pannello), semilavorato (lato1/lato2 + sfrido), acquisto (costo/unità). Nessun DDL.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.69 — 25/08/2026 · Costificatore (Fase 2): nuova sezione a menu. Calcola il costo dalla distinta base + manodopera/extra/margine; salvataggio congelato con avviso e “Aggiorna tutto”. Tabella costificazioni (DDL a mano).</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -603,6 +603,10 @@ table.tmb-sht .ot{color:#444}
     <div class="nav-item" onclick="nav('calcolo-prezzi',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="10" y2="10"/><line x1="12" y1="10" x2="14" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="12" y1="14" x2="14" y2="14"/></svg>
       Calcolo prezzi
+    </div>
+    <div class="nav-item" onclick="nav('costificatore',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="13" y2="15"/></svg>
+      Costificatore
     </div>
     <div class="nav-item" onclick="nav('promemoria',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -999,6 +1003,9 @@ td.fin-in{color:var(--green);font-weight:500}
 
 </div>
 </div>
+<div class="page" id="page-costificatore">
+  <div id="cost-root"></div>
+</div>
 <div class="page" id="page-promemoria">
   <div id="promemoria-container"></div>
 </div>
@@ -1299,7 +1306,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.68';
+window.APP_VERSION = '2.69';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3234,7 +3241,7 @@ function nav(page, el) {
     'pianificazione':'Pianificazione produzione (giorni)',
     'prodotti':'Prodotti e distinte base','accessori-listino':'Listino accessori',
     'impostazioni':'Impostazioni','ordini-evento':'Ordini Evento',
-    'contatti':'Contatti','lead':'Registro Lead','calcolo-prezzi':'Calcolo prezzi','promemoria':'Promemoria',
+    'contatti':'Contatti','lead':'Registro Lead','calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore','promemoria':'Promemoria',
     'timbrature':'Timbrature','finanze':'Registro Finanziario','mastrini':'Mastrini'
   };
   document.getElementById('topbar-title').textContent = titles[page]||'';
@@ -3269,6 +3276,7 @@ function nav(page, el) {
   if(page==='contatti') renderContatti();
   if(page==='lead') { document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" onclick="nuovoLeadMkt()">+ Nuovo lead</button> <button class="btn" onclick="nuovoPreventivo()">+ Nuovo preventivo</button> <button class="btn" title="Scarica tutti i lead in Excel per analizzarli" onclick="esportaLeadExcel()">📊 Esporta lead</button>`; renderLeadMkt(); }
   if(page==='calcolo-prezzi') initCalcoloPrezzi();
+  if(page==='costificatore') renderCostificatore();
   if(page==='promemoria') renderPromemoria();
   if(page==='finanze') renderFinanze();
   if(page==='mastrini') renderMastrini();
@@ -6830,6 +6838,355 @@ function deleteAccessorio(i) {
   acc.splice(i,1);
   DB.set('accessori', acc);
   renderAccessoriListino();
+}
+
+// ═══════════════════════ COSTIFICATORE (Fase 2) ═══════════════════════
+// Motore di costo INTERNO: legge il costo dalla distinta base (semilavorato → materia prima).
+// Tutti i valori NETTO IVA. Persistenza: tabella Supabase `costificazioni` (accesso diretto + RLS).
+// Politica CONGELATO: ogni riga d'archivio salva la fotografia (snap) dei valori usati; alla
+// riapertura confronta con l'anagrafica viva e avvisa (cambiato / non trovato / uguale).
+let _cost = null;                              // costificazione di lavoro
+let _costImp = { scarto:10, tariffa:20 };      // default impostazioni (sovrascritte dal cloud)
+let _costList = [];                            // elenco costificazioni salvate (esclusa __config__)
+let _costTabellaOk = true;                     // false se la tabella non esiste ancora
+
+function _costMat(nome){ return (DB.get('materiali')||[]).find(m=>m.nome===nome); }
+function _cEuro(n){ return '€ ' + (Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _cNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n; }
+
+// Fotografia del costo unitario di un materiale d'archivio, coi valori di OGGI.
+function _costSnapMateriale(nome){
+  const m = _costMat(nome);
+  if(!m) return { trovato:false, nome, costoUn:0, tipo:'?', dett:'materiale non trovato in anagrafica' };
+  const t = m.tipo||{};
+  if(t.semilavorato){
+    const mp = m.materiaPrima ? _costMat(m.materiaPrima) : null;
+    const cmq = mp && mp.costo_mq!=null ? Number(mp.costo_mq) : 0;
+    const l1 = Number(m.lato1)||0, l2 = Number(m.lato2)||0;
+    const scarto = (m.scarto_override!=null && m.scarto_override!=='') ? Number(m.scarto_override) : _costImp.scarto;
+    const area = (l1*l2)/1e6;
+    return { trovato:true, nome, tipo:'SL', um:m.um||'pz', costoUn: area*(1+scarto/100)*cmq, mp:m.materiaPrima||'', cmq, l1, l2, scarto, area,
+             dett:`${l1}×${l2}mm · ${area.toFixed(3)} mq · +${scarto}% · €/mq ${cmq}`+(cmq?'':' ⚠ €/mq mancante') };
+  }
+  if(t.acquisto){ const c=Number(m.costo)||0; return { trovato:true, nome, tipo:'AC', um:m.um||'pz', costoUn:c, dett:`acquisto ${_cEuro(c)}/${m.um||'pz'}`+(c?'':' ⚠ costo mancante') }; }
+  if(t.materiaPrima){ const cmq=Number(m.costo_mq)||0, l1=Number(m.pannello_l1)||0, l2=Number(m.pannello_l2)||0, area=(l1*l2)/1e6; return { trovato:true, nome, tipo:'MP', um:m.um||'pz', costoUn:area*cmq, dett:`materia prima · pannello ${l1}×${l2}mm · €/mq ${cmq}` }; }
+  return { trovato:true, nome, tipo:'?', costoUn:0, dett:'tipo non impostato' };
+}
+
+// Crea una riga d'archivio con dimensioni EDITABILI localmente (default dall'anagrafica).
+// Il €/mq (cmq) e il costo acquisto arrivano dall'archivio; lato1/lato2/sfrido li puoi variare
+// senza toccare l'anagrafica.
+function _costRigaArchivioFromMat(nome, qty){
+  const s=_costSnapMateriale(nome);
+  const r={ kind:'archivio', nome, qty:(qty==null?1:qty), tipo:s.tipo, um:s.um||'pz', trovato:s.trovato };
+  if(s.tipo==='SL'){ r.l1=s.l1; r.l2=s.l2; r.scarto=s.scarto; r.cmq=s.cmq; r.mpNome=s.mp; }
+  else if(s.tipo==='MP'){ r.l1=s.l1||0; r.l2=s.l2||0; r.scarto=''; r.cmq=s.cmq; }
+  else if(s.tipo==='AC'){ r.costo=s.costoUn; }
+  return r;
+}
+
+// Calcolo completo (formula verificata). Ritorna i totali e scrive _costo su ogni riga.
+function _costCalcola(){
+  let MAT=0;
+  (_cost.distinta||[]).forEach(r=>{ const qty=_cNum(r.qty);
+    if(r.kind==='archivio'){
+      if(r.tipo==='SL'||r.tipo==='MP'){ const area=(_cNum(r.l1)*_cNum(r.l2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):0)/100; r._costo=area*(1+sc)*_cNum(r.cmq)*qty; }
+      else if(r.tipo==='AC'){ r._costo=_cNum(r.costo)*qty; }
+      else r._costo=0;
+    }
+    else if(r.kind==='pannello'){ const mp=r.mpNome?_costMat(r.mpNome):null; const cmq=mp&&mp.costo_mq!=null?Number(mp.costo_mq):0;
+      const area=(_cNum(r.lato1)*_cNum(r.lato2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):_costImp.scarto)/100;
+      r._cmq=cmq; r._costo=area*(1+sc)*cmq*qty; }
+    else if(r.kind==='acquisto'){ r._costo=_cNum(r.costo)*qty; }
+    MAT+=r._costo||0;
+  });
+  let MANO=0, ore=0;
+  (_cost.manodopera||[]).forEach(r=>{ const o=_cNum(r.ore), t=(r.tariffa!=null&&r.tariffa!==''?_cNum(r.tariffa):_costImp.tariffa); r._costo=o*t; MANO+=r._costo; ore+=o; });
+  let FISSI=0, P_RATE=0;
+  (_cost.extra||[]).forEach(r=>{ const v=_cNum(r.valore);
+    if(r.tipo==='fisso'){ r._costo=v; FISSI+=v; }
+    else if(r.base==='prezzo'){ r._rate=v/100; P_RATE+=v/100; r._costo=null; }
+    else { const base=r.base==='materiali'?MAT:r.base==='manodopera'?MANO:(MAT+MANO); r._costo=v/100*base; FISSI+=r._costo; }
+  });
+  const FC=MAT+MANO+FISSI, m=_cNum(_cost.margine)/100, denom=1-m-P_RATE, blocco=denom<=0;
+  const prezzo=blocco?0:FC/denom, costo=blocco?0:FC+P_RATE*prezzo, margineEuro=blocco?0:prezzo-costo;
+  const resoOra=ore>0?(margineEuro+MANO)/ore:0;
+  (_cost.extra||[]).forEach(r=>{ if(r.tipo!=='fisso'&&r.base==='prezzo') r._costo=(r._rate||0)*prezzo; });
+  return {MAT,MANO,ore,FISSI,P_RATE,FC,m,denom,blocco,prezzo,costo,margineEuro,resoOra};
+}
+
+// Confronto congelato vs anagrafica viva → lista di avvisi per le righe d'archivio.
+function _costAvvisi(){
+  const out=[];
+  (_cost.distinta||[]).forEach((r,i)=>{ if(r.kind!=='archivio') return;
+    const live=_costSnapMateriale(r.nome);
+    if(!live.trovato){ out.push({i, nome:r.nome, tipo:'missing'}); return; }
+    if(r.tipo==='AC'){ const old=_cNum(r.costo), now=Number(live.costoUn)||0; if(Math.abs(now-old)>0.005) out.push({i, nome:r.nome, tipo:'changed', what:'costo €', old, now}); }
+    else { const old=_cNum(r.cmq), now=Number(live.cmq)||0; if(Math.abs(now-old)>0.005) out.push({i, nome:r.nome, tipo:'changed', what:'€/mq', old, now}); }
+  });
+  return out;
+}
+
+async function renderCostificatore(){
+  const root=document.getElementById('cost-root'); if(!root) return;
+  await _costCaricaImp();
+  await _costCaricaLista();
+  if(!_cost) _costNuova();
+  _costDisegna();
+}
+function _costNuova(){ _cost={ id:null, codice:null, nome:'', prodottoId:'', distinta:[], manodopera:[], extra:[], margine:60 }; }
+
+async function _costCaricaImp(){
+  try{ const {data,error}=await sb.from('costificazioni').select('dati').eq('codice','__config__').limit(1);
+    if(error){ if(/relation|does not exist|schema cache/i.test(error.message)) _costTabellaOk=false; return; }
+    _costTabellaOk=true;
+    if(data&&data[0]&&data[0].dati){ _costImp={ scarto:data[0].dati.scarto!=null?Number(data[0].dati.scarto):10, tariffa:data[0].dati.tariffa!=null?Number(data[0].dati.tariffa):20 }; }
+  }catch(e){}
+}
+async function _costCaricaLista(){
+  try{ const {data,error}=await sb.from('costificazioni').select('id,codice,dati,updated_at').order('updated_at',{ascending:false});
+    if(error){ if(/relation|does not exist|schema cache/i.test(error.message)) _costTabellaOk=false; _costList=[]; return; }
+    _costTabellaOk=true; _costList=(data||[]).filter(r=>r.codice!=='__config__');
+  }catch(e){ _costList=[]; }
+}
+
+function _costDisegna(){
+  const root=document.getElementById('cost-root'); if(!root) return;
+  const prodotti=(DB.get('prodotti')||[]).slice().sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||'')));
+  const c=_costCalcola();
+  const avvisi=_costAvvisi();
+  const optProd=`<option value="">— prodotto —</option>`+prodotti.map(p=>`<option value="${_esc(p.id)}" ${_cost.prodottoId===p.id?'selected':''}>${_esc(p.nome)}</option>`).join('');
+  const optSalvate=`<option value="">— apri costificazione salvata —</option>`+_costList.map(r=>`<option value="${_esc(r.id)}">${_esc((r.dati&&r.dati.nome)||r.codice||'(senza nome)')}</option>`).join('');
+
+  let html=`
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="flex:1;min-width:200px"><label>Nome costificazione</label><input type="text" id="cost-nome" value="${_esc(_cost.nome||'')}" placeholder="Es. Botte L con ripiani" oninput="_cost.nome=this.value"></div>
+      <div class="form-group" style="min-width:200px"><label>Carica distinta da prodotto</label><select id="cost-prod" onchange="_costCaricaProdotto(this.value)">${optProd}</select></div>
+      <button class="btn btn-primary" onclick="_costSalva()">💾 Salva</button>
+      <button class="btn" onclick="_costNuova();_costDisegna()">Nuova</button>
+      <button class="btn btn-ghost" onclick="_costApriImpostazioni()">⚙️ Impostazioni</button>
+      <select style="min-width:180px" onchange="if(this.value)_costApri(this.value)">${optSalvate}</select>
+    </div>
+  </div>`;
+
+  if(!_costTabellaOk){
+    html+=`<div class="card" style="margin-bottom:14px;border-color:var(--amber);background:var(--amber-bg)"><div style="font-size:13px;color:var(--ink2)">⚙️ La tabella <b>costificazioni</b> non esiste ancora su Supabase: puoi <b>calcolare</b> liberamente, ma il <b>salvataggio</b> e le impostazioni condivise si attivano solo dopo aver eseguito il DDL. Poi ricarica la pagina.</div></div>`;
+  }
+
+  if(avvisi.length){
+    html+=`<div class="card" style="margin-bottom:14px;border-color:var(--amber);background:var(--amber-bg)">
+      <div style="font-weight:700;margin-bottom:6px">⚠ La distinta è cambiata rispetto a quando hai salvato</div>
+      ${avvisi.map(a=>a.tipo==='missing'
+        ? `<div style="font-size:12px;color:var(--ink2)">• <b>${_esc(a.nome)}</b>: materiale non più trovato in anagrafica — verifica a mano.</div>`
+        : `<div style="font-size:12px;color:var(--ink2)">• <b>${_esc(a.nome)}</b>: ${a.what} ${a.old} → <b>${a.now}</b> (dall'archivio)</div>`).join('')}
+      <button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="_costAggiornaTutto()">Aggiorna tutto ai valori di oggi</button>
+      <div style="font-size:11px;color:var(--ink3);margin-top:4px">Le righe "non trovato" restano segnalate: sistemale a mano.</div>
+    </div>`;
+  }
+
+  // ── DISTINTA ──
+  html+=`<div class="card" style="margin-bottom:14px"><div class="form-section-title">Distinta base · materiali</div>
+    <div id="cost-distinta">${(_cost.distinta||[]).map((r,i)=>_costRigaDistintaHtml(r,i)).join('')||'<div style="font-size:12px;color:var(--ink3)">Nessuna riga. Carica una distinta da un prodotto o aggiungi manualmente.</div>'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-sm" onclick="_costAddDistinta('archivio')">+ Da archivio</button>
+      <button class="btn btn-sm" onclick="_costAddDistinta('pannello')">+ Pannello (codice nuovo)</button>
+      <button class="btn btn-sm" onclick="_costAddDistinta('acquisto')">+ Acquisto</button>
+    </div>
+  </div>`;
+
+  // ── MANODOPERA ──
+  html+=`<div class="card" style="margin-bottom:14px"><div class="form-section-title">Manodopera</div>
+    <div id="cost-mano">${(_cost.manodopera||[]).map((r,i)=>_costRigaManoHtml(r,i)).join('')||'<div style="font-size:12px;color:var(--ink3)">Nessuna riga.</div>'}</div>
+    <button class="btn btn-sm" style="margin-top:10px" onclick="_costAddMano()">+ Manodopera</button>
+  </div>`;
+
+  // ── COSTI EXTRA ──
+  html+=`<div class="card" style="margin-bottom:14px"><div class="form-section-title">Costi extra</div>
+    <div id="cost-extra">${(_cost.extra||[]).map((r,i)=>_costRigaExtraHtml(r,i)).join('')||'<div style="font-size:12px;color:var(--ink3)">Nessuna riga.</div>'}</div>
+    <button class="btn btn-sm" style="margin-top:10px" onclick="_costAddExtra()">+ Costo extra</button>
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px">% sul <b>prezzo</b> (es. commissioni) = si scala dal margine; % su materiali/manodopera = costo aggiunto.</div>
+  </div>`;
+
+  // ── MARGINE + RIEPILOGO ──
+  html+=`<div class="card">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      <div class="form-group" style="max-width:160px"><label>Margine sul prezzo %</label><input type="number" id="cost-margine" step="1" min="0" value="${_esc(_cost.margine)}" oninput="_cost.margine=this.value;_costRiep()"></div>
+    </div>
+    <div id="cost-riep">${_costRiepHtml(c)}</div>
+  </div>`;
+
+  root.innerHTML=html;
+}
+
+function _costTipoBadge(t){ return t==='SL'?'semilavorato':t==='AC'?'acquisto':t==='MP'?'materia prima':t; }
+function _costRigaDistintaHtml(r,i){
+  const del=`<button class="btn btn-sm btn-danger" onclick="_costDel('distinta',${i})">×</button>`;
+  if(r.kind==='archivio'){
+    const mat=(DB.get('materiali')||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+    const opts=`<option value="">— materiale —</option>`+mat.map(m=>`<option value="${_esc(m.nome)}" ${r.nome===m.nome?'selected':''}>${_esc(m.nome)}</option>`).join('');
+    let campi='';
+    if(r.tipo==='SL'||r.tipo==='MP'){
+      campi=`
+      <input type="number" style="width:66px" title="lato 1 (mm)" placeholder="lato1" value="${_esc(r.l1)}" oninput="_cost.distinta[${i}].l1=this.value;_costRiep()">
+      <input type="number" style="width:66px" title="lato 2 (mm)" placeholder="lato2" value="${_esc(r.l2)}" oninput="_cost.distinta[${i}].l2=this.value;_costRiep()">
+      <input type="number" class="qty-input" title="quantità" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
+      <input type="number" style="width:60px" title="sfrido %" placeholder="sfrido" value="${_esc(r.scarto)}" oninput="_cost.distinta[${i}].scarto=this.value;_costRiep()">
+      <span style="min-width:78px;font-size:11px;color:${_cNum(r.cmq)?'var(--ink3)':'var(--red)'}" title="€/mq dalla materia prima (archivio)">€/mq ${_esc(r.cmq)}${_cNum(r.cmq)?'':' ⚠'}</span>`;
+    } else if(r.tipo==='AC'){
+      campi=`
+      <input type="number" style="width:90px" title="costo €/unità (default dall'archivio)" placeholder="costo" value="${_esc(r.costo)}" oninput="_cost.distinta[${i}].costo=this.value;_costRiep()">
+      <input type="number" class="qty-input" title="quantità" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
+      <span style="min-width:78px;font-size:11px;color:var(--ink3)">acquisto</span>`;
+    } else {
+      campi=`
+      <input type="number" class="qty-input" title="quantità" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
+      <span style="min-width:78px;font-size:11px;color:${(r.nome&&r.trovato===false)?'var(--red)':'var(--ink3)'}">${(r.nome&&r.trovato===false)?'non trovato':'scegli un materiale'}</span>`;
+    }
+    return `<div class="distinta-row" style="flex-wrap:wrap">
+      <select style="flex:1;min-width:150px" onchange="_costSetArchivio(${i},this.value)">${opts}</select>
+      ${campi}
+      <span id="cost-drc-${i}" style="min-width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${_cEuro(r._costo)}</span>
+      ${del}
+    </div>`;
+  }
+  if(r.kind==='pannello'){
+    const mp=(DB.get('materiali')||[]).filter(m=>(m.tipo||{}).materiaPrima).sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+    const opts=`<option value="">— materia prima —</option>`+mp.map(m=>`<option value="${_esc(m.nome)}" ${r.mpNome===m.nome?'selected':''}>${_esc(m.nome)}</option>`).join('');
+    return `<div class="distinta-row" style="flex-wrap:wrap">
+      <input type="text" style="flex:1;min-width:140px" placeholder="descrizione pezzo" value="${_esc(r.descr||'')}" oninput="_cost.distinta[${i}].descr=this.value">
+      <select style="min-width:150px" onchange="_cost.distinta[${i}].mpNome=this.value;_costDisegna()">${opts}</select>
+      <input type="number" style="width:80px" placeholder="lato1" value="${_esc(r.lato1)}" oninput="_cost.distinta[${i}].lato1=this.value;_costRiep()">
+      <input type="number" style="width:80px" placeholder="lato2" value="${_esc(r.lato2)}" oninput="_cost.distinta[${i}].lato2=this.value;_costRiep()">
+      <input type="number" class="qty-input" placeholder="pz" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
+      <input type="number" style="width:70px" placeholder="sfrido%" value="${_esc(r.scarto)}" oninput="_cost.distinta[${i}].scarto=this.value;_costRiep()">
+      <span id="cost-drc-${i}" style="min-width:80px;text-align:right;font-weight:600">${_cEuro(r._costo)}</span>
+      ${del}
+    </div>`;
+  }
+  // acquisto manuale
+  return `<div class="distinta-row" style="flex-wrap:wrap">
+    <input type="text" style="flex:1;min-width:140px" placeholder="descrizione (frigo, maniglia…)" value="${_esc(r.descr||'')}" oninput="_cost.distinta[${i}].descr=this.value">
+    <input type="number" style="width:100px" placeholder="costo €" value="${_esc(r.costo)}" oninput="_cost.distinta[${i}].costo=this.value;_costRiep()">
+    <input type="number" class="qty-input" placeholder="qty" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
+    <span id="cost-drc-${i}" style="min-width:80px;text-align:right;font-weight:600">${_cEuro(r._costo)}</span>
+    ${del}
+  </div>`;
+}
+function _costRigaManoHtml(r,i){
+  return `<div class="distinta-row" style="flex-wrap:wrap">
+    <input type="text" style="flex:1;min-width:140px" placeholder="lavorazione" value="${_esc(r.descr||'')}" oninput="_cost.manodopera[${i}].descr=this.value">
+    <input type="number" style="width:80px" placeholder="ore" step="0.25" value="${_esc(r.ore)}" oninput="_cost.manodopera[${i}].ore=this.value;_costRiep()">
+    <input type="number" style="width:90px" placeholder="€/h (${_costImp.tariffa})" value="${_esc(r.tariffa)}" oninput="_cost.manodopera[${i}].tariffa=this.value;_costRiep()">
+    <span id="cost-mrc-${i}" style="min-width:80px;text-align:right;font-weight:600">${_cEuro(r._costo)}</span>
+    <button class="btn btn-sm btn-danger" onclick="_costDel('manodopera',${i})">×</button>
+  </div>`;
+}
+function _costRigaExtraHtml(r,i){
+  const selTipo=`<select onchange="_cost.extra[${i}].tipo=this.value;_costDisegna()"><option value="fisso" ${r.tipo==='fisso'?'selected':''}>€ fisso</option><option value="perc" ${r.tipo==='perc'?'selected':''}>%</option></select>`;
+  const bases=[['prezzo','sul prezzo'],['materiali','su materiali'],['manodopera','su manodopera'],['matmano','su mat+mano']];
+  const selBase=r.tipo==='perc'?`<select onchange="_cost.extra[${i}].base=this.value;_costRiep()">${bases.map(b=>`<option value="${b[0]}" ${r.base===b[0]?'selected':''}>${b[1]}</option>`).join('')}</select>`:'';
+  return `<div class="distinta-row" style="flex-wrap:wrap">
+    <input type="text" style="flex:1;min-width:140px" placeholder="descrizione (vernici, commissioni…)" value="${_esc(r.descr||'')}" oninput="_cost.extra[${i}].descr=this.value">
+    ${selTipo}
+    <input type="number" style="width:90px" placeholder="valore" value="${_esc(r.valore)}" oninput="_cost.extra[${i}].valore=this.value;_costRiep()">
+    ${selBase}
+    <span id="cost-erc-${i}" style="min-width:80px;text-align:right;font-weight:600">${r._costo==null?'—':_cEuro(r._costo)}</span>
+    <button class="btn btn-sm btn-danger" onclick="_costDel('extra',${i})">×</button>
+  </div>`;
+}
+function _costRiepHtml(c){
+  const rg=(l,v,strong)=>`<div style="display:flex;justify-content:space-between;padding:3px 0${strong?';font-weight:700;font-size:15px;color:var(--accent);border-top:1px solid var(--border);margin-top:4px;padding-top:8px':''}"><span>${l}</span><span style="font-variant-numeric:tabular-nums">${v}</span></div>`;
+  let h=`<div style="max-width:420px;margin-left:auto">`;
+  h+=rg('Materiali (MAT)',_cEuro(c.MAT));
+  h+=rg('Manodopera (MANO)',_cEuro(c.MANO)+(c.ore?` · ${c.ore} h`:''));
+  h+=rg('Costi fissi',_cEuro(c.FISSI));
+  if(c.P_RATE>0) h+=rg('% sul prezzo',(c.P_RATE*100).toFixed(1)+'%');
+  h+=rg('Costo fisso (FC)',_cEuro(c.FC));
+  h+=rg('Margine sul prezzo',(c.m*100).toFixed(0)+'%');
+  if(c.blocco){ h+=`<div style="color:var(--red);font-weight:700;margin-top:8px">⛔ Prezzo impossibile: margine + % sul prezzo ≥ 100%. Riduci il margine o le percentuali.</div>`; }
+  else {
+    h+=rg('PREZZO di vendita',_cEuro(c.prezzo),true);
+    h+=rg('Costo totale',_cEuro(c.costo));
+    h+=rg('Margine €',_cEuro(c.margineEuro));
+    h+=rg('Reso €/ora',c.ore?_cEuro(c.resoOra):'— (0 ore)');
+  }
+  h+=`</div>`; return h;
+}
+// Aggiorna solo il riepilogo e i costi-riga (senza ridisegnare gli input → non perde il fuoco).
+function _costRiep(){
+  const c=_costCalcola();
+  (_cost.distinta||[]).forEach((r,i)=>{ const el=document.getElementById('cost-drc-'+i); if(el) el.textContent=_cEuro(r._costo); });
+  (_cost.manodopera||[]).forEach((r,i)=>{ const el=document.getElementById('cost-mrc-'+i); if(el) el.textContent=_cEuro(r._costo); });
+  (_cost.extra||[]).forEach((r,i)=>{ const el=document.getElementById('cost-erc-'+i); if(el) el.textContent=(r._costo==null?'—':_cEuro(r._costo)); });
+  const rp=document.getElementById('cost-riep'); if(rp) rp.innerHTML=_costRiepHtml(c);
+}
+
+// ── Interazioni ──
+function _costCaricaProdotto(id){
+  _cost.prodottoId=id;
+  const p=(DB.get('prodotti')||[]).find(x=>x.id===id);
+  if(!p){ _cost.distinta=[]; _costDisegna(); return; }
+  if(!_cost.nome) _cost.nome=p.nome;
+  _cost.distinta=(p.componenti||[]).filter(c=>c.nome).map(c=>_costRigaArchivioFromMat(c.nome, c.qty||1));
+  _costDisegna();
+}
+function _costAddDistinta(kind){
+  _cost.distinta=_cost.distinta||[];
+  if(kind==='archivio') _cost.distinta.push({kind:'archivio', nome:'', qty:1, tipo:null});
+  else if(kind==='pannello') _cost.distinta.push({kind:'pannello', descr:'', mpNome:'', lato1:'', lato2:'', qty:1, scarto:''});
+  else _cost.distinta.push({kind:'acquisto', descr:'', costo:'', qty:1});
+  _costDisegna();
+}
+function _costSetArchivio(i,nome){ const q=_cost.distinta[i].qty; _cost.distinta[i]=nome?_costRigaArchivioFromMat(nome,q):{kind:'archivio',nome:'',qty:q,tipo:null}; _costDisegna(); }
+function _costAddMano(){ _cost.manodopera=_cost.manodopera||[]; _cost.manodopera.push({descr:'', ore:'', tariffa:''}); _costDisegna(); }
+function _costAddExtra(){ _cost.extra=_cost.extra||[]; _cost.extra.push({descr:'', tipo:'fisso', valore:'', base:'prezzo'}); _costDisegna(); }
+function _costDel(sez,i){ _cost[sez].splice(i,1); _costDisegna(); }
+function _costAggiornaTutto(){ (_cost.distinta||[]).forEach(r=>{ if(r.kind!=='archivio') return; const live=_costSnapMateriale(r.nome); if(!live.trovato) return; if(r.tipo==='AC') r.costo=live.costoUn; else r.cmq=live.cmq; }); _costDisegna(); }
+
+// Impostazioni (default sfrido % e tariffa €/h) — condivise su Supabase.
+function _costApriImpostazioni(){
+  const html=`<div class="form-grid">
+      <div class="form-group"><label>Sfrido di default %</label><input type="number" id="cimp-scarto" step="0.5" min="0" value="${_esc(_costImp.scarto)}"></div>
+      <div class="form-group"><label>Tariffa manodopera €/h</label><input type="number" id="cimp-tariffa" step="1" min="0" value="${_esc(_costImp.tariffa)}"></div>
+    </div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px">Valori condivisi tra Andrea e Giulia. Lo sfrido si applica solo ai semilavorati senza override.</div>`;
+  showModal('Impostazioni costificatore', html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:'Salva', action:'_costSalvaImpostazioni()', primary:true}
+  ]);
+}
+async function _costSalvaImpostazioni(){
+  _costImp={ scarto:_cNum(document.getElementById('cimp-scarto').value), tariffa:_cNum(document.getElementById('cimp-tariffa').value) };
+  try{
+    const {data}=await sb.from('costificazioni').select('id').eq('codice','__config__').limit(1);
+    if(data&&data.length) await sb.from('costificazioni').update({dati:_costImp}).eq('id',data[0].id);
+    else await sb.from('costificazioni').insert({codice:'__config__', dati:_costImp});
+  }catch(e){ alert('Errore salvataggio impostazioni: '+((e&&e.message)||e)); }
+  closeModal(); _costDisegna();
+}
+
+// Salvataggio CONGELATO: memorizza copia + totali del momento.
+async function _costSalva(){
+  if(!_cost.nome || !_cost.nome.trim()){ alert('Dai un nome alla costificazione.'); return; }
+  const c=_costCalcola();
+  const dati={ nome:_cost.nome.trim(), prodottoId:_cost.prodottoId||'', margine:_cNum(_cost.margine),
+    distinta:_cost.distinta, manodopera:_cost.manodopera, extra:_cost.extra,
+    totali:{ MAT:c.MAT, MANO:c.MANO, FISSI:c.FISSI, P_RATE:c.P_RATE, FC:c.FC, prezzo:c.prezzo, costo:c.costo, margineEuro:c.margineEuro, resoOra:c.resoOra },
+    impostazioni:{ scarto:_costImp.scarto, tariffa:_costImp.tariffa }, salvato_il:new Date().toISOString() };
+  try{
+    if(_cost.id){ const {error}=await sb.from('costificazioni').update({dati}).eq('id',_cost.id); if(error) throw error; }
+    else { const {data,error}=await sb.from('costificazioni').insert({codice:null, dati}).select('id').single(); if(error) throw error; _cost.id=data.id; }
+    await _costCaricaLista(); _costDisegna();
+    alert('Costificazione salvata.');
+  }catch(e){ alert('Errore salvataggio: '+((e&&e.message)||e)); }
+}
+async function _costApri(id){
+  const r=_costList.find(x=>String(x.id)===String(id)); if(!r||!r.dati) return;
+  const d=r.dati;
+  _cost={ id:r.id, codice:r.codice, nome:d.nome||'', prodottoId:d.prodottoId||'', margine:d.margine!=null?d.margine:60,
+    distinta:Array.isArray(d.distinta)?d.distinta:[], manodopera:Array.isArray(d.manodopera)?d.manodopera:[], extra:Array.isArray(d.extra)?d.extra:[] };
+  _costDisegna();
 }
 
 // ─── STAMPA ───────────────────────────────────────────────────────────────────
