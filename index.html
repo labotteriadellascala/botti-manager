@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.71 — 25/08/2026 · Lead: i preventivi accettati dal cliente online spostano da soli il lead in “Accettazione preventivo” all’apertura (la RPC del sito non tocca lo stato del lead; lo fa il gestionale).</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.72 — 25/08/2026 · Registro Finanziario: “Saldato” ora ha anche ACCONTO — digiti l’importo versato, scala dai debiti e conta come cassa (imponibile/IVA proporzionali) senza toccare la competenza.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1306,7 +1306,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.71';
+window.APP_VERSION = '2.72';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -11120,7 +11120,7 @@ function skeleton(){
        <select id="mov-f-tipo" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutti i tipi</option><option>Entrata</option><option>Uscita</option></select>
        <select id="mov-f-cat" onchange="finFilter()" style="max-width:200px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutte le categorie</option>${[...catEntrate(),...catUscite()].map(c=>`<option>${esc(c)}</option>`).join('')}</select>
        <select id="mov-f-nat" onchange="finFilter()" style="max-width:200px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutte le nature</option>${NATURA_TIPI.map(n=>`<option>${esc(n)}</option>`).join('')}</select>
-       <select id="mov-f-sal" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Saldato: tutti</option><option value="SI">Solo saldati</option><option value="NO">Solo non saldati</option></select>
+       <select id="mov-f-sal" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Saldato: tutti</option><option value="SI">Solo saldati</option><option value="NO">Solo non saldati</option><option value="ACCONTO">Solo acconti</option></select>
        <select id="mov-f-eve" onchange="finFilter()" style="max-width:180px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutti gli eventi</option></select>
        <select id="mov-f-col" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutte le righe</option><option value="giallo">🟡 Da verificare</option><option value="blu">🔵 Duplicato sospetto</option><option value="viola">🟣 Evento non riconosciuto</option><option value="rosso">🔴 Non saldato</option><option value="pulite">Senza segnalazioni</option></select>
        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink3)">Da<input type="date" id="mov-f-dal" onchange="finFilter()" style="padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:12px"></label>
@@ -11285,7 +11285,7 @@ function renderTable(){
     if(fT && m.tipo!==fT) return false;
     if(fC && m.categoria!==fC) return false;
     if(fN && nat(m.categoria)!==fN) return false;
-    if(fS && (m.pagato||'')!==fS) return false;
+    if(fS){ if(fS==='SI' && m.pagato!=='SI') return false; if(fS==='NO' && m.pagato==='SI') return false; if(fS==='ACCONTO' && m.pagato!=='ACCONTO') return false; }
     if(fD1 && (m.data||'')<fD1) return false;
     if(fD2 && (m.data||'')>fD2) return false;
     if(fE && (m.evento||'')!==fE) return false;
@@ -11315,7 +11315,10 @@ function renderTable(){
       <td><select class="fc fc-aliq" onchange="finUpd('${id}','aliquota',this)">${aliqOptions(m.aliquota)}</select></td>
       <td id="imp-${id}" class="text-mono" style="text-align:right">${eurF(imp(m))}</td>
       <td id="iva-${id}" class="text-mono" style="text-align:right">${eurF(iva(m))}</td>
-      <td><select class="fc" onchange="finUpd('${id}','pagato',this)"><option ${m.pagato==='SI'?'selected':''}>SI</option><option ${m.pagato==='NO'?'selected':''}>NO</option></select><input type="date" class="fc" id="ds-${id}" value="${m.pagato==='SI'?(m.dataSaldo||m.data||''):''}" onchange="finUpd('${id}','dataSaldo',this)" title="Data del pagamento (cassa)" style="margin-top:3px;font-size:11px;display:${m.pagato==='SI'?'block':'none'}"></td>
+      <td><select class="fc" onchange="finUpd('${id}','pagato',this)"><option ${m.pagato==='SI'?'selected':''}>SI</option><option ${m.pagato==='NO'?'selected':''}>NO</option><option ${m.pagato==='ACCONTO'?'selected':''}>ACCONTO</option></select>
+        <input type="number" step="0.01" class="fc" id="ac-${id}" value="${m.pagato==='ACCONTO'?(m.acconto!=null?m.acconto:''):''}" onchange="finUpd('${id}','acconto',this)" placeholder="acconto €" title="Importo versato in acconto (cassa)" style="margin-top:3px;font-size:11px;text-align:right;display:${m.pagato==='ACCONTO'?'block':'none'}">
+        <input type="date" class="fc" id="ds-${id}" value="${(m.pagato==='SI'||m.pagato==='ACCONTO')?(m.dataSaldo||m.data||''):''}" onchange="finUpd('${id}','dataSaldo',this)" title="Data del pagamento (cassa)" style="margin-top:3px;font-size:11px;display:${(m.pagato==='SI'||m.pagato==='ACCONTO')?'block':'none'}">
+        <span id="res-${id}" style="display:${m.pagato==='ACCONTO'?'block':'none'};font-size:10px;color:var(--red);margin-top:2px">residuo ${eurF(_finResiduo(m))}</span></td>
       <td><select class="fc" style="min-width:104px" onchange="finUpd('${id}','ripartizione',this)" title="Su quanti mesi spalmare la competenza"><option value="mensile" ${(m.ripartizione||'mensile')==='mensile'?'selected':''}>Mensile</option><option value="trimestrale" ${m.ripartizione==='trimestrale'?'selected':''}>Trimestrale</option><option value="semestrale" ${m.ripartizione==='semestrale'?'selected':''}>Semestrale</option><option value="annuale" ${m.ripartizione==='annuale'?'selected':''}>Annuale</option></select></td>
       <td><input type="text" class="fc" style="min-width:100px" value="${esc(m.note)}" onchange="finUpd('${id}','note',this)"></td>
       <td style="white-space:nowrap">${m.daVerif?`<button class="btn btn-sm fin-okbtn" onclick="finVerifica('${id}')" title="Segna come verificato">✓</button> `:''}<button class="btn btn-sm btn-danger" onclick="finDelete('${id}')">✕</button></td>
@@ -11327,11 +11330,11 @@ window.finGrow = function(t){ t.style.height='auto'; t.style.height=(t.scrollHei
 window.finUpd = function(id, field, el){
   const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
   let v;
-  if(field==='lordo'){ v=parseFloat(String(el.value).replace(',','.')); if(isNaN(v)) v=0; }
+  if(field==='lordo'||field==='acconto'){ v=parseFloat(String(el.value).replace(',','.')); if(isNaN(v)) v=0; }
   else if(field==='aliquota'){ v=parseFloat(el.value); if(!isFinite(v)) v=null; }
   else v=el.value;
   m[field]=v;
-  if(field==='pagato'){ if(v==='SI'){ if(!m.dataSaldo) m.dataSaldo = m.data||''; } else { m.dataSaldo=''; } }
+  if(field==='pagato'){ if(v==='SI'||v==='ACCONTO'){ if(!m.dataSaldo) m.dataSaldo = m.data||''; if(v==='SI') m.acconto=0; } else { m.dataSaldo=''; m.acconto=0; } }
   save(arr);
   if(field==='categoria'){ const n=document.getElementById('nat-'+id); if(n) n.textContent=nat(m.categoria); }
   if(field==='evento'){ renderTable(); return; }   // il colore riga (viola) e il filtro eventi dipendono da questo valore
@@ -11341,11 +11344,21 @@ window.finUpd = function(id, field, el){
   }
   if(field==='pagato'){
     const tr=document.getElementById('row-'+id); if(tr) tr.classList.toggle('fin-unpaid', m.pagato==='NO');
-    const ds=document.getElementById('ds-'+id);
-    if(ds){ ds.style.display=(v==='SI')?'block':'none'; ds.value=(v==='SI')?(m.dataSaldo||''):''; }
+    const cassaVis=(v==='SI'||v==='ACCONTO');
+    const ds=document.getElementById('ds-'+id); if(ds){ ds.style.display=cassaVis?'block':'none'; ds.value=cassaVis?(m.dataSaldo||''):''; }
+    const ac=document.getElementById('ac-'+id); if(ac){ ac.style.display=(v==='ACCONTO')?'block':'none'; ac.value=(v==='ACCONTO')?(m.acconto!=null?m.acconto:''):''; }
+    const rs=document.getElementById('res-'+id); if(rs){ rs.style.display=(v==='ACCONTO')?'block':'none'; rs.textContent='residuo '+eurF(_finResiduo(m)); }
   }
+  if(field==='acconto'||field==='lordo'){ const rs=document.getElementById('res-'+id); if(rs && m.pagato==='ACCONTO'){ rs.textContent='residuo '+eurF(_finResiduo(m)); } }
   renderResoconto();
 };
+
+// Cassa di un movimento (competenza NON toccata): SI = tutto, ACCONTO = importo versato, NO = nulla.
+function _finCassaLordo(m){ if(m.pagato==='SI') return m.lordo||0; if(m.pagato==='ACCONTO') return Math.min(m.lordo||0, Math.max(0, Number(m.acconto)||0)); return 0; }
+function _finCassaFrac(m){ const L=m.lordo||0; if(m.pagato==='SI') return 1; if(m.pagato==='ACCONTO') return L>0 ? Math.min(1,(Number(m.acconto)||0)/L) : 0; return 0; }
+function _finCassaImp(m){ return imp(m)*_finCassaFrac(m); }
+function _finCassaIva(m){ return iva(m)*_finCassaFrac(m); }
+function _finResiduo(m){ return Math.max(0, (m.lordo||0) - _finCassaLordo(m)); }
 
 function renderResoconto(){
   const box = document.getElementById('fin-res'); if(!box) return;
@@ -11355,8 +11368,8 @@ function renderResoconto(){
   const uscite  = sum(m=>m.tipo==='Uscita'?m.lordo:0);
   const ivaDeb  = sum(m=>m.tipo==='Entrata'?iva(m):0);
   const ivaCre  = sum(m=>m.tipo==='Uscita'?iva(m):0);
-  const daInc   = sum(m=>(m.tipo==='Entrata'&&m.pagato==='NO')?m.lordo:0);
-  const daPag   = sum(m=>(m.tipo==='Uscita'&&m.pagato==='NO')?m.lordo:0);
+  const daInc   = sum(m=>m.tipo==='Entrata'?_finResiduo(m):0);
+  const daPag   = sum(m=>m.tipo==='Uscita'?_finResiduo(m):0);
   const kpi = (l,v,c='')=>`<div class="fin-kpi ${c}"><div class="l">${l}</div><div class="v">${eurF(v)}</div></div>`;
 
   // per natura (netto)
@@ -11375,7 +11388,7 @@ function renderResoconto(){
   // (la vecchia tabella "Dettaglio per categoria" è sostituita dalla matrice costi categoria×mese, costruita più sotto con la competenza ripartita)
 
   // per mese — la cassa resta intera nel mese di pagamento; la competenza viene ripartita sui mesi successivi
-  const dataCassa = m => (m.pagato==='SI') ? (m.dataSaldo || m.data || '') : '';
+  const dataCassa = m => (m.pagato==='SI' || m.pagato==='ACCONTO') ? (m.dataSaldo || m.data || '') : '';
   // mappa competenza ripartita ("YYYY-mi" -> {kE,kU,kD,kC}) + raccolta di tutti gli anni toccati (cassa + competenza ripartita)
   const compMap = {}; const yset = new Set();
   arr.forEach(m=>{
@@ -11393,7 +11406,7 @@ function renderResoconto(){
   const colNeg = v => v<-0.005?'color:var(--red)':'';
   const cmpRows = MESI.map((nm,i)=>{
     let cE=0,cU=0,cD=0,cC=0;
-    arr.forEach(m=>{ const dc=dataCassa(m); if(inM(dc,i)){ if(m.tipo==='Entrata'){cE+=m.lordo;cD+=iva(m);} else {cU+=m.lordo;cC+=iva(m);} } });
+    arr.forEach(m=>{ const dc=dataCassa(m); if(inM(dc,i)){ if(m.tipo==='Entrata'){cE+=_finCassaLordo(m);cD+=_finCassaIva(m);} else {cU+=_finCassaLordo(m);cC+=_finCassaIva(m);} } });
     const kc = compMap[curY+'-'+i] || {kE:0,kU:0,kD:0,kC:0};
     const kE=kc.kE, kU=kc.kU, kD=kc.kD, kC=kc.kC;
     return `<tr><td>${nm}</td>`+
