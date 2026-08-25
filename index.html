@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.70 — 25/08/2026 · Lead: “→ Crea ordine” più robusto — se il lead ha più preventivi puoi scegliere quale, l’anagrafica mancante si prende dagli altri, e senza preventivo apre un Nuovo ordine coi dati del lead.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.71 — 25/08/2026 · Lead: i preventivi accettati dal cliente online spostano da soli il lead in “Accettazione preventivo” all’apertura (la RPC del sito non tocca lo stato del lead; lo fa il gestionale).</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1306,7 +1306,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.70';
+window.APP_VERSION = '2.71';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8131,6 +8131,22 @@ function aggiornaBadgeLead(nOverride) {
   else { badge.style.display = 'none'; }
 }
 
+// Sposta in "Accettazione preventivo" i lead attivi il cui preventivo è stato accettato dal cliente
+// online (la RPC pubblica accetta_preventivo non tocca lo stato del lead: lo facciamo qui).
+let _autoAccInCorso = false;
+async function _leadAutoAccettazione(){
+  if (_autoAccInCorso) return;
+  if (!_leadLoaded || typeof _prevLoaded==='undefined' || !_prevLoaded) return;
+  const acc = {};
+  _prevList.forEach(p => { if (p.lead_id && (p.stato==='accettato' || p.stato==='lavorato')) acc[p.lead_id]=true; });
+  const PRE = ['Nuovo','Contattato','In conversazione','Qualificato','Preventivo inviato'];
+  const ids = _leadList.filter(x => acc[x.id] && PRE.indexOf(_stato(x))>=0).map(x=>x.id);
+  if (!ids.length) return;
+  _autoAccInCorso = true;
+  try { for (const id of ids){ await _leadVaiA(id, 'Accettazione preventivo', { acconto_versato:false }); } }
+  finally { _autoAccInCorso = false; }
+}
+
 async function renderLeadMkt() {
   const c = document.getElementById('lead-container');
   if (!_leadLoaded) {
@@ -8144,6 +8160,7 @@ async function renderLeadMkt() {
     _leadList = data || []; _leadLoaded = true;
   }
   await caricaPreventivi(true);
+  await _leadAutoAccettazione();
   disegnaLeadMkt();
   aggiornaBadgeLead();
 }
