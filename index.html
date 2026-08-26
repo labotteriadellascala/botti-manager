@@ -547,6 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.74 — 26/08/2026 · Registro Lead: la casella “Accettati” è cliccabile e apre l'elenco dei lead che ha accettato (nome, contatto, valore) con tasto per aprire la scheda.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1306,7 +1307,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.73';
+window.APP_VERSION = '2.74';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8219,7 +8220,7 @@ function disegnaLeadMkt() {
   </div>
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
     ${statCard(delMese.length, 'Contatti '+(mese||'tot'))}
-    ${statCard(accettati.length, 'Accettati')}
+    ${statCard(accettati.length, 'Accettati', false, "mostraListaLead('Accettazione preventivo','Lead accettati')")}
     ${statCard(perc===null?'—':perc+'%', '% chiusura')}
     ${statCard('€ '+valore.toLocaleString('it-IT'), 'Valore accettato')}
     ${statCard(nurture, 'Nurture da ricontattare', nurture>0, "document.getElementById('ld-silenti').checked=true; disegnaLeadMkt()")}
@@ -9387,6 +9388,32 @@ function mostraListaPreventivi(stato){
     }).join('');
   }
   showModal(titolo, `<div style="max-height:60vh;overflow:auto">${body}</div>`, [ {label:'Chiudi', action:'closeModal()'} ]);
+}
+
+// Lista dei lead in un dato stato (usata dalle caselle statistiche cliccabili, es. "Accettati").
+// Rispetta il mese selezionato in alto, così il numero nella casella e la lista coincidono.
+function mostraListaLead(stato, titolo){
+  const selMeseEl = document.getElementById('ld-filter-mese');
+  const mese = selMeseEl ? selMeseEl.value : _leadMeseCorrente();
+  let arr = _leadList.filter(x => _stato(x) === stato);
+  if (mese) arr = arr.filter(x => (x.data||'').slice(0,7) === mese);
+  arr.sort((a,b) => String(b.data||'').localeCompare(String(a.data||'')));
+  const tit = (titolo || ('Lead · ' + stato)) + (mese ? (' · ' + mese) : '');
+  let body;
+  if (!arr.length){
+    body = '<div style="color:var(--ink3);font-size:13px">Nessun lead in questa categoria.</div>';
+  } else {
+    body = arr.map(x => {
+      const val = _leadValore(x);
+      const contatto = x.email || x.telefono || '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:12px">
+        <span style="flex:1;min-width:0"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_at(x.nome||'—')}</b><span style="color:var(--ink3);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_at(contatto)}</span></span>
+        <span class="text-mono" style="font-variant-numeric:tabular-nums;white-space:nowrap">${val?('€ '+val.toLocaleString('it-IT')):''}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();gestisciLead('${x.id}')">Apri scheda</button>
+      </div>`;
+    }).join('');
+  }
+  showModal(tit, `<div style="max-height:60vh;overflow:auto">${body}</div>`, [ {label:'Chiudi', action:'closeModal()'} ]);
 }
 
 // Preventivi legati a un ORDINE (non ai lead): lista + crea nuovo.
