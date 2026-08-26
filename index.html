@@ -546,7 +546,7 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.72 — 25/08/2026 · Registro Finanziario: “Saldato” ora ha anche ACCONTO — digiti l’importo versato, scala dai debiti e conta come cassa (imponibile/IVA proporzionali) senza toccare la competenza.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -672,7 +672,7 @@ tr.fin-eventounk td{background:#EDE7F6!important}
 #fin-tbody .fc:focus{outline:1px solid var(--accent2)}
 #fin-tbody td{vertical-align:top}
 #fin-tbody select.fc-cat{min-width:165px}
-#fin-tbody textarea.fc-desc{min-width:340px;max-width:600px;resize:both;line-height:1.35;white-space:pre-wrap;word-break:break-word;overflow:hidden}
+#fin-tbody textarea.fc-desc{min-width:340px;max-width:600px;resize:both;line-height:1.35;white-space:pre-wrap;word-break:break-word;overflow:hidden;field-sizing:content}
 #fin-tbody select.fc-tipo{min-width:96px}
 #fin-tbody select.fc-aliq{min-width:68px}
 #fin-tbody .fc-in{color:var(--green);font-weight:500}
@@ -1306,7 +1306,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.72';
+window.APP_VERSION = '2.73';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -11127,6 +11127,7 @@ function skeleton(){
        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink3)">A<input type="date" id="mov-f-al" onchange="finFilter()" style="padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:12px"></label>
        <span id="mov-count" style="font-size:12px;color:var(--ink3);white-space:nowrap"></span>
        <button class="btn btn-sm btn-ghost" onclick="finFilterReset()">Azzera filtri</button>
+       <button class="btn btn-sm btn-ghost" onclick="finRicontrollaDuplicati()" title="Ripassa tutti i movimenti e segna in blu i possibili duplicati (stessa data, importo e — per le entrate — descrizione)">🔵 Ricontrolla duplicati</button>
      </div>
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap">
        <div style="display:flex;gap:6px">
@@ -11208,7 +11209,7 @@ window.finSubmit = function(){
   else arr.push(m);
   save(arr); EDIT_ID=null;
   document.getElementById('fin-form').style.display='none';
-  renderTable(); renderResoconto();
+  renderTable(); if(TAB==='res') renderResoconto();
 };
 window.finEdit = function(id){
   const m = load().find(x=>x.id===id); if(!m) return;
@@ -11228,10 +11229,11 @@ window.finEdit = function(id){
 };
 window.finDelete = function(id){
   if(!confirm('Eliminare questo movimento?')) return;
-  save(load().filter(x=>x.id!==id)); renderTable(); renderResoconto();
+  save(load().filter(x=>x.id!==id)); renderTable(); if(TAB==='res') renderResoconto();
 };
 
-window.finFilter = function(){ renderTable(); };
+let _finFilterT=null;
+window.finFilter = function(){ clearTimeout(_finFilterT); _finFilterT=setTimeout(renderTable,180); };  // debounce: la ricerca è oninput, evita di ricostruire la tabella a ogni tasto
 window.finVerifica = function(id){
   const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
   const noCat = !m.categoria || String(m.categoria).trim()==='';
@@ -11247,9 +11249,22 @@ window.finVerifica = function(id){
     return;
   }
   delete m.daVerif; delete m.dupSosp; save(arr);
-  renderTable(); renderResoconto();
+  renderTable(); if(TAB==='res') renderResoconto();
 };
 window.finFilterReset = function(){ ['mov-search','mov-f-tipo','mov-f-cat','mov-f-nat','mov-f-sal','mov-f-dal','mov-f-al','mov-f-eve','mov-f-col'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; }); renderTable(); };
+// Ripassa TUTTI i movimenti già presenti e segna in blu (dupSosp) le occorrenze
+// successive alla prima con la stessa chiave duplicato. La prima resta pulita.
+window.finRicontrollaDuplicati = function(){
+  const arr=load(); const seen=new Set(); let n=0;
+  // ordine cronologico: la 1a occorrenza è l'originale, le successive = possibili doppioni
+  arr.slice().sort((a,b)=>(a.data||'').localeCompare(b.data||'')).forEach(m=>{
+    const k=_finDupKey(m);
+    if(seen.has(k)){ if(!m.dupSosp){ m.dupSosp=true; n++; } }
+    else seen.add(k);
+  });
+  save(arr); renderTable(); if(TAB==='res') renderResoconto();
+  alert(n ? (n+' possibili duplicati segnati in BLU. Controllali: se sono validi premi ✓ per verificarli, se sono doppioni premi ✕ per eliminarli.') : 'Nessun nuovo duplicato trovato.');
+};
 // Eventi/canali del gestionale (per tendina Evento e riconoscimento righe viola)
 function finCanaliNomi(){
   const c = (typeof DB!=='undefined' && DB.get) ? (DB.get('canali')||[]) : [];
@@ -11324,9 +11339,11 @@ function renderTable(){
       <td style="white-space:nowrap">${m.daVerif?`<button class="btn btn-sm fin-okbtn" onclick="finVerifica('${id}')" title="Segna come verificato">✓</button> `:''}<button class="btn btn-sm btn-danger" onclick="finDelete('${id}')">✕</button></td>
     </tr>`;
   }).join('');
-  tb.querySelectorAll('textarea.fc-desc').forEach(t=>finGrow(t));
+  // field-sizing:content auto-dimensiona il textarea via CSS: sui browser che lo
+  // supportano evitiamo 594 finGrow() (594 reflow forzati) a ogni ricostruzione tabella.
+  if(!(window.CSS && CSS.supports && CSS.supports('field-sizing','content'))) tb.querySelectorAll('textarea.fc-desc').forEach(t=>finGrow(t));
 }
-window.finGrow = function(t){ t.style.height='auto'; t.style.height=(t.scrollHeight+2)+'px'; };
+window.finGrow = function(t){ if(window.CSS && CSS.supports && CSS.supports('field-sizing','content')) return; t.style.height='auto'; t.style.height=(t.scrollHeight+2)+'px'; };
 window.finUpd = function(id, field, el){
   const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
   let v;
@@ -11350,7 +11367,9 @@ window.finUpd = function(id, field, el){
     const rs=document.getElementById('res-'+id); if(rs){ rs.style.display=(v==='ACCONTO')?'block':'none'; rs.textContent='residuo '+eurF(_finResiduo(m)); }
   }
   if(field==='acconto'||field==='lordo'){ const rs=document.getElementById('res-'+id); if(rs && m.pagato==='ACCONTO'){ rs.textContent='residuo '+eurF(_finResiduo(m)); } }
-  renderResoconto();
+  // Il Resoconto (aggregati su tutti i movimenti) è pesante da ricostruire: rifallo
+  // solo se la sua tab è aperta. Passando alla tab Resoconto, finTab('res') la rigenera.
+  if(TAB==='res') renderResoconto();
 };
 
 // Cassa di un movimento (competenza NON toccata): SI = tutto, ACCONTO = importo versato, NO = nulla.
@@ -11359,6 +11378,14 @@ function _finCassaFrac(m){ const L=m.lordo||0; if(m.pagato==='SI') return 1; if(
 function _finCassaImp(m){ return imp(m)*_finCassaFrac(m); }
 function _finCassaIva(m){ return iva(m)*_finCassaFrac(m); }
 function _finResiduo(m){ return Math.max(0, (m.lordo||0) - _finCassaLordo(m)); }
+// Chiave per riconoscere i duplicati (import e ricontrollo).
+// Entrata = data+importo+descrizione: i bonifici hanno un "N." univoco nel testo,
+//   quindi lo stesso bonifico ri-importato ha descrizione identica (→ duplicato),
+//   mentre clienti diversi con lo stesso importo hanno descrizione diversa (→ non duplicato).
+// Uscita = data+importo: le spese con carta hanno l'orario nel testo, così due addebiti
+//   dello stesso giorno/importo restano riconoscibili come sospetti anche con testo diverso.
+function _finNorm(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase(); }
+function _finDupKey(x){ const base=(x.data||'')+'|'+(Number(x.lordo)||0).toFixed(2); return x.tipo==='Entrata' ? 'E|'+base+'|'+_finNorm(x.descrizione) : 'U|'+base; }
 
 function renderResoconto(){
   const box = document.getElementById('fin-res'); if(!box) return;
@@ -11400,7 +11427,10 @@ function renderResoconto(){
     });
   });
   const years = [...yset].filter(Boolean).sort();
-  const curY = window.FIN_ANNO || (years[years.length-1] || String(new Date().getFullYear()));
+  const nowY = String(new Date().getFullYear());
+  // Default = anno corrente se presente nei dati (le competenze spalmate su anni futuri
+  // non devono più portare il default in avanti, es. 2027), altrimenti l'ultimo disponibile.
+  const curY = window.FIN_ANNO || (years.includes(nowY) ? nowY : (years[years.length-1] || nowY));
   window.FIN_ANNO = curY;
   const inM = (ds,mi) => !!ds && ds.slice(0,4)===String(curY) && (+ds.slice(5,7))===mi+1;
   const colNeg = v => v<-0.005?'color:var(--red)':'';
@@ -11619,19 +11649,16 @@ window.finPreview = function(){
 window.finDoImport = function(){
   const rows=impMapped(); if(!rows.length) return;
   const arr=load();
-  const uKey = x => x.data+'|'+Number(x.lordo).toFixed(2);
-  const existingOut = new Set(arr.filter(x=>x.tipo==='Uscita').map(uKey));
-  const batchOut = new Set();
+  const existing = new Set(arr.map(_finDupKey));   // controlla i duplicati su Entrate E Uscite (prima solo Uscite)
+  const batch = new Set();
   let added=0, dup=0;
   rows.forEach(r=>{
     const m={id:'m'+Date.now()+Math.random().toString(36).slice(2,7),data:r.data,tipo:r.tipo,
       categoria:r.categoria||'',descrizione:r.descrizione||'',evento:r.evento||'',lordo:r.lordo,
       aliquota:r.aliquota,pagato:r.pagato||'SI',dataSaldo:r.data,note:r.note||'', daVerif:true};
-    if(m.tipo==='Uscita'){
-      const k=uKey(m);
-      if(existingOut.has(k)||batchOut.has(k)){ m.dupSosp=true; dup++; }
-      batchOut.add(k);
-    }
+    const k=_finDupKey(m);
+    if(existing.has(k)||batch.has(k)){ m.dupSosp=true; dup++; }
+    batch.add(k);
     arr.push(m); added++;
   });
   save(arr);
@@ -11641,7 +11668,7 @@ window.finDoImport = function(){
   document.getElementById('fi-preview').innerHTML=''; document.getElementById('fi-go').style.display='none';
   renderTable(); renderResoconto();
   const saldoN = impDataRows().filter(isSaldoRow).length;
-  alert('Importate '+added+' righe (in giallo, da verificare)'+(dup?(' · '+dup+' uscite segnalate in BLU come possibili duplicati'):'')+(saldoN?(' · '+saldoN+' righe di saldo ignorate'):'')+'.');
+  alert('Importate '+added+' righe (in giallo, da verificare)'+(dup?(' · '+dup+' righe segnalate in BLU come possibili duplicati'):'')+(saldoN?(' · '+saldoN+' righe di saldo ignorate'):'')+'.');
 };
 window.finClearAll = function(){
   const n = load().length;
