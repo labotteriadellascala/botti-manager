@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.77 — 26/08/2026 · Ordini fornitore: costo unificato — il totale provvisorio del Riordino usa il "Costo € per unità" del materiale (per i pannelli: €/mq × lati); tolto il doppione "€ acquisto" dalla riga fornitore nel form materiale.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.78 — 26/08/2026 · Ordini fornitore: mail d'ordine col formato ufficiale di Andrea — oggetto "Ordine OF-… — Steel Head", corpo "Vorrei ordinare:" e chiusa con solo "Cordiali saluti" (la firma completa la aggiunge Outlook).</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1314,7 +1314,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.77';
+window.APP_VERSION = '2.78';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6465,13 +6465,14 @@ function _ofCorpoMail(righe, note){
     if(extra) s += ' — '+extra;
     return s;
   }).join('\r\n');
-  return 'Buongiorno,\r\ncon la presente ordiniamo:\r\n\r\n'+r+'\r\n\r\n'
+  // Formato ufficiale scelto da Andrea (26/08/2026): chiusa con solo "Cordiali saluti",
+  // la firma completa la aggiunge Outlook (Messaggio → Firma).
+  return 'Buongiorno,\r\nVorrei ordinare:\r\n\r\n'+r+'\r\n\r\n'
     + (note ? note+'\r\n\r\n' : '')
-    + 'Resto in attesa di conferma d\'ordine e tempi di consegna.\r\n\r\n'
-    + 'Cordiali saluti\r\nAndrea Canovi\r\nLa Botteria della Scala / Steel Head';
+    + 'Cordiali saluti';
 }
 function _ofMailtoUrl(email, numero, righe, note){
-  const oggetto = 'Ordine '+numero+' — La Botteria della Scala';
+  const oggetto = 'Ordine '+numero+' — Steel Head';   // i fornitori ci conoscono come Steel Head
   return 'mailto:'+String(email||'').trim()+'?subject='+encodeURIComponent(oggetto)+'&body='+encodeURIComponent(_ofCorpoMail(righe, note));
 }
 
