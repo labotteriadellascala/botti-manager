@@ -328,10 +328,10 @@ textarea { resize: vertical; min-height: 70px; }
 .lst-root .tab{padding:10px 20px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;font-weight:500}
 .lst-root .tab:hover{color:var(--cream)}
 .lst-root .tab.active{color:var(--gold2);border-bottom-color:var(--gold)}
-#fin-root .tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border2)}
-#fin-root .tab{padding:9px 20px;font-size:14px;cursor:pointer;color:var(--ink3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;font-weight:600}
-#fin-root .tab:hover{color:var(--ink)}
-#fin-root .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+#fin-root .tabs, #of-root .tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border2)}
+#fin-root .tab, #of-root .tab{padding:9px 20px;font-size:14px;cursor:pointer;color:var(--ink3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;font-weight:600}
+#fin-root .tab:hover, #of-root .tab:hover{color:var(--ink)}
+#fin-root .tab.active, #of-root .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .lst-root .configuratore{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
 .lst-root .panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px}
 .lst-root .panel-title{font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:14px}
@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.74 — 26/08/2026 · Registro Lead: la casella “Accettati” è cliccabile e apre l'elenco dei lead che ha accettato (nome, contatto, valore) con tasto per aprire la scheda.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.75 — 26/08/2026 · Nuovo modulo Ordini fornitore: anagrafica fornitori, fornitori collegati ai materiali, riordino con mail precompilata (prima salva l'ordine, poi apre la mail) e storico con Ricevuto/Annulla/Ricrea mail.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -587,6 +587,10 @@ table.tmb-sht .ot{color:#444}
     <div class="nav-item" onclick="nav('materiali',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
       Materiali
+    </div>
+    <div class="nav-item" onclick="nav('ordini-fornitore',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 4v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>
+      Ordini fornitore
     </div>
     <div class="nav-section">Archivio</div>
     <div class="nav-item" onclick="nav('prodotti',this)">
@@ -1007,6 +1011,9 @@ td.fin-in{color:var(--green);font-weight:500}
 <div class="page" id="page-costificatore">
   <div id="cost-root"></div>
 </div>
+<div class="page" id="page-ordini-fornitore">
+  <div id="of-root"></div>
+</div>
 <div class="page" id="page-promemoria">
   <div id="promemoria-container"></div>
 </div>
@@ -1307,7 +1314,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.74';
+window.APP_VERSION = '2.75';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -2442,8 +2449,8 @@ window.provaSupabase = provaSupabase;
 // Le altre sezioni continuano per ora a usare il browser (localStorage), come prima.
 
 var _cache = {};                                  // copia in memoria
-var SEZIONI_CLOUD = ['ordini','canali','famiglie','colori','materiali','prodotti','accessori','contatti','ordiniEvento','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken','motiviDuplica'];   // sezioni che vivono su Supabase
-var SEZIONI_IMPOSTAZIONI = ['canali','famiglie','colori','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken','motiviDuplica'];     // liste salvate nel cassetto "impostazioni"
+var SEZIONI_CLOUD = ['ordini','canali','famiglie','colori','materiali','prodotti','accessori','contatti','ordiniEvento','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken','motiviDuplica','fornitori'];   // sezioni che vivono su Supabase
+var SEZIONI_IMPOSTAZIONI = ['canali','famiglie','colori','promemoriaLiberi','attivitaPiano','tariffeMese','etichetteFormati','magToken','motiviDuplica','fornitori'];     // liste salvate nel cassetto "impostazioni"
 
 var DB = {
   get(k) {
@@ -3242,7 +3249,7 @@ function nav(page, el) {
     'pianificazione':'Pianificazione produzione (giorni)',
     'prodotti':'Prodotti e distinte base','accessori-listino':'Listino accessori',
     'impostazioni':'Impostazioni','ordini-evento':'Ordini Evento',
-    'contatti':'Contatti','lead':'Registro Lead','calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore','promemoria':'Promemoria',
+    'contatti':'Contatti','lead':'Registro Lead','calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore','ordini-fornitore':'Ordini fornitore','promemoria':'Promemoria',
     'timbrature':'Timbrature','finanze':'Registro Finanziario','mastrini':'Mastrini'
   };
   document.getElementById('topbar-title').textContent = titles[page]||'';
@@ -3278,6 +3285,7 @@ function nav(page, el) {
   if(page==='lead') { document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" onclick="nuovoLeadMkt()">+ Nuovo lead</button> <button class="btn" onclick="nuovoPreventivo()">+ Nuovo preventivo</button> <button class="btn" title="Scarica tutti i lead in Excel per analizzarli" onclick="esportaLeadExcel()">📊 Esporta lead</button>`; renderLeadMkt(); }
   if(page==='calcolo-prezzi') initCalcoloPrezzi();
   if(page==='costificatore') renderCostificatore();
+  if(page==='ordini-fornitore') renderOrdiniFornitore();
   if(page==='promemoria') renderPromemoria();
   if(page==='finanze') renderFinanze();
   if(page==='mastrini') renderMastrini();
@@ -6171,6 +6179,63 @@ function _nmLeggiCampiCosto(pfx){
   };
 }
 
+// ─── ORDINI FORNITORE · sezione "Fornitori" nel form materiale ────────────────
+// Un materiale può avere più fornitori (dati.fornitori = [{fornitore, codice_fornitore,
+// um_acquisto, prezzo_acquisto}]). "fornitore" referenzia il cod (F001…) dell'anagrafica.
+function _nmFornitoriHtml(pfx){
+  return `
+      <div class="form-group full" style="border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Fornitori · per riordino</div>
+        <div id="${pfx}-forn-rows"></div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="_nmFornAddRiga('${pfx}')">+ Aggiungi fornitore</button>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">L'UM di acquisto è quella con cui il fornitore vende (pannello, barra, lt…): non tocca l'UM del materiale. Il codice articolo è quello del listino fornitore e finisce nella mail d'ordine.</div>
+      </div>`;
+}
+// Aggiunge una riga fornitore al form; f = riga esistente o undefined per vuota.
+function _nmFornAddRiga(pfx, f){
+  f = f || {};
+  const box = document.getElementById(pfx+'-forn-rows'); if(!box) return;
+  const attivi = (DB.get('fornitori')||[]).filter(x=>x.attivo!==false);
+  // fornitore referenziato ma non più attivo: lo mostro comunque (mai perdere il legame in silenzio)
+  let opts = '<option value="">— scegli fornitore —</option>' + attivi.map(x=>`<option value="${_esc(x.cod)}" ${f.fornitore===x.cod?'selected':''}>${_esc(x.nome)}</option>`).join('');
+  if (f.fornitore && !attivi.some(x=>x.cod===f.fornitore)){
+    const tutti = DB.get('fornitori')||[];
+    const nome = (tutti.find(x=>x.cod===f.fornitore)||{}).nome || f.fornitore;
+    opts += `<option value="${_esc(f.fornitore)}" selected>${_esc(nome)} (non attivo)</option>`;
+  }
+  const div = document.createElement('div');
+  div.className = 'nmf-row';
+  div.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap';
+  div.innerHTML = `
+    <select class="nmf-forn" style="flex:1;min-width:150px">${opts}</select>
+    <input type="text" class="nmf-cod" placeholder="Codice art. fornitore" value="${_esc(f.codice_fornitore||'')}" style="flex:1;min-width:130px">
+    <input type="text" class="nmf-um" placeholder="UM acquisto" title="Unità con cui vende il fornitore (pannello, m², barra, lt…)" value="${_esc(f.um_acquisto||'')}" style="width:100px">
+    <input type="number" class="nmf-prezzo" step="0.01" min="0" placeholder="€ acquisto" title="Prezzo di acquisto (opzionale, informativo)" value="${f.prezzo_acquisto!=null?f.prezzo_acquisto:''}" style="width:95px;text-align:right">
+    <button type="button" class="btn btn-sm btn-danger" style="padding:2px 8px" onclick="this.parentElement.remove()">×</button>`;
+  box.appendChild(div);
+}
+// Riempie le righe fornitore del form dal materiale esistente (chiamare DOPO showModal).
+function _nmFornInit(pfx, lista){
+  (Array.isArray(lista)?lista:[]).forEach(f=>_nmFornAddRiga(pfx, f));
+}
+// Legge le righe fornitore dal form → array per dati.fornitori (righe senza fornitore scelto = scartate).
+function _nmLeggiFornitori(pfx){
+  const box = document.getElementById(pfx+'-forn-rows'); if(!box) return [];
+  const out = [];
+  box.querySelectorAll('.nmf-row').forEach(r=>{
+    const cod = (r.querySelector('.nmf-forn')||{}).value || '';
+    if(!cod) return;
+    const num = s => { s=String(s||'').trim().replace(',','.'); const n=parseFloat(s); return isNaN(n)?null:n; };
+    out.push({
+      fornitore: cod,
+      codice_fornitore: ((r.querySelector('.nmf-cod')||{}).value||'').trim(),
+      um_acquisto: ((r.querySelector('.nmf-um')||{}).value||'').trim(),
+      prezzo_acquisto: num((r.querySelector('.nmf-prezzo')||{}).value)
+    });
+  });
+  return out;
+}
+
 function showModalNuovoMateriale() {
   const mat = (DB.get('materiali')||[]).sort((a,b)=>a.nome.localeCompare(b.nome));
   const optsMP = `<option value="">— nessuna —</option>` + mat.map(m=>`<option value="${m.nome}">${m.nome}</option>`).join('');
@@ -6206,6 +6271,7 @@ function showModalNuovoMateriale() {
         <div style="font-size:11px;color:var(--ink3);margin-top:3px">Indica da quale materia prima grezza viene ricavato questo semilavorato (opzionale)</div>
       </div>
       ${_nmCampiCostoHtml('nm', {})}
+      ${_nmFornitoriHtml('nm')}
     </div>
   `;
   showModal('Nuovo materiale', html, [
@@ -6241,6 +6307,7 @@ window.duplicaMaterialePerNome = function(nome){
   set('nm-scarto', m.scarto_override!=null?m.scarto_override:'');
   set('nm-costo-ac', m.costo!=null?m.costo:'');
   _nmCostoPannello('nm');
+  _nmFornInit('nm', m.fornitori);   // copia anche i fornitori del sorgente
   const inp=document.getElementById('nm-nome'); if(inp){ inp.focus(); inp.select(); }   // scrivi subito il codice nuovo
 };
 
@@ -6258,7 +6325,8 @@ function salvaNuovoMateriale() {
     um: document.getElementById('nm-um').value,
     giacenza: parseFloat(document.getElementById('nm-giacenza').value)||0,
     materiaPrima: document.getElementById('nm-mp').value || '',
-    tipo: { materiaPrima: tipoMp, semilavorato: tipoSl, acquisto: tipoAc }
+    tipo: { materiaPrima: tipoMp, semilavorato: tipoSl, acquisto: tipoAc },
+    fornitori: _nmLeggiFornitori('nm')
   }, _nmLeggiCampiCosto('nm')));
   mat.sort((a,b)=>a.nome.localeCompare(b.nome));
   DB.set('materiali', mat);
@@ -6305,6 +6373,7 @@ function showModalModificaMateriale(i) {
         <div style="font-size:11px;color:var(--ink3);margin-top:3px">Indica da quale materia prima grezza viene ricavato questo semilavorato (opzionale)</div>
       </div>
       ${_nmCampiCostoHtml('em', m)}
+      ${_nmFornitoriHtml('em')}
     </div>
   `;
   showModal(`Modifica — ${m.nome}`, html, [
@@ -6313,6 +6382,7 @@ function showModalModificaMateriale(i) {
   ]);
   _nmToggleTipo('em');
   _nmCostoPannello('em');
+  _nmFornInit('em', m.fornitori);
 }
 
 function salvaModificaMateriale(i) {
@@ -6326,6 +6396,7 @@ function salvaModificaMateriale(i) {
   mat[i].giacenza    = parseFloat(document.getElementById('em-giacenza').value)||0;
   mat[i].materiaPrima= document.getElementById('em-mp').value || '';
   mat[i].tipo        = { materiaPrima: tipoMp, semilavorato: tipoSl, acquisto: tipoAc };
+  mat[i].fornitori   = _nmLeggiFornitori('em');
   Object.assign(mat[i], _nmLeggiCampiCosto('em'));
   DB.set('materiali', mat);
   closeModal();
@@ -6338,6 +6409,295 @@ function eliminaMateriale(i) {
   mat.splice(i,1);
   DB.set('materiali', mat);
   renderMateriali();
+}
+
+// ═══ ORDINI FORNITORE ═════════════════════════════════════════════════════════
+// Modulo interno per Andrea: anagrafica fornitori (cassetto impostazioni, chiave
+// 'fornitori'), riordino con mail precompilata (mailto) e storico su tabella
+// dedicata ordini_fornitore. La mail è l'output, l'ordine tracciato è l'asset:
+// niente mail senza ordine salvato. Magazzino/giacenze NON toccati.
+let _ofList = [];            // ordini fornitore dal cloud (desc per data)
+let _ofLoaded = false;
+let _ofTab = 'riordino';     // 'riordino' | 'storico' | 'fornitori'
+let _ofTabellaOk = true;     // false se la tabella ordini_fornitore non esiste/non risponde
+let _ofFornSel = '';         // fornitore selezionato nella schermata Riordino
+
+const _ofEuro = n => (Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+function _ofFornitori(){ return DB.get('fornitori')||[]; }
+function _ofFornAttivi(){ return _ofFornitori().filter(f=>f.attivo!==false); }
+function _ofFornByCod(cod){ return _ofFornitori().find(f=>f.cod===cod); }
+function _ofNomeForn(cod){ const f=_ofFornByCod(cod); return f?f.nome:(cod||'—'); }
+function _ofEmailValida(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s||'').trim()); }
+
+// Prossimo cod fornitore: F001, F002… (immutabile una volta creato: ci puntano i materiali)
+function _ofProssimoCod(lista){
+  let max = 0;
+  (lista||[]).forEach(f=>{ const m=String(f.cod||'').match(/^F(\d+)$/); if(m) max=Math.max(max, parseInt(m[1],10)); });
+  return 'F'+String(max+1).padStart(3,'0');
+}
+// Progressivo ordine OF-AAAA-NNN: max dei numeri dell'anno + 1 (robusto anche con buchi)
+function _ofProssimoNumero(lista, anno){
+  anno = anno || new Date().getFullYear();
+  let max = 0;
+  (lista||[]).forEach(o=>{ const m=String(o.numero||'').match(new RegExp('^OF-'+anno+'-(\\d+)$')); if(m) max=Math.max(max, parseInt(m[1],10)); });
+  return 'OF-'+anno+'-'+String(max+1).padStart(3,'0');
+}
+// Materiali che hanno il fornitore cod tra i loro dati.fornitori → [{m, link}]
+function _ofMaterialiDiFornitore(cod){
+  return (DB.get('materiali')||[])
+    .filter(m=>Array.isArray(m.fornitori) && m.fornitori.some(x=>x.fornitore===cod))
+    .map(m=>({ m, link: m.fornitori.find(x=>x.fornitore===cod) }))
+    .sort((a,b)=>(a.m.nome||'').localeCompare(b.m.nome||''));
+}
+// Corpo mail in testo semplice (a-capo CRLF: encodeURIComponent li rende %0D%0A)
+function _ofCorpoMail(righe, note){
+  const r = (righe||[]).map(x=>{
+    let s = '- '+x.quantita+' '+(x.um_acquisto||'pz')+' — '+x.materiale_descrizione;
+    if(x.codice_fornitore) s += ' (cod. '+x.codice_fornitore+')';
+    if(x.formato) s += ' — formato: '+x.formato;
+    return s;
+  }).join('\r\n');
+  return 'Buongiorno,\r\ncon la presente ordiniamo:\r\n\r\n'+r+'\r\n\r\n'
+    + (note ? note+'\r\n\r\n' : '')
+    + 'Resto in attesa di conferma d\'ordine e tempi di consegna.\r\n\r\n'
+    + 'Cordiali saluti\r\nAndrea Canovi\r\nLa Botteria della Scala / Steel Head';
+}
+function _ofMailtoUrl(email, numero, righe, note){
+  const oggetto = 'Ordine '+numero+' — La Botteria della Scala';
+  return 'mailto:'+String(email||'').trim()+'?subject='+encodeURIComponent(oggetto)+'&body='+encodeURIComponent(_ofCorpoMail(righe, note));
+}
+
+async function _ofCarica(force){
+  if(_ofLoaded && !force) return;
+  try{
+    const { data, error } = await sb.from('ordini_fornitore').select('*').order('created_at',{ascending:false});
+    if(error){ _ofTabellaOk=false; _ofList=[]; console.error('✖ Ordini fornitore:', error.message); }
+    else { _ofTabellaOk=true; _ofList=data||[]; }
+  }catch(e){ _ofTabellaOk=false; _ofList=[]; console.error('✖ Ordini fornitore:', e); }
+  _ofLoaded = true;
+}
+
+async function renderOrdiniFornitore(){
+  const root=document.getElementById('of-root'); if(!root) return;
+  if(!_ofLoaded) root.innerHTML='<div style="padding:46px;text-align:center;color:var(--ink3)">Carico gli ordini fornitore…</div>';
+  await _ofCarica(true);
+  _ofDisegna();
+}
+function _ofSetTab(t){ _ofTab=t; _ofDisegna(); }
+function _ofDisegna(){
+  const root=document.getElementById('of-root'); if(!root) return;
+  let html = `<div class="tabs">
+    <div class="tab ${_ofTab==='riordino'?'active':''}" onclick="_ofSetTab('riordino')">Riordino</div>
+    <div class="tab ${_ofTab==='storico'?'active':''}" onclick="_ofSetTab('storico')">Storico ordini${_ofList.length?' ('+_ofList.length+')':''}</div>
+    <div class="tab ${_ofTab==='fornitori'?'active':''}" onclick="_ofSetTab('fornitori')">Anagrafica fornitori</div>
+  </div>`;
+  if(!_ofTabellaOk) html += `<div style="background:#fdf6e3;border:1px solid var(--amber);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:12px">⚠ La tabella <b>ordini_fornitore</b> non risponde: lo storico non è disponibile e non si possono registrare ordini. Verifica di aver eseguito il DDL su Supabase.</div>`;
+  html += _ofTab==='riordino' ? _ofHtmlRiordino() : (_ofTab==='storico' ? _ofHtmlStorico() : _ofHtmlFornitori());
+  root.innerHTML = html;
+}
+
+// ── 3.1 Anagrafica fornitori ──────────────────────────────────────────────────
+function _ofHtmlFornitori(){
+  const lista=_ofFornitori();
+  let rows;
+  if(!lista.length) rows = '<div style="color:var(--ink3);font-size:13px;padding:16px 0">Nessun fornitore. Aggiungi il primo con “+ Nuovo fornitore”.</div>';
+  else rows = lista.map(f=>{
+    const nMat=_ofMaterialiDiFornitore(f.cod).length;
+    const off = f.attivo===false;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px;${off?'opacity:.55':''}">
+      <span class="text-mono" style="min-width:44px;font-size:11px;color:var(--ink3)">${_esc(f.cod)}</span>
+      <span style="flex:1;min-width:0"><b>${_esc(f.nome)}</b>${off?' <span class="badge badge-gray" style="font-size:9px">disattivato</span>':''}<br>
+        <span style="font-size:11px;color:var(--ink3)">${_esc(f.email||'')}${f.telefono?' · '+_esc(f.telefono):''}${f.note?' · '+_esc(f.note):''}</span></span>
+      <span style="font-size:11px;color:var(--ink3);white-space:nowrap" title="Materiali collegati a questo fornitore">${nMat} materiali</span>
+      <button class="btn btn-sm btn-ghost" onclick="_ofFormFornitore('${_esc(f.cod)}')">✏ Modifica</button>
+      <button class="btn btn-sm btn-ghost" style="color:var(--ink3)" onclick="_ofToggleFornitore('${_esc(f.cod)}')">${off?'Riattiva':'Disattiva'}</button>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:16px 20px;max-width:860px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-weight:600">Fornitori</div>
+      <button class="btn btn-primary btn-sm" onclick="_ofFormFornitore()">+ Nuovo fornitore</button>
+    </div>
+    <div style="font-size:11px;color:var(--ink3);margin-bottom:6px">I fornitori si collegano ai materiali dal form del materiale (sezione “Fornitori · per riordino”). Un fornitore disattivato sparisce dai selettori ma i collegamenti restano.</div>
+    ${rows}
+  </div>`;
+}
+function _ofFormFornitore(cod){
+  const f = cod ? _ofFornByCod(cod) : null;
+  const v = x => _esc(x==null?'':x);
+  const html = `<div class="form-grid">
+    ${f?`<div class="form-group"><label>Codice</label><input type="text" value="${_esc(f.cod)}" readonly style="background:var(--bg2)"></div>`:''}
+    <div class="form-group ${f?'':'full'}"><label>Nome *</label><input type="text" id="off-nome" value="${f?v(f.nome):''}" placeholder="Es. Legnami Rossi Srl"></div>
+    <div class="form-group full"><label>Email * <span style="font-size:10px;color:var(--ink3)">(destinatario degli ordini)</span></label><input type="email" id="off-email" value="${f?v(f.email):''}" placeholder="ordini@fornitore.it"></div>
+    <div class="form-group"><label>Telefono</label><input type="text" id="off-tel" value="${f?v(f.telefono):''}"></div>
+    <div class="form-group"><label>Note</label><input type="text" id="off-note" value="${f?v(f.note):''}"></div>
+  </div>`;
+  showModal(f?('Modifica fornitore — '+_esc(f.nome)):'Nuovo fornitore', html, [
+    {label:'Annulla', action:'closeModal()'},
+    {label:'Salva', action:`_ofSalvaFornitore('${f?_esc(f.cod):''}')`, primary:true},
+  ]);
+}
+function _ofSalvaFornitore(cod){
+  const g = id => (document.getElementById(id)||{}).value || '';
+  const nome=g('off-nome').trim(), email=g('off-email').trim();
+  if(!nome){ alert('Inserisci il nome del fornitore.'); return; }
+  if(!_ofEmailValida(email)){ alert('Inserisci una email valida: è il destinatario degli ordini.'); return; }
+  const lista=_ofFornitori().slice();
+  if(cod){
+    const f=lista.find(x=>x.cod===cod); if(!f){ alert('Fornitore non trovato.'); return; }
+    f.nome=nome; f.email=email; f.telefono=g('off-tel').trim(); f.note=g('off-note').trim();
+  } else {
+    lista.push({ cod:_ofProssimoCod(lista), nome, email, telefono:g('off-tel').trim(), note:g('off-note').trim(), attivo:true });
+  }
+  DB.set('fornitori', lista);
+  closeModal(); _ofDisegna();
+}
+function _ofToggleFornitore(cod){
+  const lista=_ofFornitori().slice();
+  const f=lista.find(x=>x.cod===cod); if(!f) return;
+  const off = f.attivo===false;
+  if(!off && !confirm(`Disattivare "${f.nome}"? Sparisce dai selettori, ma i materiali collegati restano.`)) return;
+  f.attivo = off;   // toggle
+  DB.set('fornitori', lista);
+  _ofDisegna();
+}
+
+// ── 3.3 Riordino ──────────────────────────────────────────────────────────────
+function _ofHtmlRiordino(){
+  // nel selettore: solo fornitori attivi con almeno un materiale collegato
+  const conMat = _ofFornAttivi().filter(f=>_ofMaterialiDiFornitore(f.cod).length>0);
+  if(_ofFornSel && !conMat.some(f=>f.cod===_ofFornSel)) _ofFornSel='';
+  let html = `<div class="card" style="padding:16px 20px;max-width:920px">
+    <div style="font-weight:600;margin-bottom:8px">Nuovo riordino</div>`;
+  if(!conMat.length){
+    html += `<div style="color:var(--ink3);font-size:13px">Nessun fornitore con materiali collegati. Prima aggiungi i fornitori in <a href="#" onclick="_ofSetTab('fornitori');return false">Anagrafica</a>, poi collegali ai materiali dal form del materiale (Materiali → ✏).</div></div>`;
+    return html;
+  }
+  html += `<div class="form-group" style="max-width:340px"><label>Fornitore</label>
+    <select id="of-forn-sel" onchange="_ofFornSel=this.value;_ofDisegna()">
+      <option value="">— scegli —</option>
+      ${conMat.map(f=>`<option value="${_esc(f.cod)}" ${_ofFornSel===f.cod?'selected':''}>${_esc(f.nome)}</option>`).join('')}
+    </select></div>`;
+  if(_ofFornSel){
+    const f=_ofFornByCod(_ofFornSel);
+    const righe=_ofMaterialiDiFornitore(_ofFornSel);
+    html += `<div style="font-size:11px;color:var(--ink3);margin-bottom:10px">Ordine a <b>${_esc(f.nome)}</b> · ${_esc(f.email)} — spunta i materiali da ordinare e indica le quantità.</div>
+    <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:12px">
+      <div style="display:flex;gap:8px;padding:6px 10px;background:var(--bg2);font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono)">
+        <span style="width:24px"></span><span style="flex:2">Materiale</span><span style="flex:1">Cod. fornitore</span><span style="width:130px;text-align:right">Quantità</span><span style="width:130px">Formato</span>
+      </div>
+      ${righe.map((r,i)=>`
+      <div style="display:flex;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:12px;align-items:center">
+        <span style="width:24px"><input type="checkbox" id="of-c-${i}" style="width:auto" onchange="const q=document.getElementById('of-q-${i}'); if(this.checked&&!q.value)q.value=1"></span>
+        <span style="flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis" title="${_esc(r.m.nome)}">${_esc(r.m.nome)}${r.link.prezzo_acquisto!=null?` <span style="font-size:10px;color:var(--ink3)">(${_ofEuro(r.link.prezzo_acquisto)}/${_esc(r.link.um_acquisto||'pz')})</span>`:''}</span>
+        <span style="flex:1" class="text-mono">${_esc(r.link.codice_fornitore||'—')}</span>
+        <span style="width:130px;text-align:right;white-space:nowrap"><input type="number" id="of-q-${i}" min="0" step="any" style="width:70px;text-align:right"> <span style="font-size:11px;color:var(--ink3)">${_esc(r.link.um_acquisto||'pz')}</span></span>
+        <span style="width:130px"><input type="text" id="of-f-${i}" placeholder="es. 250x125" style="width:100%"></span>
+      </div>`).join('')}
+    </div>
+    <div class="form-group full"><label>Note ordine <span style="font-size:10px;color:var(--ink3)">(finiscono in coda alla mail)</span></label><textarea id="of-note" rows="2" placeholder="Es. consegna in via…, urgente, riferimento offerta…"></textarea></div>
+    <button class="btn btn-primary" onclick="_ofCreaOrdine()" ${_ofTabellaOk?'':'disabled title="Tabella ordini_fornitore non disponibile"'}>✉ Crea mail e registra ordine</button>
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px">Prima l'ordine viene salvato nello storico, poi si apre la mail precompilata nella tua app di posta: controlli e invii tu.</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+async function _ofCreaOrdine(){
+  const f=_ofFornByCod(_ofFornSel);
+  if(!f){ alert('Scegli un fornitore.'); return; }
+  if(!_ofEmailValida(f.email)){ alert('Il fornitore non ha una email valida: correggila in Anagrafica.'); return; }
+  const materiali=_ofMaterialiDiFornitore(_ofFornSel);
+  const righe=[];
+  for(let i=0;i<materiali.length;i++){
+    const chk=document.getElementById('of-c-'+i);
+    if(!chk || !chk.checked) continue;
+    const q=parseFloat(String((document.getElementById('of-q-'+i)||{}).value||'').replace(',','.'));
+    if(!(q>0)){ alert('Quantità non valida per "'+materiali[i].m.nome+'".'); return; }
+    righe.push({
+      materiale_codice: materiali[i].m.nome,                       // i materiali sono identificati per nome
+      materiale_descrizione: materiali[i].m.nome,
+      codice_fornitore: materiali[i].link.codice_fornitore||'',
+      quantita: q,
+      um_acquisto: materiali[i].link.um_acquisto||'pz',
+      formato: ((document.getElementById('of-f-'+i)||{}).value||'').trim()
+    });
+  }
+  if(!righe.length){ alert('Seleziona almeno un materiale da ordinare.'); return; }
+  const note=((document.getElementById('of-note')||{}).value||'').trim();
+  const numero=_ofProssimoNumero(_ofList);
+  const rec={ numero, fornitore_cod:f.cod, fornitore_snapshot:{nome:f.nome,email:f.email}, righe, note, stato:'aperto' };
+  // 1) salvo l'ordine; 2) SOLO se salvato apro la mail. Mai mail senza ordine tracciato.
+  let salvato=null;
+  try{
+    const { data, error } = await sb.from('ordini_fornitore').insert(rec).select('*').single();
+    if(error){ alert('Salvataggio ordine FALLITO: '+error.message+'\nLa mail non è stata creata.'); return; }
+    salvato=data;
+  }catch(e){ alert('Salvataggio ordine FALLITO: '+e+'\nLa mail non è stata creata.'); return; }
+  _ofList.unshift(salvato);
+  const url=_ofMailtoUrl(f.email, numero, righe, note);
+  _ofFornSel='';
+  _ofTab='storico';
+  _ofDisegna();
+  window.location.href = url;   // apre l'app di posta con la mail precompilata
+}
+
+// ── 3.4 Storico ordini ────────────────────────────────────────────────────────
+const _OF_STATO_BADGE = { aperto:'badge-amber', ricevuto:'badge-green', annullato:'badge-gray' };
+function _ofHtmlStorico(){
+  if(!_ofList.length) return `<div class="card" style="padding:16px 20px;max-width:920px;color:var(--ink3);font-size:13px">Nessun ordine fornitore registrato. Creane uno dalla scheda Riordino.</div>`;
+  const rows=_ofList.map(o=>{
+    const dt=String(o.created_at||'').slice(0,10).split('-').reverse().join('/');
+    const nR=Array.isArray(o.righe)?o.righe.length:0;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px">
+      <span class="text-mono" style="min-width:104px">${_esc(o.numero||'—')}</span>
+      <span class="badge ${_OF_STATO_BADGE[o.stato]||'badge-gray'}" style="font-size:10px">${_esc(o.stato||'')}</span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc((o.fornitore_snapshot||{}).nome||_ofNomeForn(o.fornitore_cod))}</span>
+      <span style="font-size:11px;color:var(--ink3);white-space:nowrap">${nR} righe · ${dt}</span>
+      <button class="btn btn-sm btn-ghost" onclick="_ofDettaglio('${o.id}')">Dettaglio</button>
+      ${o.stato==='aperto'?`<button class="btn btn-sm btn-ghost" style="color:var(--green)" onclick="_ofSegnaRicevuto('${o.id}')">✓ Ricevuto</button>`:''}
+      ${o.stato==='aperto'?`<button class="btn btn-sm btn-ghost" style="color:var(--ink3)" onclick="_ofAnnulla('${o.id}')">Annulla</button>`:''}
+      <button class="btn btn-sm btn-ghost" title="Rigenera la mail dallo snapshot (non crea un nuovo ordine)" onclick="_ofRicreaMail('${o.id}')">✉</button>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:16px 20px;max-width:920px">
+    <div style="font-weight:600;margin-bottom:4px">Storico ordini fornitore</div>
+    <div style="font-size:11px;color:var(--ink3);margin-bottom:8px">Le righe sono uno snapshot congelato al momento dell'ordine: gli ordini non si modificano. Se un ordine è sbagliato: Annulla e ricrealo.</div>
+    ${rows}
+  </div>`;
+}
+function _ofDettaglio(id){
+  const o=_ofList.find(x=>x.id===id); if(!o) return;
+  const fs=o.fornitore_snapshot||{};
+  const righe=(Array.isArray(o.righe)?o.righe:[]).map(r=>`
+    <div style="display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:12px">
+      <span style="flex:2">${_esc(r.materiale_descrizione||'')}</span>
+      <span style="flex:1" class="text-mono">${_esc(r.codice_fornitore||'—')}</span>
+      <span style="width:110px;text-align:right" class="text-mono">${r.quantita} ${_esc(r.um_acquisto||'pz')}</span>
+      <span style="width:100px">${_esc(r.formato||'')}</span>
+    </div>`).join('');
+  const dt=String(o.created_at||'').slice(0,10).split('-').reverse().join('/');
+  showModal('Ordine '+_esc(o.numero||''), `
+    <div style="font-size:12px;margin-bottom:8px"><b>${_esc(fs.nome||'')}</b> · ${_esc(fs.email||'')} · <span class="badge ${_OF_STATO_BADGE[o.stato]||'badge-gray'}" style="font-size:10px">${_esc(o.stato||'')}</span> · ${dt}${o.ricevuto_at?' · ricevuto il '+String(o.ricevuto_at).slice(0,10).split('-').reverse().join('/'):''}</div>
+    <div style="max-height:46vh;overflow:auto">${righe}</div>
+    ${o.note?`<div style="font-size:12px;color:var(--ink2);margin-top:8px"><b>Note:</b> ${_esc(o.note)}</div>`:''}`,
+    [ {label:'Chiudi', action:'closeModal()'} ]);
+}
+async function _ofAggiornaStato(id, patch, conferma){
+  if(conferma && !confirm(conferma)) return;
+  try{
+    const { error } = await sb.from('ordini_fornitore').update(Object.assign({updated_at:new Date().toISOString()}, patch)).eq('id', id);
+    if(error){ alert('Aggiornamento fallito: '+error.message); return; }
+  }catch(e){ alert('Aggiornamento fallito: '+e); return; }
+  const o=_ofList.find(x=>x.id===id); if(o) Object.assign(o, patch);
+  _ofDisegna();
+}
+function _ofSegnaRicevuto(id){ _ofAggiornaStato(id, {stato:'ricevuto', ricevuto_at:new Date().toISOString()}); }
+function _ofAnnulla(id){ _ofAggiornaStato(id, {stato:'annullato'}, 'Annullare questo ordine? Resta nello storico come annullato.'); }
+function _ofRicreaMail(id){
+  const o=_ofList.find(x=>x.id===id); if(!o) return;
+  const fs=o.fornitore_snapshot||{};
+  if(!_ofEmailValida(fs.email)){ alert('Lo snapshot non ha una email valida.'); return; }
+  window.location.href = _ofMailtoUrl(fs.email, o.numero, o.righe||[], o.note||'');
 }
 
 // ─── PRODOTTI ─────────────────────────────────────────────────────────────────
@@ -9534,7 +9894,7 @@ function closeModal() {
 
 // ─── EXPORT / IMPORT ─────────────────────────────────────────────────────────
 // Sezioni incluse nel backup (tutte quelle che vivono nel cloud).
-var SEZIONI_BACKUP = ['ordini','ordiniEvento','contatti','prodotti','accessori','materiali','canali','famiglie','colori','motiviDuplica'];
+var SEZIONI_BACKUP = ['ordini','ordiniEvento','contatti','prodotti','accessori','materiali','canali','famiglie','colori','motiviDuplica','fornitori'];
 
 function esportaDati() {
   const chiavi = SEZIONI_BACKUP;
