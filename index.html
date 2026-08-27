@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.76 — 26/08/2026 · Ordini fornitore: totale provvisorio dell'ordine in tempo reale nel Riordino (quantità × prezzo di acquisto, netto IVA; segnala le righe senza prezzo) e campo Formato sostituito da una nota libera per riga che finisce nella mail.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.77 — 26/08/2026 · Ordini fornitore: costo unificato — il totale provvisorio del Riordino usa il "Costo € per unità" del materiale (per i pannelli: €/mq × lati); tolto il doppione "€ acquisto" dalla riga fornitore nel form materiale.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1314,7 +1314,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.76';
+window.APP_VERSION = '2.77';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6210,7 +6210,6 @@ function _nmFornAddRiga(pfx, f){
     <select class="nmf-forn" style="flex:1;min-width:150px">${opts}</select>
     <input type="text" class="nmf-cod" placeholder="Codice art. fornitore" value="${_esc(f.codice_fornitore||'')}" style="flex:1;min-width:130px">
     <input type="text" class="nmf-um" placeholder="UM acquisto" title="Unità con cui vende il fornitore (pannello, m², barra, lt…)" value="${_esc(f.um_acquisto||'')}" style="width:100px">
-    <input type="number" class="nmf-prezzo" step="0.01" min="0" placeholder="€ acquisto" title="Prezzo di acquisto (opzionale, informativo)" value="${f.prezzo_acquisto!=null?f.prezzo_acquisto:''}" style="width:95px;text-align:right">
     <button type="button" class="btn btn-sm btn-danger" style="padding:2px 8px" onclick="this.parentElement.remove()">×</button>`;
   box.appendChild(div);
 }
@@ -6225,12 +6224,11 @@ function _nmLeggiFornitori(pfx){
   box.querySelectorAll('.nmf-row').forEach(r=>{
     const cod = (r.querySelector('.nmf-forn')||{}).value || '';
     if(!cod) return;
-    const num = s => { s=String(s||'').trim().replace(',','.'); const n=parseFloat(s); return isNaN(n)?null:n; };
     out.push({
       fornitore: cod,
       codice_fornitore: ((r.querySelector('.nmf-cod')||{}).value||'').trim(),
-      um_acquisto: ((r.querySelector('.nmf-um')||{}).value||'').trim(),
-      prezzo_acquisto: num((r.querySelector('.nmf-prezzo')||{}).value)
+      um_acquisto: ((r.querySelector('.nmf-um')||{}).value||'').trim()
+      // il prezzo NON sta più qui: il costo unico è "Costo € per unità" del materiale (v2.77)
     });
   });
   return out;
@@ -6442,6 +6440,15 @@ function _ofProssimoNumero(lista, anno){
   (lista||[]).forEach(o=>{ const m=String(o.numero||'').match(new RegExp('^OF-'+anno+'-(\\d+)$')); if(m) max=Math.max(max, parseInt(m[1],10)); });
   return 'OF-'+anno+'-'+String(max+1).padStart(3,'0');
 }
+// Prezzo unitario di riferimento del materiale, dal SUO costo in anagrafica
+// ("Costo € per unità" per gli acquisti; per le materie prime a pannello:
+// €/mq × lati = costo del pannello intero). null = nessun costo impostato.
+function _ofPrezzoUnit(m){
+  if(Number(m.costo)>0) return Number(m.costo);
+  const mq=Number(m.costo_mq)||0, l1=Number(m.pannello_l1)||0, l2=Number(m.pannello_l2)||0;
+  if(mq>0 && l1>0 && l2>0) return mq*(l1/1000)*(l2/1000);
+  return null;
+}
 // Materiali che hanno il fornitore cod tra i loro dati.fornitori → [{m, link}]
 function _ofMaterialiDiFornitore(cod){
   return (DB.get('materiali')||[])
@@ -6590,7 +6597,7 @@ function _ofHtmlRiordino(){
       ${righe.map((r,i)=>`
       <div style="display:flex;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:12px;align-items:center">
         <span style="width:24px"><input type="checkbox" id="of-c-${i}" style="width:auto" onchange="const q=document.getElementById('of-q-${i}'); if(this.checked&&!q.value)q.value=1; _ofAggiornaTotale()"></span>
-        <span style="flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis" title="${_esc(r.m.nome)}">${_esc(r.m.nome)}${r.link.prezzo_acquisto!=null?` <span style="font-size:10px;color:var(--ink3)">(${_ofEuro(r.link.prezzo_acquisto)}/${_esc(r.link.um_acquisto||'pz')})</span>`:''}</span>
+        <span style="flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis" title="${_esc(r.m.nome)}">${_esc(r.m.nome)}${_ofPrezzoUnit(r.m)!=null?` <span style="font-size:10px;color:var(--ink3)">(${_ofEuro(_ofPrezzoUnit(r.m))}/${_esc(r.link.um_acquisto||r.m.um||'pz')})</span>`:''}</span>
         <span style="flex:1" class="text-mono">${_esc(r.link.codice_fornitore||'—')}</span>
         <span style="width:130px;text-align:right;white-space:nowrap"><input type="number" id="of-q-${i}" min="0" step="any" style="width:70px;text-align:right" oninput="_ofAggiornaTotale()"> <span style="font-size:11px;color:var(--ink3)">${_esc(r.link.um_acquisto||'pz')}</span></span>
         <span style="width:160px"><input type="text" id="of-f-${i}" placeholder="es. formato, colore…" title="Nota per questa riga: finisce nella mail accanto al materiale" style="width:100%"></span>
@@ -6615,13 +6622,14 @@ function _ofAggiornaTotale(){
     if(!chk || !chk.checked) return;
     nSel++;
     const q=parseFloat(String((document.getElementById('of-q-'+i)||{}).value||'').replace(',','.'))||0;
-    if(r.link.prezzo_acquisto!=null) tot += q*r.link.prezzo_acquisto;
+    const p=_ofPrezzoUnit(r.m);
+    if(p!=null) tot += q*p;
     else senzaPrezzo++;
   });
   if(!nSel){ box.style.display='none'; return; }
   box.style.display='block';
   box.innerHTML = `Totale provvisorio: <b style="font-family:var(--mono)">${_ofEuro(tot)}</b> <span style="color:var(--ink3)">netto IVA</span>`
-    + (senzaPrezzo?` <span style="color:var(--amber)">· ${senzaPrezzo} riga/e senza prezzo in anagrafica (esclusa/e dal totale)</span>`:'');
+    + (senzaPrezzo?` <span style="color:var(--amber)">· ${senzaPrezzo} riga/e senza costo in anagrafica (esclusa/e dal totale)</span>`:'');
 }
 async function _ofCreaOrdine(){
   const f=_ofFornByCod(_ofFornSel);
