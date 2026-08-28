@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.78 — 26/08/2026 · Ordini fornitore: mail d'ordine col formato ufficiale di Andrea — oggetto "Ordine OF-… — Steel Head", corpo "Vorrei ordinare:" e chiusa con solo "Cordiali saluti" (la firma completa la aggiunge Outlook).</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.79 — 26/08/2026 · Lead: nella lista "Accettati" ogni riga mostra anche il numero del preventivo accettato, per risalire subito al destinatario.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1314,7 +1314,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.78';
+window.APP_VERSION = '2.79';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9796,8 +9796,16 @@ function mostraListaLead(stato, titolo){
     body = arr.map(x => {
       const val = _leadValore(x);
       const contatto = x.email || x.telefono || '';
+      // numero del preventivo accettato/lavorato più recente (stessa logica di _leadValore)
+      let prevNum = '';
+      if (typeof _prevList !== 'undefined' && Array.isArray(_prevList)){
+        const acc = _prevList.filter(p => p.lead_id===x.id && (p.stato==='accettato'||p.stato==='lavorato'));
+        acc.sort((a,b)=> String(b.created_at||'').localeCompare(String(a.created_at||'')));
+        if (acc.length) prevNum = acc[0].numero || '';
+      }
       return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:12px">
         <span style="flex:1;min-width:0"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_at(x.nome||'—')}</b><span style="color:var(--ink3);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_at(contatto)}</span></span>
+        <span class="text-mono" style="font-size:11px;color:var(--ink2);white-space:nowrap" title="Preventivo accettato">${_at(prevNum)}</span>
         <span class="text-mono" style="font-variant-numeric:tabular-nums;white-space:nowrap">${val?('€ '+val.toLocaleString('it-IT')):''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();gestisciLead('${x.id}')">Apri scheda</button>
       </div>`;
