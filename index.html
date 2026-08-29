@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.79 — 26/08/2026 · Lead: nella lista "Accettati" ogni riga mostra anche il numero del preventivo accettato, per risalire subito al destinatario.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.80 — 29/08/2026 · Dashboard: nuova statistica "Prodotti più venduti" (top 10 per pezzi, con quota e valore medio per pezzo).</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -761,6 +761,7 @@ td.fin-in{color:var(--green);font-weight:500}
   <div id="dash-daconsegnare"></div>
   <div id="dash-resoconto"></div>
   <div id="dash-valoremedio"></div>
+  <div id="dash-topprodotti"></div>
   <div id="dash-statclienti"></div>
 </div>
 
@@ -1314,7 +1315,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.79';
+window.APP_VERSION = '2.80';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3512,11 +3513,86 @@ function renderDashboard() {
     }
   }
 
+  // ── PRODOTTI PIÙ VENDUTI (top 10) ───────────────────────────────────────────
+  // Stessi criteri del valore medio: ordini ricevuti nell'anno, esclusi Bloccato
+  // e Da sviluppare. Rispetta il filtro canale.
+  renderTopProdotti(ordini.filter(filtra).filter(o=>{
+    if(!o.creato || new Date(o.creato).getFullYear()!==ANNO) return false;
+    return !STATI_ESCLUSI_MEDIA.includes(o.stato);
+  }), ANNO, canaleSel);
+
   // ── STATISTICHE CLIENTI (sesso / età / regione) ─────────────────────────────
   renderStatClienti(ordini.filter(filtra).filter(o=>{
     if(!o.creato) return false;
     return new Date(o.creato).getFullYear()===ANNO;
   }), ANNO, canaleSel);
+}
+
+// ─── PRODOTTI PIÙ VENDUTI: top 10 per pezzi venduti ───────────────────────────
+// Un "pezzo" = una riga d'ordine (il gestionale non ha un campo quantità: ordini
+// multi-prodotto hanno più righe). Fallback per gli ordini vecchi a prodotto
+// singolo: o.prodotto + o.prezzoTotale, stesso schema usato altrove nel file.
+// Valore medio = media del prezzo di riga (prodotto + eventuali accessori),
+// calcolata SOLO sui pezzi con prezzo compilato: i pezzi a prezzo 0/mancante
+// contano nelle quantità ma non abbassano la media (sentinella: se la copertura
+// è parziale lo si dichiara accanto al numero, non lo si nasconde).
+function renderTopProdotti(ordiniAnno, ANNO, canaleSel){
+  const box = document.getElementById('dash-topprodotti');
+  if(!box) return;
+  const agg = {};   // chiave prodotto → { codice, nome, qta, sommaVal, conPrezzo }
+  ordiniAnno.forEach(o=>{
+    const righe = o.righe && o.righe.length ? o.righe
+      : ((o.prodotto || o.prodottoNome) ? [{prodotto:o.prodotto||'', prodottoNome:o.prodottoNome||'', prezzoRiga:o.prezzoTotale||0}] : []);
+    righe.forEach(r=>{
+      const key = r.prodotto || r.prodottoNome;
+      if(!key) return;
+      const a = (agg[key] = agg[key] || { codice:r.prodotto||'', nome:r.prodottoNome||'', qta:0, sommaVal:0, conPrezzo:0 });
+      if(!a.nome && r.prodottoNome) a.nome = r.prodottoNome;
+      a.qta += 1;
+      const v = r.prezzoRiga||0;
+      if(v>0){ a.sommaVal += v; a.conPrezzo += 1; }
+    });
+  });
+  const media = a => a.conPrezzo>0 ? a.sommaVal/a.conPrezzo : 0;
+  const tutti = Object.values(agg).sort((a,b)=> b.qta-a.qta || media(b)-media(a) || String(a.nome||a.codice).localeCompare(String(b.nome||b.codice)));
+  const top = tutti.slice(0,10);
+  const totPezzi = tutti.reduce((s,a)=>s+a.qta,0);
+
+  if(!top.length){
+    box.innerHTML = `<div class="card" style="margin-top:16px;font-size:13px;color:var(--ink3)">🏆 Prodotti più venduti: nessun pezzo conteggiabile nel ${ANNO}${canaleSel?` per il canale ${canaleSel}`:''} (esclusi Bloccato e Da sviluppare).</div>`;
+    return;
+  }
+
+  const maxQta = top[0].qta || 1;
+  const pctTot = n => totPezzi>0 ? Math.round(n/totPezzi*100) : 0;
+  const righeHtml = top.map((a,i)=>`<tr>
+      <td style="text-align:center;font-family:var(--mono);color:var(--ink3);width:36px">${i+1}</td>
+      <td>
+        <div style="font-weight:600">${_esc(a.nome||a.codice)}</div>
+        ${a.codice&&a.nome?`<div style="font-family:var(--mono);font-size:11px;color:var(--ink3)">${_esc(a.codice)}</div>`:''}
+        <div style="height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin-top:5px;max-width:220px"><div style="height:100%;width:${Math.round(a.qta/maxQta*100)}%;background:var(--accent);border-radius:99px"></div></div>
+      </td>
+      <td style="text-align:center;white-space:nowrap"><strong style="font-family:var(--mono)">${a.qta}</strong> <span style="font-size:11px;color:var(--ink3);font-family:var(--mono)">· ${pctTot(a.qta)}%</span></td>
+      <td class="text-mono" style="text-align:right;white-space:nowrap">${a.conPrezzo>0 ? fmt(Math.round(media(a)))+' €' : '—'}${a.conPrezzo>0&&a.conPrezzo<a.qta?` <span style="font-size:11px;color:var(--ink3)" title="Prezzo compilato solo su ${a.conPrezzo} pezzi su ${a.qta}: la media è calcolata su quelli">su ${a.conPrezzo}</span>`:''}</td>
+    </tr>`).join('');
+
+  box.innerHTML = `
+    <div style="margin-top:22px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <span class="card-title" style="margin:0">🏆 Prodotti più venduti — ${ANNO}${canaleSel?` · ${canaleSel}`:''}</span>
+      <span style="font-size:11px;font-family:var(--mono);color:var(--ink3)">top 10 · su ${totPezzi} pezzi ordinati</span>
+    </div>
+    <div class="card" style="padding:0"><div class="table-wrap"><table>
+      <thead><tr>
+        <th style="text-align:center;font-size:11px">#</th>
+        <th>Prodotto</th>
+        <th style="text-align:center;font-size:11px">Pezzi</th>
+        <th style="text-align:right;font-size:11px">Valore medio</th>
+      </tr></thead>
+      <tbody>${righeHtml}</tbody>
+    </table></div></div>
+    <p style="font-size:12px;color:var(--ink3);margin-top:10px">
+      Contati i <strong>pezzi</strong> (una riga d'ordine = un pezzo) degli ordini <strong>ricevuti nel ${ANNO}</strong>, esclusi Bloccato e Da sviluppare${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}. Valore medio = media del prezzo di riga (prodotto + eventuali accessori); i pezzi senza prezzo compilato contano nelle quantità ma non nella media.
+    </p>`;
 }
 
 // ─── STATISTICHE CLIENTI: decodifica CF + regione da indirizzo ────────────────
