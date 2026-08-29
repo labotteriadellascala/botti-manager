@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.81 — 29/08/2026 · Dashboard: nuove fasce d'età in "Chi compra" (fino a 24 · 25–35 · 36–45 · 46–55 · 56+).</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.82 — 29/08/2026 · Dashboard: età in "Chi compra" a coppie di 2 anni (25–26, 27–28, … 59–60), con "fino a 24" e "oltre 60" ai bordi.</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1315,7 +1315,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.81';
+window.APP_VERSION = '2.82';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3686,9 +3686,12 @@ function renderStatClienti(ordiniAnno, ANNO, canaleSel){
 
   // ── Raccolta dati ──
   const sesso = { M:0, F:0 };
-  // Fasce concordate con Andrea (v2.81). NB: decodificaCF non produce mai età <18
+  // Fasce a coppie di 2 anni dai 25 ai 60 (richiesta Andrea v2.82), con i bordi
+  // "fino a 24" e "oltre 60". NB: decodificaCF non produce mai età <18
   // (l'euristica del secolo scarta i minorenni), quindi "fino a 24" = 18–24.
-  const fasce = [ ['fino a 24',0,24], ['25–35',25,35], ['36–45',36,45], ['46–55',46,55], ['56+',56,200] ];
+  const fasce = [ ['fino a 24',0,24] ];
+  for(let a=25; a<=59; a+=2) fasce.push([a+'–'+(a+1), a, a+1]);
+  fasce.push(['oltre 60',61,200]);
   const fasceCnt = fasce.map(()=>0);
   let sommaEta = 0, cfValidi = 0;
   const regioni = {};
@@ -3730,8 +3733,8 @@ function renderStatClienti(ordiniAnno, ANNO, canaleSel){
         <span style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3)">🎂 Età</span>
         ${etaMedia!==null?`<span style="font-family:var(--serif);font-size:20px;font-weight:700">${etaMedia} <span style="font-size:11px;font-family:var(--mono);font-weight:400;color:var(--ink3)">media</span></span>`:''}
       </div>
-      ${cfValidi>0 ? `<div style="display:flex;flex-direction:column;gap:10px">${
-        fasce.map((f,i)=>`<div style="display:flex;align-items:center;gap:10px"><span style="width:76px;font-size:13px;font-family:var(--mono)">${f[0]}</span>${barra(fasceCnt[i],maxFascia,'var(--accent)')}<span style="font-family:var(--mono);font-size:13px;width:70px;text-align:right"><strong>${fasceCnt[i]}</strong> · ${pct(fasceCnt[i],cfValidi)}%</span></div>`).join('')
+      ${cfValidi>0 ? `<div style="display:flex;flex-direction:column;gap:5px">${
+        fasce.map((f,i)=>`<div style="display:flex;align-items:center;gap:10px"><span style="width:76px;font-size:12px;font-family:var(--mono)">${f[0]}</span>${barra(fasceCnt[i],maxFascia,'var(--accent)')}<span style="font-family:var(--mono);font-size:12px;width:70px;text-align:right"><strong>${fasceCnt[i]}</strong> · ${pct(fasceCnt[i],cfValidi)}%</span></div>`).join('')
       }</div>` : `<div style="font-size:13px;color:var(--ink3)">Nessun codice fiscale decodificabile negli ordini ${ANNO}.</div>`}
       ${copertura(cfValidi)}
     </div>`;
