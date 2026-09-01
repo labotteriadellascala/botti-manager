@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.82 — 29/08/2026 · Dashboard: età in "Chi compra" a coppie di 2 anni (25–26, 27–28, … 59–60), con "fino a 24" e "oltre 60" ai bordi.</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.83 — 29/08/2026 · Ordini fornitore: dallo storico ora puoi ✏ Modificare un ordine aperto (stesso numero, righe sostituite) e ⧉ Duplicarne uno qualsiasi (Riordino precompilato → nuovo ordine).</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1315,7 +1315,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.82';
+window.APP_VERSION = '2.83';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6500,6 +6500,7 @@ let _ofLoaded = false;
 let _ofTab = 'riordino';     // 'riordino' | 'storico' | 'fornitori'
 let _ofTabellaOk = true;     // false se la tabella ordini_fornitore non esiste/non risponde
 let _ofFornSel = '';         // fornitore selezionato nella schermata Riordino
+let _ofEditId = null;        // id dell'ordine in modifica (null = nuovo ordine)
 
 const _ofEuro = n => (Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
 function _ofFornitori(){ return DB.get('fornitori')||[]; }
@@ -6657,14 +6658,16 @@ function _ofHtmlRiordino(){
   // nel selettore: solo fornitori attivi con almeno un materiale collegato
   const conMat = _ofFornAttivi().filter(f=>_ofMaterialiDiFornitore(f.cod).length>0);
   if(_ofFornSel && !conMat.some(f=>f.cod===_ofFornSel)) _ofFornSel='';
+  const _oEdit = _ofEditId ? _ofList.find(x=>x.id===_ofEditId) : null;
   let html = `<div class="card" style="padding:16px 20px;max-width:920px">
-    <div style="font-weight:600;margin-bottom:8px">Nuovo riordino</div>`;
+    <div style="font-weight:600;margin-bottom:8px">${_oEdit?('Modifica ordine '+_esc(_oEdit.numero||'')):'Nuovo riordino'}</div>
+    ${_oEdit?`<div style="background:#fdf6e3;border:1px solid var(--amber);border-radius:var(--radius);padding:8px 12px;margin-bottom:10px;font-size:12px">✏ Stai modificando <b>${_esc(_oEdit.numero||'')}</b>: il salvataggio AGGIORNA questo ordine (stesso numero). <a href="#" onclick="_ofEditId=null;_ofFornSel='';_ofDisegna();return false">Annulla modifica</a></div>`:''}`;
   if(!conMat.length){
     html += `<div style="color:var(--ink3);font-size:13px">Nessun fornitore con materiali collegati. Prima aggiungi i fornitori in <a href="#" onclick="_ofSetTab('fornitori');return false">Anagrafica</a>, poi collegali ai materiali dal form del materiale (Materiali → ✏).</div></div>`;
     return html;
   }
   html += `<div class="form-group" style="max-width:340px"><label>Fornitore</label>
-    <select id="of-forn-sel" onchange="_ofFornSel=this.value;_ofDisegna()">
+    <select id="of-forn-sel" onchange="_ofFornSel=this.value;_ofEditId=null;_ofDisegna()">
       <option value="">— scegli —</option>
       ${conMat.map(f=>`<option value="${_esc(f.cod)}" ${_ofFornSel===f.cod?'selected':''}>${_esc(f.nome)}</option>`).join('')}
     </select></div>`;
@@ -6687,8 +6690,8 @@ function _ofHtmlRiordino(){
       <div id="of-totale" style="display:none;padding:8px 10px;border-top:1px solid var(--border);background:var(--bg2);font-size:12px;text-align:right"></div>
     </div>
     <div class="form-group full"><label>Note ordine <span style="font-size:10px;color:var(--ink3)">(finiscono in coda alla mail)</span></label><textarea id="of-note" rows="2" placeholder="Es. consegna in via…, urgente, riferimento offerta…"></textarea></div>
-    <button class="btn btn-primary" onclick="_ofCreaOrdine()" ${_ofTabellaOk?'':'disabled title="Tabella ordini_fornitore non disponibile"'}>✉ Crea mail e registra ordine</button>
-    <div style="font-size:11px;color:var(--ink3);margin-top:6px">Prima l'ordine viene salvato nello storico, poi si apre la mail precompilata nella tua app di posta: controlli e invii tu.</div>`;
+    <button class="btn btn-primary" onclick="_ofCreaOrdine()" ${_ofTabellaOk?'':'disabled title="Tabella ordini_fornitore non disponibile"'}>${_oEdit?'💾 Salva modifiche e ricrea mail':'✉ Crea mail e registra ordine'}</button>
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px">${_oEdit?'Le righe dell\'ordine vengono sostituite con quelle qui sopra, poi si apre la mail aggiornata.':'Prima l\'ordine viene salvato nello storico, poi si apre la mail precompilata nella tua app di posta: controlli e invii tu.'}</div>`;
   }
   html += `</div>`;
   return html;
@@ -6735,21 +6738,70 @@ async function _ofCreaOrdine(){
   }
   if(!righe.length){ alert('Seleziona almeno un materiale da ordinare.'); return; }
   const note=((document.getElementById('of-note')||{}).value||'').trim();
-  const numero=_ofProssimoNumero(_ofList);
-  const rec={ numero, fornitore_cod:f.cod, fornitore_snapshot:{nome:f.nome,email:f.email}, righe, note, stato:'aperto' };
   // 1) salvo l'ordine; 2) SOLO se salvato apro la mail. Mai mail senza ordine tracciato.
-  let salvato=null;
-  try{
-    const { data, error } = await sb.from('ordini_fornitore').insert(rec).select('*').single();
-    if(error){ alert('Salvataggio ordine FALLITO: '+error.message+'\nLa mail non è stata creata.'); return; }
-    salvato=data;
-  }catch(e){ alert('Salvataggio ordine FALLITO: '+e+'\nLa mail non è stata creata.'); return; }
-  _ofList.unshift(salvato);
+  let numero;
+  if(_ofEditId){
+    // MODIFICA: aggiorno l'ordine esistente (stesso numero), righe sostituite
+    const o=_ofList.find(x=>x.id===_ofEditId); if(!o){ alert('Ordine da modificare non trovato.'); return; }
+    numero=o.numero;
+    const patch={ fornitore_cod:f.cod, fornitore_snapshot:{nome:f.nome,email:f.email}, righe, note, updated_at:new Date().toISOString() };
+    try{
+      const { error } = await sb.from('ordini_fornitore').update(patch).eq('id', _ofEditId);
+      if(error){ alert('Salvataggio modifiche FALLITO: '+error.message+'\nLa mail non è stata creata.'); return; }
+    }catch(e){ alert('Salvataggio modifiche FALLITO: '+e+'\nLa mail non è stata creata.'); return; }
+    Object.assign(o, patch);
+  } else {
+    numero=_ofProssimoNumero(_ofList);
+    const rec={ numero, fornitore_cod:f.cod, fornitore_snapshot:{nome:f.nome,email:f.email}, righe, note, stato:'aperto' };
+    let salvato=null;
+    try{
+      const { data, error } = await sb.from('ordini_fornitore').insert(rec).select('*').single();
+      if(error){ alert('Salvataggio ordine FALLITO: '+error.message+'\nLa mail non è stata creata.'); return; }
+      salvato=data;
+    }catch(e){ alert('Salvataggio ordine FALLITO: '+e+'\nLa mail non è stata creata.'); return; }
+    _ofList.unshift(salvato);
+  }
   const url=_ofMailtoUrl(f.email, numero, righe, note);
-  _ofFornSel='';
+  _ofFornSel=''; _ofEditId=null;
   _ofTab='storico';
   _ofDisegna();
   window.location.href = url;   // apre l'app di posta con la mail precompilata
+}
+
+// ── Modifica / Duplica dallo storico ─────────────────────────────────────────
+// Entrambe riaprono il Riordino precompilato con le righe dell'ordine:
+// Modifica (solo 'aperto') AGGIORNA l'ordine esistente al salvataggio,
+// Duplica crea un NUOVO ordine col prossimo numero. (Decisione di Andrea del
+// 29/08/2026: supera il "niente edit dopo il salvataggio" del brief iniziale.)
+function _ofModifica(id){
+  const o=_ofList.find(x=>x.id===id); if(!o) return;
+  if(o.stato!=='aperto'){ alert('Si possono modificare solo gli ordini aperti. Usa Duplica.'); return; }
+  _ofPrefill(o, o.id);
+}
+function _ofDuplica(id){
+  const o=_ofList.find(x=>x.id===id); if(!o) return;
+  _ofPrefill(o, null);
+}
+function _ofPrefill(o, editId){
+  const f=_ofFornByCod(o.fornitore_cod);
+  if(!f){ alert('Il fornitore di questo ordine non è più in anagrafica.'); return; }
+  if(f.attivo===false){ alert('Il fornitore "'+f.nome+'" è disattivato: riattivalo dall\'Anagrafica prima di modificare o duplicare l\'ordine.'); return; }
+  const materiali=_ofMaterialiDiFornitore(o.fornitore_cod);
+  if(!materiali.length){ alert('Il fornitore "'+f.nome+'" non ha più materiali collegati: ricollegali prima dal form dei materiali.'); return; }
+  _ofFornSel=o.fornitore_cod; _ofEditId=editId; _ofTab='riordino';
+  _ofDisegna();
+  // precompilo le righe: aggancio per nome materiale (regola del gestionale)
+  const mancanti=[];
+  (Array.isArray(o.righe)?o.righe:[]).forEach(r=>{
+    const i=materiali.findIndex(x=>x.m.nome===r.materiale_codice || x.m.nome===r.materiale_descrizione);
+    if(i<0){ mancanti.push(r.materiale_descrizione||r.materiale_codice||'?'); return; }
+    const chk=document.getElementById('of-c-'+i); if(chk) chk.checked=true;
+    const q=document.getElementById('of-q-'+i); if(q) q.value=r.quantita;
+    const nt=document.getElementById('of-f-'+i); if(nt) nt.value=r.nota||r.formato||'';
+  });
+  const note=document.getElementById('of-note'); if(note) note.value=o.note||'';
+  _ofAggiornaTotale();
+  if(mancanti.length) alert('Attenzione: '+mancanti.length+' riga/e non più collegate a questo fornitore, escluse dalla precompilazione:\n- '+mancanti.join('\n- '));
 }
 
 // ── 3.4 Storico ordini ────────────────────────────────────────────────────────
@@ -6765,6 +6817,8 @@ function _ofHtmlStorico(){
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc((o.fornitore_snapshot||{}).nome||_ofNomeForn(o.fornitore_cod))}</span>
       <span style="font-size:11px;color:var(--ink3);white-space:nowrap">${nR} righe · ${dt}</span>
       <button class="btn btn-sm btn-ghost" onclick="_ofDettaglio('${o.id}')">Dettaglio</button>
+      ${o.stato==='aperto'?`<button class="btn btn-sm btn-ghost" onclick="_ofModifica('${o.id}')">✏ Modifica</button>`:''}
+      <button class="btn btn-sm btn-ghost" title="Riparte dal Riordino precompilato con le righe di questo ordine: al salvataggio nasce un NUOVO ordine" onclick="_ofDuplica('${o.id}')">⧉ Duplica</button>
       ${o.stato==='aperto'?`<button class="btn btn-sm btn-ghost" style="color:var(--green)" onclick="_ofSegnaRicevuto('${o.id}')">✓ Ricevuto</button>`:''}
       ${o.stato==='aperto'?`<button class="btn btn-sm btn-ghost" style="color:var(--ink3)" onclick="_ofAnnulla('${o.id}')">Annulla</button>`:''}
       <button class="btn btn-sm btn-ghost" title="Rigenera la mail dallo snapshot (non crea un nuovo ordine)" onclick="_ofRicreaMail('${o.id}')">✉</button>
