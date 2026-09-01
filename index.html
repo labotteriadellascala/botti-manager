@@ -546,8 +546,8 @@ table.tmb-sht .ot{color:#444}
   <div class="sidebar-logo">
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.73 — 26/08/2026 · Registro Finanziario: (1) molto più veloce — niente più attese a ogni modifica (Resoconto ricalcolato solo quando lo apri, ricerca con debounce, textarea auto-dimensionate via CSS); (2) i duplicati dell'import ora si riconoscono anche sulle ENTRATE (bonifici), non solo sulle uscite, e nuovo tasto “Ricontrolla duplicati” per i movimenti già inseriti; (3) il Resoconto si apre sull'anno corrente.</p>
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em">v2.83 — 29/08/2026 · Ordini fornitore: dallo storico ora puoi ✏ Modificare un ordine aperto (stesso numero, righe sostituite) e ⧉ Duplicarne uno qualsiasi (Riordino precompilato → nuovo ordine).</p>
+    <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini fornitore: totale ordine visibile nello storico e nel dettaglio.">v2.84 — 29/08/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1315,7 +1315,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.83';
+window.APP_VERSION = '2.84';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6733,6 +6733,7 @@ async function _ofCreaOrdine(){
       codice_fornitore: materiali[i].link.codice_fornitore||'',
       quantita: q,
       um_acquisto: materiali[i].link.um_acquisto||'pz',
+      prezzo: _ofPrezzoUnit(materiali[i].m),   // snapshot del costo unitario (può essere null)
       nota: ((document.getElementById('of-f-'+i)||{}).value||'').trim()
     });
   }
@@ -6806,6 +6807,21 @@ function _ofPrefill(o, editId){
 
 // ── 3.4 Storico ordini ────────────────────────────────────────────────────────
 const _OF_STATO_BADGE = { aperto:'badge-amber', ricevuto:'badge-green', annullato:'badge-gray' };
+// Totale indicativo dell'ordine: prezzo snapshot salvato nelle righe (da v2.84);
+// per gli ordini precedenti, fallback sul costo attuale del materiale in anagrafica.
+// null se nessuna riga ha un prezzo ricavabile.
+function _ofTotaleOrdine(o){
+  let tot=0, con=0;
+  (Array.isArray(o.righe)?o.righe:[]).forEach(r=>{
+    let p = (r.prezzo!=null) ? Number(r.prezzo) : null;
+    if(p==null){
+      const m=(DB.get('materiali')||[]).find(x=>x.nome===r.materiale_codice || x.nome===r.materiale_descrizione);
+      if(m) p=_ofPrezzoUnit(m);
+    }
+    if(p!=null){ tot += (Number(r.quantita)||0)*p; con++; }
+  });
+  return con>0 ? tot : null;
+}
 function _ofHtmlStorico(){
   if(!_ofList.length) return `<div class="card" style="padding:16px 20px;max-width:920px;color:var(--ink3);font-size:13px">Nessun ordine fornitore registrato. Creane uno dalla scheda Riordino.</div>`;
   const rows=_ofList.map(o=>{
@@ -6815,6 +6831,7 @@ function _ofHtmlStorico(){
       <span class="text-mono" style="min-width:104px">${_esc(o.numero||'—')}</span>
       <span class="badge ${_OF_STATO_BADGE[o.stato]||'badge-gray'}" style="font-size:10px">${_esc(o.stato||'')}</span>
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc((o.fornitore_snapshot||{}).nome||_ofNomeForn(o.fornitore_cod))}</span>
+      ${(()=>{const t=_ofTotaleOrdine(o);return t!=null?`<span class="text-mono" style="font-variant-numeric:tabular-nums;white-space:nowrap" title="Totale indicativo, netto IVA">${_ofEuro(t)}</span>`:'';})()}
       <span style="font-size:11px;color:var(--ink3);white-space:nowrap">${nR} righe · ${dt}</span>
       <button class="btn btn-sm btn-ghost" onclick="_ofDettaglio('${o.id}')">Dettaglio</button>
       ${o.stato==='aperto'?`<button class="btn btn-sm btn-ghost" onclick="_ofModifica('${o.id}')">✏ Modifica</button>`:''}
@@ -6838,12 +6855,15 @@ function _ofDettaglio(id){
       <span style="flex:2">${_esc(r.materiale_descrizione||'')}</span>
       <span style="flex:1" class="text-mono">${_esc(r.codice_fornitore||'—')}</span>
       <span style="width:110px;text-align:right" class="text-mono">${r.quantita} ${_esc(r.um_acquisto||'pz')}</span>
+      <span style="width:90px;text-align:right" class="text-mono">${r.prezzo!=null?_ofEuro((Number(r.quantita)||0)*Number(r.prezzo)):''}</span>
       <span style="width:130px">${_esc(r.nota||r.formato||'')}</span>
     </div>`).join('');
+  const totOrd=_ofTotaleOrdine(o);
+  const rigaTot = totOrd!=null?`<div style="display:flex;justify-content:flex-end;gap:8px;padding:8px 0;border-top:2px solid var(--border);font-size:12px;font-weight:600">Totale <span class="text-mono">${_ofEuro(totOrd)}</span> <span style="color:var(--ink3);font-weight:400">netto IVA</span></div>`:'';
   const dt=String(o.created_at||'').slice(0,10).split('-').reverse().join('/');
   showModal('Ordine '+_esc(o.numero||''), `
     <div style="font-size:12px;margin-bottom:8px"><b>${_esc(fs.nome||'')}</b> · ${_esc(fs.email||'')} · <span class="badge ${_OF_STATO_BADGE[o.stato]||'badge-gray'}" style="font-size:10px">${_esc(o.stato||'')}</span> · ${dt}${o.ricevuto_at?' · ricevuto il '+String(o.ricevuto_at).slice(0,10).split('-').reverse().join('/'):''}</div>
-    <div style="max-height:46vh;overflow:auto">${righe}</div>
+    <div style="max-height:46vh;overflow:auto">${righe}${rigaTot}</div>
     ${o.note?`<div style="font-size:12px;color:var(--ink2);margin-top:8px"><b>Note:</b> ${_esc(o.note)}</div>`:''}`,
     [ {label:'Chiudi', action:'closeModal()'} ]);
 }
