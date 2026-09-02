@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: duplicati segnalati in blu solo con stessa data + importo + causale (regola per import da homebanking).">v2.85 — 31/08/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Kiosk timbrature: logo aziendale sopra l'orologio.">v2.86 — 02/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1080,6 +1080,7 @@ window.renderTimbraKiosk = function(){
   kb+='<button onclick="tkBack()" style="font-size:22px;padding:16px 0;border-radius:14px;border:1px solid #332C24;background:#1F1B16;color:#9A9082">⌫</button>';
   document.body.innerHTML =
     '<div style="min-height:100vh;background:#14110D;color:#F5EFE4;font-family:\'Segoe UI\',Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;box-sizing:border-box">'+
+      '<img src="img/logo-bianco.png" alt="La Botteria della Scala" style="width:220px;max-width:70vw;height:auto;margin-bottom:14px;opacity:.9" onerror="this.style.display=\'none\'">'+
       '<div style="font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#9A9082;font-family:monospace">Botti Manager · Timbrature</div>'+
       '<div id="tk-orologio" style="font-size:52px;font-weight:700;font-family:monospace;margin:6px 0 2px"></div>'+
       '<div id="tk-data" style="font-size:15px;color:#9A9082;margin-bottom:18px"></div>'+
@@ -1315,7 +1316,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.85';
+window.APP_VERSION = '2.86';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
