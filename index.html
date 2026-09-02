@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini fornitore: totale ordine visibile nello storico e nel dettaglio.">v2.84 — 29/08/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: duplicati segnalati in blu solo con stessa data + importo + causale (regola per import da homebanking).">v2.85 — 31/08/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1315,7 +1315,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.84';
+window.APP_VERSION = '2.85';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -11707,7 +11707,7 @@ function skeleton(){
        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink3)">A<input type="date" id="mov-f-al" onchange="finFilter()" style="padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:12px"></label>
        <span id="mov-count" style="font-size:12px;color:var(--ink3);white-space:nowrap"></span>
        <button class="btn btn-sm btn-ghost" onclick="finFilterReset()">Azzera filtri</button>
-       <button class="btn btn-sm btn-ghost" onclick="finRicontrollaDuplicati()" title="Ripassa tutti i movimenti e segna in blu i possibili duplicati (stessa data, importo e — per le entrate — descrizione)">🔵 Ricontrolla duplicati</button>
+       <button class="btn btn-sm btn-ghost" onclick="finRicontrollaDuplicati()" title="Ripassa tutti i movimenti e segna in blu i possibili duplicati (stessa data, stesso importo e stessa causale)">🔵 Ricontrolla duplicati</button>
      </div>
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap">
        <div style="display:flex;gap:6px">
@@ -11958,14 +11958,13 @@ function _finCassaFrac(m){ const L=m.lordo||0; if(m.pagato==='SI') return 1; if(
 function _finCassaImp(m){ return imp(m)*_finCassaFrac(m); }
 function _finCassaIva(m){ return iva(m)*_finCassaFrac(m); }
 function _finResiduo(m){ return Math.max(0, (m.lordo||0) - _finCassaLordo(m)); }
-// Chiave per riconoscere i duplicati (import e ricontrollo).
-// Entrata = data+importo+descrizione: i bonifici hanno un "N." univoco nel testo,
-//   quindi lo stesso bonifico ri-importato ha descrizione identica (→ duplicato),
-//   mentre clienti diversi con lo stesso importo hanno descrizione diversa (→ non duplicato).
-// Uscita = data+importo: le spese con carta hanno l'orario nel testo, così due addebiti
-//   dello stesso giorno/importo restano riconoscibili come sospetti anche con testo diverso.
+// Chiave per riconoscere i duplicati (import e ricontrollo):
+// tipo + data + importo + CAUSALE (regola di Andrea, v2.85). I dati arrivano
+// dall'import homebanking, quindi la causale è stabile: la stessa riga
+// ri-importata è identica (→ duplicato), mentre due movimenti veri dello stesso
+// giorno/importo hanno causali diverse (orario, N. bonifico, riferimenti).
 function _finNorm(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase(); }
-function _finDupKey(x){ const base=(x.data||'')+'|'+(Number(x.lordo)||0).toFixed(2); return x.tipo==='Entrata' ? 'E|'+base+'|'+_finNorm(x.descrizione) : 'U|'+base; }
+function _finDupKey(x){ return (x.tipo==='Entrata'?'E|':'U|')+(x.data||'')+'|'+(Number(x.lordo)||0).toFixed(2)+'|'+_finNorm(x.descrizione); }
 
 function renderResoconto(){
   const box = document.getElementById('fin-res'); if(!box) return;
