@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Kiosk timbrature: logo aziendale sopra l'orologio.">v2.86 — 02/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: import estratto conto carta di credito — riconosciuto in automatico, competenza alla data operazione, addebito al 1° del mese successivo, righe evidenziate 💳 con filtro dedicato.">v2.87 — 02/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -672,6 +672,7 @@ tr.fin-unpaid td{background:var(--red-bg)!important}
 tr.fin-toverify td{background:var(--amber-bg)!important}
 tr.fin-dup td{background:var(--blue-bg)!important}
 tr.fin-eventounk td{background:#EDE7F6!important}
+tr.fin-carta td{background:#E0F2F1!important}   /* 💳 movimenti carta di credito */
 .fin-okbtn{background:var(--green-bg);border-color:var(--green);color:var(--green)}
 #fin-tbody .fc{width:100%;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:12px;background:#fff;font-family:var(--sans);color:var(--ink)}
 #fin-tbody .fc:focus{outline:1px solid var(--accent2)}
@@ -1316,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.86';
+window.APP_VERSION = '2.87';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -11703,7 +11704,7 @@ function skeleton(){
        <select id="mov-f-nat" onchange="finFilter()" style="max-width:200px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutte le nature</option>${NATURA_TIPI.map(n=>`<option>${esc(n)}</option>`).join('')}</select>
        <select id="mov-f-sal" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Saldato: tutti</option><option value="SI">Solo saldati</option><option value="NO">Solo non saldati</option><option value="ACCONTO">Solo acconti</option></select>
        <select id="mov-f-eve" onchange="finFilter()" style="max-width:180px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutti gli eventi</option></select>
-       <select id="mov-f-col" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutte le righe</option><option value="giallo">🟡 Da verificare</option><option value="blu">🔵 Duplicato sospetto</option><option value="viola">🟣 Evento non riconosciuto</option><option value="rosso">🔴 Non saldato</option><option value="pulite">Senza segnalazioni</option></select>
+       <select id="mov-f-col" onchange="finFilter()" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:13px"><option value="">Tutte le righe</option><option value="giallo">🟡 Da verificare</option><option value="blu">🔵 Duplicato sospetto</option><option value="viola">🟣 Evento non riconosciuto</option><option value="rosso">🔴 Non saldato</option><option value="carta">💳 Carta di credito</option><option value="pulite">Senza segnalazioni</option></select>
        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink3)">Da<input type="date" id="mov-f-dal" onchange="finFilter()" style="padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:12px"></label>
        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--ink3)">A<input type="date" id="mov-f-al" onchange="finFilter()" style="padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);background:#fff;font-size:12px"></label>
        <span id="mov-count" style="font-size:12px;color:var(--ink3);white-space:nowrap"></span>
@@ -11875,7 +11876,7 @@ function renderTable(){
   const q=(sB('mov-search')||'').trim().toLowerCase(), fT=sB('mov-f-tipo'), fC=sB('mov-f-cat'), fN=sB('mov-f-nat'), fS=sB('mov-f-sal'), fD1=sB('mov-f-dal'), fD2=sB('mov-f-al'), fE=sB('mov-f-eve'), fCol=sB('mov-f-col');
   const canaliOk = new Set(finCanaliNomi());
   const eventoUnk = m => !!(m.evento && !canaliOk.has(m.evento));
-  const coloreDi = m => m.dupSosp ? 'blu' : (m.daVerif ? 'giallo' : (eventoUnk(m) ? 'viola' : (m.pagato==='NO' ? 'rosso' : 'pulite')));
+  const coloreDi = m => m.dupSosp ? 'blu' : (m.daVerif ? 'giallo' : (eventoUnk(m) ? 'viola' : (m.pagato==='NO' ? 'rosso' : (m.carta ? 'carta' : 'pulite'))));
   let arr = all.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   arr = arr.filter(m=>{
     if(fT && m.tipo!==fT) return false;
@@ -11885,7 +11886,8 @@ function renderTable(){
     if(fD1 && (m.data||'')<fD1) return false;
     if(fD2 && (m.data||'')>fD2) return false;
     if(fE && (m.evento||'')!==fE) return false;
-    if(fCol && coloreDi(m)!==fCol) return false;
+    if(fCol==='carta'){ if(!m.carta) return false; }   // 💳: per flag, anche se la riga ha altri colori (giallo/blu…)
+    else if(fCol && coloreDi(m)!==fCol) return false;
     if(q){ const hay=(dmy(m.data)+' '+(m.data||'')+' '+(m.tipo||'')+' '+(m.categoria||'')+' '+nat(m.categoria)+' '+(m.descrizione||'')+' '+(m.evento||'')+' '+(m.lordo==null?'':m.lordo)+' '+(m.note||'')+' '+(m.pagato||'')).toLowerCase(); if(!hay.includes(q)) return false; }
     return true;
   });
@@ -11898,10 +11900,10 @@ function renderTable(){
   if(!arr.length){ tb.innerHTML = `<tr><td colspan="15" style="text-align:center;color:var(--ink3);padding:24px">Nessun movimento con questi filtri.</td></tr>`; return; }
   tb.innerHTML = arr.map(m=>{
     const id=m.id;
-    const cls = m.dupSosp ? 'fin-dup' : (m.daVerif ? 'fin-toverify' : (eventoUnk(m) ? 'fin-eventounk' : (m.pagato==='NO' ? 'fin-unpaid' : '')));
+    const cls = m.dupSosp ? 'fin-dup' : (m.daVerif ? 'fin-toverify' : (eventoUnk(m) ? 'fin-eventounk' : (m.pagato==='NO' ? 'fin-unpaid' : (m.carta ? 'fin-carta' : ''))));
     return `<tr id="row-${id}" class="${cls}">
       <td style="text-align:center"><input type="checkbox" class="fin-chk" value="${id}" onchange="finUpdSelCount()"></td>
-      <td><input type="date" class="fc" value="${m.data||''}" onchange="finUpd('${id}','data',this)"></td>
+      <td><input type="date" class="fc" value="${m.data||''}" onchange="finUpd('${id}','data',this)">${m.carta?`<span title="Carta di credito: competenza ${m.data||''}, addebito in conto ${m.dataSaldo||''}" style="font-size:11px">💳</span>`:''}</td>
       <td><select class="fc fc-tipo" onchange="finUpd('${id}','tipo',this)"><option ${m.tipo==='Uscita'?'selected':''}>Uscita</option><option ${m.tipo==='Entrata'?'selected':''}>Entrata</option></select></td>
       <td><select class="fc fc-cat" onchange="finUpd('${id}','categoria',this)">${catOptions(m.categoria)}</select></td>
       <td id="nat-${id}" style="color:var(--ink3);font-size:12px">${esc(nat(m.categoria))}</td>
@@ -12095,7 +12097,13 @@ function renderResoconto(){
    </table></div></div>`;
 }
 /* ───────────── IMPORTAZIONE MASSIVA ───────────── */
-let IMP_ROWS=[], IMP_HEADER=false;
+let IMP_ROWS=[], IMP_HEADER=false, IMP_CARTA=false;
+// 1° giorno del mese successivo a una data yyyy-mm-dd (addebito carta di credito)
+function _finPrimoMeseSucc(data){
+  const y=+String(data).slice(0,4), m=+String(data).slice(5,7);
+  if(!y||!m) return data;
+  return (m===12 ? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'))+'-01';
+}
 function pn(x){ if(x==null) return NaN; let t=String(x).trim().replace(/[€\s]/g,'');
   if(!t) return NaN; let neg=false;
   if(/^\(.*\)$/.test(t)){neg=true;t=t.slice(1,-1);}
@@ -12137,6 +12145,9 @@ window.finParse = function(){
   // intestazione? prima riga senza numeri e senza data valida
   const r0=IMP_ROWS[0];
   IMP_HEADER = r0.every(c=>!isFinite(pn(c)) && !pd(c));
+  // Estratto conto carta di credito? Riconosco l'intestazione tipica ("DATA OPERAZIONE" +
+  // "DATA REGISTRAZIONE") dei CSV carta scaricati dall'homebanking.
+  IMP_CARTA = IMP_HEADER && r0.some(c=>/data\s*operazione/i.test(c)) && r0.some(c=>/data\s*registrazione/i.test(c));
   const dataRows = IMP_HEADER?IMP_ROWS.slice(1):IMP_ROWS;
   const sample = dataRows.slice(0,8);
   const colName = i => IMP_HEADER ? (r0[i]||('Colonna '+(i+1))) : ('Colonna '+(i+1));
@@ -12183,7 +12194,8 @@ window.finParse = function(){
       <label>EVENTO<select id="fi-cEve" onchange="finPreview()">${opt(gEve,'— nessuno —')}</select></label>
       <label>NOTE<select id="fi-cNote" onchange="finPreview()">${opt(gNote,'— nessuna —')}</select></label>
     </div>
-    <div style="margin-top:8px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="fi-head" ${IMP_HEADER?'checked':''} onchange="finPreview()" style="width:auto"> la prima riga è intestazione</label></div>`;
+    <div style="margin-top:8px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="fi-head" ${IMP_HEADER?'checked':''} onchange="finPreview()" style="width:auto"> la prima riga è intestazione</label></div>
+    <div style="margin-top:6px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="fi-carta" ${IMP_CARTA?'checked':''} onchange="finPreview()" style="width:auto"> 💳 estratto conto <b>CARTA DI CREDITO</b>: competenza = data operazione, addebito in conto (cassa) = 1° del mese successivo${IMP_CARTA?' <span style="color:var(--green)">— riconosciuto in automatico</span>':''}</label></div>`;
   finPreview();
 };
 function impDataRows(){ const head=document.getElementById('fi-head'); const h=head?head.checked:IMP_HEADER; return h?IMP_ROWS.slice(1):IMP_ROWS; }
@@ -12196,6 +12208,7 @@ function impMapped(){
   const cD=v('fi-cData'), cA=v('fi-cAmt'), cA2=v('fi-cAmt2'), cDesc=v('fi-cDesc');
   const cTipo=v('fi-cTipo'), cCat=v('fi-cCat'), cAliq=v('fi-cAliq2'), cPag=v('fi-cPag'), cEve=v('fi-cEve'), cNote=v('fi-cNote');
   const defAliq=null; // IVA non impostata di default: va scelta a mano prima di verificare la riga
+  const cartaEl=document.getElementById('fi-carta'); const carta=cartaEl?cartaEl.checked:false;
   const out=[];
   impDataRows().forEach(r=>{
     if(isSaldoRow(r)) return;
@@ -12211,7 +12224,9 @@ function impMapped(){
       descrizione:cDesc>=0?(r[cDesc]||''):'',
       categoria:cCat>=0?normCat(r[cCat]):'',
       aliquota,
-      pagato:cPag>=0?(normPag(r[cPag])||'SI'):'SI',
+      pagato:carta?'SI':(cPag>=0?(normPag(r[cPag])||'SI'):'SI'),
+      dataSaldo:carta?_finPrimoMeseSucc(data):null,   // carta: cassa al 1° del mese successivo
+      carta,
       evento:cEve>=0?(r[cEve]||''):'',
       note:cNote>=0?(r[cNote]||''):'' });
   });
@@ -12222,7 +12237,7 @@ window.finPreview = function(){
   const go=document.getElementById('fi-go');
   if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--red)">Nessuna riga valida con questa mappatura. Controlla almeno Data e Importo.</div>'; go.style.display='none'; return; }
   const head=rows.slice(0,6).map(r=>`<tr><td class="text-mono">${fmtDate(r.data)}</td><td class="${r.tipo==='Entrata'?'fin-in':''}">${r.tipo}</td><td>${esc(r.categoria)||'<span style="color:var(--ink3)">—</span>'}</td><td class="text-mono" style="text-align:right">${eurF(r.lordo)}</td><td class="text-mono">${r.aliquota==null?'<span style="color:var(--ink3)">da impostare</span>':Math.round(r.aliquota*100)+'%'}</td><td style="color:var(--ink3);font-size:12px">${esc(r.descrizione)}</td></tr>`).join('');
-  box.innerHTML=`<div style="font-size:12px;color:var(--ink2);margin-bottom:6px">Anteprima — ${rows.length} righe pronte (prime ${Math.min(6,rows.length)}):</div>
+  box.innerHTML=`${rows[0]&&rows[0].carta?`<div style="font-size:12px;background:#E0F2F1;border:1px solid var(--green);border-radius:var(--radius);padding:6px 10px;margin-bottom:6px">💳 Import CARTA DI CREDITO: competenza alla data operazione, cassa (addebito) al <b>1° del mese successivo</b>. Righe evidenziate in verde acqua nel registro.</div>`:''}<div style="font-size:12px;color:var(--ink2);margin-bottom:6px">Anteprima — ${rows.length} righe pronte (prime ${Math.min(6,rows.length)}):</div>
     <div class="card" style="padding:0"><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Categoria</th><th style="text-align:right">Importo</th><th>IVA%</th><th>Descrizione</th></tr></thead><tbody>${head}</tbody></table></div></div>`;
   go.style.display=''; go.innerHTML=`<button class="btn btn-primary btn-sm" onclick="finDoImport()">Importa ${rows.length} righe</button>`;
 };
@@ -12235,7 +12250,8 @@ window.finDoImport = function(){
   rows.forEach(r=>{
     const m={id:'m'+Date.now()+Math.random().toString(36).slice(2,7),data:r.data,tipo:r.tipo,
       categoria:r.categoria||'',descrizione:r.descrizione||'',evento:r.evento||'',lordo:r.lordo,
-      aliquota:r.aliquota,pagato:r.pagato||'SI',dataSaldo:r.data,note:r.note||'', daVerif:true};
+      aliquota:r.aliquota,pagato:r.pagato||'SI',dataSaldo:r.dataSaldo||r.data,note:r.note||'', daVerif:true};
+    if(r.carta) m.carta=true;   // 💳 riga da estratto conto carta di credito
     const k=_finDupKey(m);
     if(existing.has(k)||batch.has(k)){ m.dupSosp=true; dup++; }
     batch.add(k);
@@ -12248,7 +12264,8 @@ window.finDoImport = function(){
   document.getElementById('fi-preview').innerHTML=''; document.getElementById('fi-go').style.display='none';
   renderTable(); renderResoconto();
   const saldoN = impDataRows().filter(isSaldoRow).length;
-  alert('Importate '+added+' righe (in giallo, da verificare)'+(dup?(' · '+dup+' righe segnalate in BLU come possibili duplicati'):'')+(saldoN?(' · '+saldoN+' righe di saldo ignorate'):'')+'.');
+  const nCarta = rows.filter(r=>r.carta).length;
+  alert('Importate '+added+' righe (in giallo, da verificare)'+(nCarta?(' · '+nCarta+' 💳 carta di credito (addebito al 1° del mese successivo)'):'')+(dup?(' · '+dup+' righe segnalate in BLU come possibili duplicati'):'')+(saldoN?(' · '+saldoN+' righe di saldo ignorate'):'')+'.');
 };
 window.finClearAll = function(){
   const n = load().length;
