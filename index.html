@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Fix import carta: la colonna DESCRIZIONE non viene più confusa con DATA OPERAZIONE.">v2.88 — 02/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Fix Lead: con 'Tutti i mesi' i contatori (Contatti/Accettati/% chiusura/Valore) contano tutta la lista invece di azzerarsi.">v2.89 — 02/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.88';
+window.APP_VERSION = '2.89';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -8734,8 +8734,8 @@ function disegnaLeadMkt() {
   mesi.add(_leadMeseCorrente());
   const mesiOrd = Array.from(mesi).sort().reverse();
 
-  // ---- statistiche del mese selezionato ----
-  const delMese = list.filter(x => (x.data||'').slice(0,7) === mese);
+  // ---- statistiche del mese selezionato ("Tutti i mesi" = tutta la lista) ----
+  const delMese = mese ? list.filter(x => (x.data||'').slice(0,7) === mese) : list;
   const accettati = delMese.filter(x => _stato(x) === 'Accettazione preventivo');
   const valore = accettati.reduce((s,x) => s + _leadValore(x), 0);
   const perc = delMese.length ? Math.round(accettati.length / delMese.length * 100) : null;
