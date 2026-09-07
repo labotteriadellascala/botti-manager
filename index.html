@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Promemoria personali ricorrenti: select Ripeti (mai/settimana/mese/anno); al Fatto nasce la prossima occorrenza agganciata alla scadenza originale, con contatore 🔁×N in lista.">v2.90 — 03/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: le card degli ordini aperti in officina (QR apertura scansionato, non ancora chiusi) sono blu con etichetta '🔧 in officina', anche tra i Da pianificare.">v2.91 — 03/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.90';
+window.APP_VERSION = '2.91';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5191,6 +5191,12 @@ const _WD1    = ['L','M','M','G','V','S'];
 const _MESIpf = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const _STATI_LAV = { 'In lavorazione 1':1, 'In lavorazione 2':1 };
 const _EVASO_PF  = { 'Completato':1, 'Saldato':1, 'Consegnato':1 };
+// Ordine "aperto in officina": almeno una riga col QR di apertura scansionato
+// (apertoTs, materiali scaricati) e non ancora chiusa. Colore blu sulle card.
+function _pfOffAperto(o){
+  const righe = (o.righe && o.righe.length) ? o.righe : [o];
+  return righe.some(r => r.apertoTs && !r.chiusoTs);
+}
 
 let _pianifSett = (function(){ const d=new Date(); d.setHours(0,0,0,0); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); return d; })();
 function _dayKeyFromDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -5449,15 +5455,15 @@ function renderPianificazione(){
   const oggiKey=_dayKeyFromDate((function(){const d=new Date();d.setHours(0,0,0,0);return d;})());
 
   // card in una colonna-giorno: trascinabile (mouse ovunque, touch dalla maniglia ⠿); ‹ ✕ › restano come alternativa
-  const cardGiorno = o => `<div class="pf-card" data-pfkind="o" data-pfid="${o.id}" data-pfeff="${_effPosOrd(o)}" onclick="showSchedaModal('${o.id}')" title="Clicca per il riepilogo · trascina per spostare" style="border:1px solid var(--border);border-left:3px solid ${_EVASO_PF[o.stato]?'var(--green)':'var(--accent2)'};border-radius:7px;padding:6px 8px;margin-bottom:6px;background:#fff;cursor:pointer">
-    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:10px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_EVASO_PF[o.stato]?'<span style="color:var(--green)">'+_esc(o.stato)+'</span>':_esc(o.stato)}</div><span class="pf-handle" title="Trascina per spostare">⠿</span></div>
+  const cardGiorno = o => { const _off=!_EVASO_PF[o.stato]&&_pfOffAperto(o); return `<div class="pf-card" data-pfkind="o" data-pfid="${o.id}" data-pfeff="${_effPosOrd(o)}" onclick="showSchedaModal('${o.id}')" title="Clicca per il riepilogo · trascina per spostare" style="border:1px solid var(--border);border-left:3px solid ${_EVASO_PF[o.stato]?'var(--green)':(_off?'#2E6FB2':'var(--accent2)')};border-radius:7px;padding:6px 8px;margin-bottom:6px;background:${_off?'#EEF5FC':'#fff'};cursor:pointer">
+    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:10px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_EVASO_PF[o.stato]?'<span style="color:var(--green)">'+_esc(o.stato)+'</span>':_esc(o.stato)}${_off?' · <span style="color:#2E6FB2;font-weight:700" title="QR di apertura scansionato in officina, lavorazione in corso">🔧 in officina</span>':''}</div><span class="pf-handle" title="Trascina per spostare">⠿</span></div>
     <div style="font-weight:600;font-size:12.5px;line-height:1.2;margin:1px 0">${_esc(o.cliente||'—')}</div>
     <div style="font-size:11px;color:var(--ink2);line-height:1.2">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;margin-top:5px">
       <button class="btn btn-sm" title="Giorno precedente" onclick="event.stopPropagation();pianificaShiftGiorno('${o.id}',-1)" style="padding:1px 7px">‹</button>
       <button class="btn btn-sm btn-danger" title="Togli dalla pianificazione" onclick="event.stopPropagation();pianificaRemove('${o.id}')" style="padding:1px 7px">✕</button>
       <button class="btn btn-sm" title="Giorno successivo" onclick="event.stopPropagation();pianificaShiftGiorno('${o.id}',1)" style="padding:1px 7px">›</button>
-    </div></div>`;
+    </div></div>`; };
 
   // attività libere della settimana, raggruppate per giorno
   const attSett = [[],[],[],[],[],[]];
@@ -5509,7 +5515,7 @@ function renderPianificazione(){
   // card serbatoio: selettore giorno L M M G V S
   const picker = o => _WD1.map((L,idx)=>`<button class="btn btn-sm" title="Assegna a ${_WDlong[idx]}" onclick="event.stopPropagation();pianificaSetGiorno('${o.id}',${idx})" style="padding:2px 0;width:26px;font-family:var(--mono)">${L}</button>`).join('');
   const cardDisp = o => `<div class="pf-card" data-pfkind="o" data-pfid="${o.id}" onclick="showSchedaModal('${o.id}')" title="Clicca per il riepilogo · trascina su un giorno per pianificare" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">
-    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:11px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_esc(o.stato)}${o.settimanaLavorazione?' · <span style="color:var(--accent2);font-weight:700">📌 già pianificato '+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div><span class="pf-handle" title="Trascina su un giorno">⠿</span></div>
+    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:11px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_esc(o.stato)}${_pfOffAperto(o)?' · <span style="color:#2E6FB2;font-weight:700" title="QR di apertura scansionato in officina, lavorazione in corso">🔧 in officina</span>':''}${o.settimanaLavorazione?' · <span style="color:var(--accent2);font-weight:700">📌 già pianificato '+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div><span class="pf-handle" title="Trascina su un giorno">⠿</span></div>
     <div style="font-weight:600;font-size:13px">${_esc(o.cliente||'—')}</div>
     <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--ink3);margin-right:2px">Assegna a:</span>${picker(o)}</div></div>`;
