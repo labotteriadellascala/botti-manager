@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: clic su un mese della tabella ricevuti/consegnati apre il dettaglio ORIGINE degli ordini ricevuti (per canale: N°, valore, %, barre).">v2.92 — 11/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivi: validità di default portata da 10 a 7 giorni.">v2.93 — 11/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.92';
+window.APP_VERSION = '2.93';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9769,7 +9769,7 @@ async function apriEditorPreventivo(leadId, prevId, ordineId){
         <div class="card-title">Dati preventivo</div>
         <div class="form-grid form-grid-3">
           <div class="form-group"><label>Numero</label><input id="pv-num" value="${_at(p.numero)}"></div>
-          <div class="form-group"><label>Validità (giorni)</label><input id="pv-val" type="number" min="0" value="10"></div>
+          <div class="form-group"><label>Validità (giorni)</label><input id="pv-val" type="number" min="0" value="7"></div>
           <div class="form-group"><label>IVA %</label><input id="pv-iva" type="number" min="0" step="0.5" value="${p.iva_percent!=null?p.iva_percent:22}" oninput="_prevRicalcola()"></div>
         </div>
       </div>
@@ -9910,7 +9910,7 @@ async function salvaPreventivo(genera){
   const righe=_prevLeggiRighe().map(r=>({desc:r.desc,qta:r.qta,prezzo:r.prezzo,sconto:r.sconto,totApp:r.totApp}));
   if (genera && !righe.some(r=>r.totApp>0)){ alert('Aggiungi almeno una voce con un prezzo prima di generare il link.'); return; }
   const validita=parseInt(val('pv-val'),10);
-  const vf=new Date(Date.now()+((isNaN(validita)?10:validita)*86400000));
+  const vf=new Date(Date.now()+((isNaN(validita)?7:validita)*86400000));
   const validoFino=`${vf.getFullYear()}-${String(vf.getMonth()+1).padStart(2,'0')}-${String(vf.getDate()).padStart(2,'0')}`;
   const cur=_prevEditId?_prevList.find(p=>p.id===_prevEditId):null;
   const patch={
