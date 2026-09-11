@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: le card degli ordini aperti in officina (QR apertura scansionato, non ancora chiusi) sono blu con etichetta '🔧 in officina', anche tra i Da pianificare.">v2.91 — 03/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: clic su un mese della tabella ricevuti/consegnati apre il dettaglio ORIGINE degli ordini ricevuti (per canale: N°, valore, %, barre).">v2.92 — 11/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.91';
+window.APP_VERSION = '2.92';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3322,6 +3322,48 @@ function riepilogoProdottiConCodice(o) {
 function totProdotti(o) { return (o.righe||[]).length||1; }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// Dettaglio ORIGINE (canale) degli ordini ricevuti in un mese: aperto cliccando
+// la riga del mese nella tabella ricevuti/consegnati. Stessi criteri della
+// tabella: data di inserimento (o.creato) nell'anno corrente + filtro canale attivo.
+window.dashOrigineMese = function(mi){
+  const ordini = DB.get('ordini')||[];
+  const ANNO = new Date().getFullYear();
+  const canaleSel = (document.getElementById('dash-canale')||{}).value || '';
+  const _f = n => (Number(n)||0).toLocaleString('it-IT');
+  const per = {}; let totN=0, totV=0;
+  ordini.forEach(o=>{
+    if (canaleSel && (o.canale||'')!==canaleSel) return;
+    if (!o.creato) return;
+    const d = new Date(o.creato);
+    if (d.getFullYear()!==ANNO || d.getMonth()!==mi) return;
+    const c = String(o.canale||'').trim() || '— senza canale —';
+    (per[c] = per[c] || { n:0, val:0 });
+    per[c].n += 1; per[c].val += o.prezzoTotale||0;
+    totN += 1; totV += o.prezzoTotale||0;
+  });
+  const mesiNomi = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  let body;
+  if (!totN) {
+    body = '<div style="color:var(--ink3);font-size:13px">Nessun ordine ricevuto in questo mese.</div>';
+  } else {
+    const maxV = Math.max(...Object.values(per).map(x=>x.val), 1);
+    body = Object.entries(per).sort((a,b)=>b[1].val-a[1].val).map(([c,x])=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px">
+        <span style="width:130px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(c)}">${_esc(c)}</span>
+        <div style="flex:1;height:8px;background:var(--border);border-radius:99px;overflow:hidden"><div style="height:100%;width:${Math.round(x.val/maxV*100)}%;background:var(--accent);border-radius:99px"></div></div>
+        <span class="text-mono" style="width:34px;text-align:right"><strong>${x.n}</strong></span>
+        <span class="text-mono" style="width:88px;text-align:right;font-variant-numeric:tabular-nums">${_f(Math.round(x.val))} €</span>
+        <span class="text-mono" style="width:40px;text-align:right;color:var(--ink3);font-size:11px">${totV>0?Math.round(x.val/totV*100):0}%</span>
+      </div>`).join('')
+      + `<div style="display:flex;justify-content:flex-end;gap:10px;padding:9px 0;border-top:2px solid var(--border);font-size:13px;font-weight:700">
+          Totale <span class="text-mono">${totN} ordini</span> · <span class="text-mono">${_f(Math.round(totV))} €</span>
+        </div>`;
+  }
+  showModal('Origine ordini ricevuti — '+mesiNomi[mi]+' '+ANNO+(canaleSel?' · '+_esc(canaleSel):''),
+    `<div style="max-height:60vh;overflow:auto">${body}</div>
+     <div style="font-size:11px;color:var(--ink3);margin-top:8px">Canale = campo "Canale" dell'ordine, per data di inserimento. Valori netti come in tabella.</div>`,
+    [ {label:'Chiudi', action:'closeModal()'} ]);
+};
 function renderDashboard() {
   const ordini = DB.get('ordini')||[];
   const ANNO = new Date().getFullYear();
@@ -3437,8 +3479,8 @@ function renderDashboard() {
 
   const righe = mesiNomi.map((nome,i)=>{
     const vuoto = ric[i].n===0 && con[i].n===0;
-    return `<tr style="${vuoto?'opacity:.45':''}">
-      <td style="font-weight:600">${nome}</td>
+    return `<tr ${ric[i].n>0?`onclick="dashOrigineMese(${i})" title="Clicca: da dove arrivano gli ordini ricevuti a ${nome}"`:''} style="${vuoto?'opacity:.45;':''}${ric[i].n>0?'cursor:pointer':''}">
+      <td style="font-weight:600">${nome}${ric[i].n>0?' <span style="font-size:10px;color:var(--ink3)">▸</span>':''}</td>
       <td style="text-align:center">${ric[i].n||'—'}</td>
       <td class="text-mono" style="text-align:right">${ric[i].val?fmt(Math.round(ric[i].val))+' €':'—'}</td>
       <td style="text-align:center;border-left:1px solid var(--border)">${con[i].n||'—'}</td>
@@ -3473,7 +3515,7 @@ function renderDashboard() {
     </tfoot>
   </table></div></div>
   <p style="font-size:12px;color:var(--ink3);margin-top:10px">
-    📥 Ricevuti = ordini per data di inserimento. 📦 Consegnati = ordini spostati in "Consegnato" dal Piano produzione, contati dal mese in cui li sposti${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}.
+    📥 Ricevuti = ordini per data di inserimento. 📦 Consegnati = ordini spostati in "Consegnato" dal Piano produzione, contati dal mese in cui li sposti${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}. Clicca un mese per vedere l'<strong>origine</strong> degli ordini ricevuti.
   </p>`;
 
   // ── VALORE MEDIO ORDINE (esclusi Bloccato e Da sviluppare) ──────────────────
