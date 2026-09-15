@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Conversione ordine evento → ordine: editor promemoria attivo anche prima di salvare; il promemoria dell'evento trasloca nell'ordine; l'evento diventa 'Convertito' SOLO a conferma dell'ordine (annullando resta Da convertire e intatto).">v2.95 — 15/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Materiali: clic sul nome di un materiale → scheda 'Dove è usato' con i prodotti e gli accessori che lo hanno in distinta base (quantità per pezzo, apertura diretta della distinta).">v2.96 — 15/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.95';
+window.APP_VERSION = '2.96';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6249,6 +6249,36 @@ function renderMateriali() {
   `;
 }
 
+// Scheda "dove è usato": prodotti e accessori che hanno il materiale nella distinta base
+window.materialeDoveUsato = function(nome){
+  const inDist = x => (x.componenti||[]).some(c=>c.nome===nome);
+  const qtaDi = x => { const c=(x.componenti||[]).find(c=>c.nome===nome); return c ? (c.qty||0)+' '+(c.um||'pz') : ''; };
+  const prodotti = (DB.get('prodotti')||[]).filter(inDist);
+  const accessori = (DB.get('accessori')||[]).filter(inDist);
+  let body;
+  if(!prodotti.length && !accessori.length){
+    body = `<div style="color:var(--ink3);font-size:13px">Nessun prodotto o accessorio usa questo materiale nelle distinte base.</div>`;
+  } else {
+    const rigaP = p => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:13px">
+        <span class="text-mono text-sm" style="min-width:70px">${_esc(p.id||'')}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nome||'')}</span>
+        ${p.famiglia?`<span class="badge badge-gray" style="font-size:10px">${_esc(p.famiglia)}</span>`:''}
+        <span class="text-mono" style="min-width:60px;text-align:right" title="Quantità per pezzo">${qtaDi(p)}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();showModalDistinta('${_esc(p.id||'')}')">Distinta</button>
+      </div>`;
+    const rigaA = a => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:13px">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(a.nome||'')}</span>
+        <span class="text-mono" style="min-width:60px;text-align:right" title="Quantità per pezzo">${qtaDi(a)}</span>
+      </div>`;
+    body = (prodotti.length?`<div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin-bottom:2px">Prodotti (${prodotti.length})</div>${prodotti.map(rigaP).join('')}`:'')
+         + (accessori.length?`<div style="font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono);margin:${prodotti.length?'12px':'0'} 0 2px">Accessori (${accessori.length})</div>${accessori.map(rigaA).join('')}`:'');
+  }
+  showModal('Dove è usato — '+_esc(nome),
+    `<div style="max-height:60vh;overflow:auto">${body}</div>
+     <div style="font-size:11px;color:var(--ink3);margin-top:8px">La quantità è quella per singolo pezzo, dalla distinta base.</div>`,
+    [ {label:'Chiudi', action:'closeModal()'} ]);
+};
+
 function buildGiacenzaRow(m, i, fabbQta) {
   const nomeEsc = (m.nome||'').replace(/'/g,"\\'");
   const g = (m.giacenza)||0;
@@ -6258,7 +6288,7 @@ function buildGiacenzaRow(m, i, fabbQta) {
     : `<span style="font-size:10px;color:var(--ink3);font-family:var(--mono)">—</span>`;
   return `<div class="giac-row" data-nome="${m.nome.toLowerCase()}" data-fabb="${fabbQta>0?'1':'0'}" data-tipo="${m.tipo&&m.tipo.materiaPrima?'materiaPrima ':''} ${m.tipo&&m.tipo.semilavorato?'semilavorato ':''} ${m.tipo&&m.tipo.acquisto?'acquisto':''}">
     <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border)">
-      <span style="flex:1;font-size:12px">${m.nome}${m.materiaPrima?` <span style="font-size:10px;color:var(--ink3);font-family:var(--mono)">← ${m.materiaPrima}</span>`:''}
+      <span style="flex:1;font-size:12px"><span onclick="materialeDoveUsato('${nomeEsc}')" style="cursor:pointer;border-bottom:1px dotted var(--ink3)" title="Clicca: in quali prodotti/accessori è usato">${m.nome}</span>${m.materiaPrima?` <span style="font-size:10px;color:var(--ink3);font-family:var(--mono)">← ${m.materiaPrima}</span>`:''}
         <span style="margin-left:4px">${m.tipo&&m.tipo.materiaPrima?'<span class="badge badge-green" style="font-size:9px;padding:1px 5px">MP</span>':''}${m.tipo&&m.tipo.semilavorato?'<span class="badge badge-amber" style="font-size:9px;padding:1px 5px">SL</span>':''}${m.tipo&&m.tipo.acquisto?'<span class="badge badge-blue" style="font-size:9px;padding:1px 5px">ACQ</span>':''}</span>
       </span>
       <span style="text-align:right;min-width:52px;font-size:10px;color:${fabbQta>0?(manca?'var(--red)':'var(--ink2)'):'var(--ink3)'};font-family:var(--mono)" title="Fabbisogno ordini in Lav. 1 + Lav. 2">Fabb. ${fabbQta} ${m.um||'pz'}</span>
