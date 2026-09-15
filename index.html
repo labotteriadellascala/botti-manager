@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivi: validità di default portata da 10 a 7 giorni.">v2.93 — 11/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: la lista si apre sempre in ordine di arrivo, più recenti in alto (prima l'ordine dal cloud era instabile). Il clic sulle intestazioni continua a funzionare.">v2.94 — 15/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.93';
+window.APP_VERSION = '2.94';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10499,6 +10499,16 @@ function renderOrdiniEvento() {
   }
   // Aggancio a ogni ordine il suo indice ORIGINALE (così i pulsanti restano corretti dopo l'ordinamento)
   let listaIdx = list.map((o, i) => ({ o, i }));
+  // Ordinamento di DEFAULT: ordine di arrivo, più recenti in alto (l'ordine grezzo
+  // dal cloud non è stabile e la lista sembrava mescolarsi a ogni apertura).
+  // Chiave: data ordine desc, poi progressivo del numero desc (…- 13 prima di …- 12),
+  // poi indice desc. Il clic su un'intestazione sovrascrive come prima.
+  const _numProg = o => { const m = String(o.num||'').match(/(\d+)\s*$/); return m ? parseInt(m[1],10) : 0; };
+  listaIdx.sort((a, b) =>
+    String(b.o.data||'').localeCompare(String(a.o.data||'')) ||
+    (_numProg(b.o) - _numProg(a.o)) ||
+    (b.i - a.i)
+  );
   // Applico l'ordinamento scelto (se l'utente ha cliccato un'intestazione)
   listaIdx = applicaOrdinamento(listaIdx, 'ordiniEvento', (item, campo) => {
     const o = item.o;
