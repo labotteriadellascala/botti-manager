@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: la lista si apre sempre in ordine di arrivo, più recenti in alto (prima l'ordine dal cloud era instabile). Il clic sulle intestazioni continua a funzionare.">v2.94 — 15/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Conversione ordine evento → ordine: editor promemoria attivo anche prima di salvare; il promemoria dell'evento trasloca nell'ordine; l'evento diventa 'Convertito' SOLO a conferma dell'ordine (annullando resta Da convertire e intatto).">v2.95 — 15/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.94';
+window.APP_VERSION = '2.95';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -4447,6 +4447,9 @@ function renderFormOrdine(id, ordPrecompilato) {
     : null;
   // Preventivo da allegare come PDF (solo se il form nasce da "Crea ordine da preventivo"); azzerato altrimenti.
   window._prevPerAllegato = (ordPrecompilato && ordPrecompilato._prevPerAllegato) || null;
+  // Un form ordine "normale" annulla ogni conversione evento rimasta in sospeso
+  // (es. conversione aperta e poi abbandonata navigando altrove).
+  window._oeConversioneNum = null;
 
   // migrazione ordini vecchi (mono-prodotto) → righe
   if(ord && ord.righe && ord.righe.length) {
@@ -5051,6 +5054,20 @@ function salvaOrdine() {
   // Se l'ordine nasce da un preventivo: allega il PDF ufficiale del preventivo (in background).
   if (!_editId && window._prevPerAllegato) { _allegaPreventivoPdf(ordineToccato, window._prevPerAllegato); }
   window._prevPerAllegato = null;
+  // Se l'ordine nasce dalla CONVERSIONE di un ordine evento: SOLO ora (v2.95,
+  // a salvataggio riuscito) l'evento diventa convertito e cede il suo promemoria
+  // all'ordine. Annullando la conversione l'evento resta "Da convertire" e intatto.
+  if (!_editId && window._oeConversioneNum) {
+    const _lev = DB.get('ordiniEvento')||[];
+    const _ev = _lev.find(x => x.num === window._oeConversioneNum);
+    if (_ev) {
+      _ev.convertito = true;
+      _ev.dataConversione = new Date().toISOString().slice(0,10);
+      delete _ev.promemoriaData; delete _ev.promemoriaNota; delete _ev.promemoriaDest;
+      saveOrdiniEvento(_lev);
+    }
+  }
+  window._oeConversioneNum = null;
   window._duplicaMeta = null;            // consumati: il prossimo ordine non li eredita
   nav('ordini', document.querySelectorAll('.nav-item')[1]);
 }
@@ -10727,10 +10744,10 @@ function convertiInOrdine(i) {
     _conversioneDa: oe.num
   };
 
-  // Segno l'ordine evento come convertito
-  list[i].convertito = true;
-  list[i].dataConversione = new Date().toISOString().slice(0,10);
-  saveOrdiniEvento(list);
+  // La conversione resta IN SOSPESO: l'evento si marca convertito (e il suo
+  // promemoria trasloca nell'ordine) SOLO alla conferma dell'ordine, in
+  // salvaOrdine. Se Andrea annulla, l'evento resta "Da convertire" e intatto.
+  window._oeConversioneNum = oe.num;
 
   // Apro il FORM ORDINE VERO, pre-compilato
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -10740,7 +10757,16 @@ function convertiInOrdine(i) {
   document.getElementById('topbar-actions').innerHTML = '';
   closeSidebar();
 
+  // Editor promemoria: stessa inizializzazione di renderFormOrdine (prima mancava:
+  // il riquadro restava vuoto e il promemoria dell'evento si perdeva nella conversione).
+  // getPromLista legge i campi legacy promemoriaData/Nota/Dest messi in ordinePre.
+  _promEditWork = getPromLista(ordinePre).map(p=>({
+    id:(p.id && p.id!=='legacy')?p.id:nuovoIdProm(),
+    data:p.data||'', nota:p.nota||'', dest:normDest(p.dest),
+    stato:p.stato==='fatto'?'fatto':'attivo', creatoIl:p.creatoIl||null, fattoIl:p.fattoIl||null
+  }));
   renderFormOrdineHTML(ordinePre);
+  renderPromEditor();
 
   // Banner che ricorda la conversione + i prodotti della fiera da assegnare
   const cont = document.getElementById('form-ordine-container');
