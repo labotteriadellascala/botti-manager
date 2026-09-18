@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Materiali: clic sul nome di un materiale → scheda 'Dove è usato' con i prodotti e gli accessori che lo hanno in distinta base (quantità per pezzo, apertura diretta della distinta).">v2.96 — 15/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Scheda lead: nuovo tasto 'Anagrafica cliente' (solo con preventivo accettato) — mostra i dati compilati dal cliente all'accettazione online (nome, CF/P.IVA, indirizzo, contatti, SDI/PEC) con numero, totale e data/ora di accettazione.">v2.97 — 18/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.96';
+window.APP_VERSION = '2.97';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9444,11 +9444,70 @@ function gestisciLead(id){
       </div>
       ${_prevListaHtml(x.id)}
     </div>`;
+  // "Anagrafica cliente" compare SOLO se il lead ha un preventivo accettato/lavorato
+  // (è lì che il cliente ha compilato i suoi dati accettando online).
+  const _haAccettato = (typeof _prevList!=='undefined' && Array.isArray(_prevList))
+    ? _prevList.some(p => p.lead_id===x.id && (p.stato==='accettato'||p.stato==='lavorato')) : false;
   showModal('Scheda lead — ' + (x.nome||'lead'), html, [
+    ...(_haAccettato ? [{label:'👤 Anagrafica cliente', action:`anagraficaClienteLead('${x.id}')`}] : []),
     {label:'✎ Modifica campi', action:`editLeadMkt('${x.id}')`},
     {label:'Chiudi', action:'closeModal()'}
   ]);
 }
+
+// Anagrafica compilata dal cliente accettando il preventivo online + dati di
+// accettazione. Carica i preventivi COMPLETI dal cloud (la lista in cache ha
+// solo colonne ridotte, senza i campi cliente_*).
+window.anagraficaClienteLead = async function(leadId){
+  showModal('Anagrafica cliente', '<div style="padding:20px;text-align:center;color:var(--ink3)">Carico i dati dal cloud…</div>', [ {label:'Chiudi', action:'closeModal()'} ]);
+  let lista = [];
+  try{
+    const { data, error } = await sb.from('preventivi').select('*')
+      .eq('lead_id', leadId).in('stato',['accettato','lavorato'])
+      .order('accettato_at',{ascending:false, nullsFirst:false});
+    if(error) throw error;
+    lista = data||[];
+  }catch(e){
+    showModal('Anagrafica cliente', '<div style="color:var(--red);font-size:13px">Errore nel caricamento: '+_at(String(e.message||e))+'</div>', [ {label:'Chiudi', action:'closeModal()'} ]);
+    return;
+  }
+  if(!lista.length){
+    showModal('Anagrafica cliente', '<div style="color:var(--ink3);font-size:13px">Nessun preventivo accettato per questo lead.</div>', [ {label:'← Scheda', action:`closeModal();gestisciLead('${leadId}')`}, {label:'Chiudi', action:'closeModal()'} ]);
+    return;
+  }
+  // merge sui "fratelli": il primo valore non vuoto vince (stessa logica della conversione in ordine)
+  const gv = (...keys) => { for(const p of lista){ for(const k of keys){ const v=p[k]; if(v!=null && String(v).trim()!=='') return String(v); } } return ''; };
+  const riga = (label, val) => `<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:13px">
+      <span style="width:130px;color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding-top:2px">${label}</span>
+      <span style="flex:1;font-weight:${val?'600':'400'};color:${val?'var(--ink)':'var(--ink3)'}">${val?_at(val):'—'}</span>
+    </div>`;
+  const indirizzo = [gv('cliente_indirizzo','cliente_via'), [gv('cliente_cap'), gv('cliente_citta','cliente_città'), gv('cliente_prov','cliente_provincia')].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const pAcc = lista[0];   // il più recente accettato
+  const dtAcc = pAcc.accettato_at ? new Date(pAcc.accettato_at).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+  const compilata = !!gv('cliente_indirizzo','cliente_via','cliente_cf_piva','cliente_cf','cliente_piva');
+  const html = `
+    ${lista.map(p=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="text-mono" style="font-weight:600">${_at(p.numero||'—')}</span>
+        <span class="badge ${p.stato==='lavorato'?'badge-blue':'badge-green'}" style="font-size:10px">${_at(p.stato)}</span>
+        <span class="text-mono">${p.totale!=null?_prevEuro(p.totale):''}</span>
+        <span style="color:var(--ink3);margin-left:auto">accettato il <b>${p.accettato_at?new Date(p.accettato_at).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}</b></span>
+      </div>`).join('')}
+    ${compilata?'':'<div style="background:#fdf6e3;border:1px solid var(--amber);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;font-size:12px">⚠ Il cliente ha accettato ma non risulta l\'anagrafica compilata (può aver accettato un preventivo e compilato un altro, o niente).</div>'}
+    <div style="max-height:52vh;overflow:auto">
+      ${riga('Nome / Rag. soc.', gv('cliente_nome'))}
+      ${riga('CF / P.IVA', gv('cliente_cf_piva','cliente_cf','cliente_piva'))}
+      ${riga('Indirizzo', indirizzo)}
+      ${riga('Telefono', gv('cliente_telefono','cliente_tel'))}
+      ${riga('Email', gv('cliente_email'))}
+      ${riga('SDI', gv('cliente_sdi'))}
+      ${riga('PEC', gv('cliente_pec'))}
+    </div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:8px">Dati compilati dal cliente all'accettazione online${lista.length>1?' (uniti dai '+lista.length+' preventivi accettati: vince il primo valore compilato)':''}.</div>`;
+  showModal('Anagrafica cliente — accettazione '+_at(pAcc.numero||''), html, [
+    {label:'← Scheda', action:`closeModal();gestisciLead('${leadId}')`},
+    {label:'Chiudi', action:'closeModal()'}
+  ]);
+};
 
 // ═══════════════════════ MODULO PREVENTIVI (v2.33) ═══════════════════════
 // Editor preventivi agganciato ai lead. Scrive sulla tabella `preventivi`
