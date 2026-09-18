@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Riepilogo ordine: sotto Modello compare anche la riga Codice (codice catalogo del prodotto), quando il prodotto ha entrambi.">v2.98 — 18/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Piano produzione: le card mostrano anche il codice prodotto davanti al modello (multi-prodotto: elenco dei codici), come già nella Pianificazione.">v2.99 — 18/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.98';
+window.APP_VERSION = '2.99';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6021,7 +6021,7 @@ function renderProduzione() {
         return `<div class="kcard" onclick="showSchedaModal('${o.id}')">
           <div class="kcard-id">${o.num}${o.fuoriStandard?' <span class="badge badge-accent" style="font-size:9px">FS</span>':''}</div>
           <div class="kcard-name">${o.cliente}</div>
-          <div class="kcard-model" style="font-size:11px">${riepilogoProdotti(o)}</div>
+          <div class="kcard-model" style="font-size:11px">${riepilogoProdottiConCodice(o)}</div>
           ${coloreTag}
           ${saldoTag}
           <div class="kcard-date ${past?'urgent':urg?'urgent':'ok'}">📅 ${fmtDate(o.consegna)}${past?' ⚠':urg?' ⚠':''}</div>
