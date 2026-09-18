@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Scheda lead: nuovo tasto 'Anagrafica cliente' (solo con preventivo accettato) — mostra i dati compilati dal cliente all'accettazione online (nome, CF/P.IVA, indirizzo, contatti, SDI/PEC) con numero, totale e data/ora di accettazione.">v2.97 — 18/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Riepilogo ordine: sotto Modello compare anche la riga Codice (codice catalogo del prodotto), quando il prodotto ha entrambi.">v2.98 — 18/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.97';
+window.APP_VERSION = '2.98';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6088,6 +6088,7 @@ function showSchedaModal(id) {
     <div class="scheda-section">
       <div class="scheda-section-title">${righe.length>1?`Prodotto ${ri+1} di ${righe.length}`:'Prodotto'}</div>
       <div class="scheda-row"><span class="scheda-key">Modello</span><span class="scheda-val">${riga.prodottoNome||riga.prodotto}${riga.fuoriStandard?' <span style="color:var(--accent)">⚠ fuori std</span>':''}</span></div>
+      ${riga.prodotto && riga.prodottoNome ? `<div class="scheda-row"><span class="scheda-key">Codice</span><span class="scheda-val text-mono">${riga.prodotto}</span></div>` : ''}
       ${riga.colore?`<div class="scheda-row"><span class="scheda-key">Finitura</span><span class="scheda-val" style="color:var(--accent)">🎨 ${riga.colore}</span></div>`:''}
       ${riga.incisioni?`<div class="scheda-row"><span class="scheda-key">Incisioni</span><span class="scheda-val" style="color:var(--accent)">✏ ${riga.incisioni}</span></div>`:''}
       ${nomiAcc.length?`<div class="scheda-row"><span class="scheda-key">Accessori</span><span class="scheda-val">${nomiAcc.join(', ')}</span></div>`:''}
