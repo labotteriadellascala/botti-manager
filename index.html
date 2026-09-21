@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Piano produzione: le card mostrano anche il codice prodotto davanti al modello (multi-prodotto: elenco dei codici), come già nella Pianificazione.">v2.99 — 18/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: modificare l'Importo (o l'acconto) di una riga chiede conferma mostrando valore vecchio e nuovo — annullando, il valore torna quello di prima. Protezione contro le sovrascritture accidentali.">v3.00 — 18/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '2.99';
+window.APP_VERSION = '3.00';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -12154,7 +12154,19 @@ window.finGrow = function(t){ if(window.CSS && CSS.supports && CSS.supports('fie
 window.finUpd = function(id, field, el){
   const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
   let v;
-  if(field==='lordo'||field==='acconto'){ v=parseFloat(String(el.value).replace(',','.')); if(isNaN(v)) v=0; }
+  if(field==='lordo'||field==='acconto'){
+    v=parseFloat(String(el.value).replace(',','.')); if(isNaN(v)) v=0;
+    // Conferma sulle variazioni di IMPORTO (richiesta Andrea: capitava di
+    // sovrascrivere per errore). Se annulli, il valore vecchio torna al suo posto.
+    const vecchio = Number(m[field])||0;
+    if(vecchio !== v){
+      const desc = String(m.descrizione||'').replace(/\s+/g,' ').slice(0,70);
+      if(!confirm('Confermi la modifica dell\''+(field==='lordo'?'IMPORTO':'ACCONTO')+'?\n\n'+(desc?'"'+desc+'"\n':'')+'Da '+eurF(vecchio)+'  →  a '+eurF(v))){
+        el.value = vecchio;
+        return;
+      }
+    }
+  }
   else if(field==='aliquota'){ v=parseFloat(el.value); if(!isFinite(v)) v=null; }
   else v=el.value;
   m[field]=v;
