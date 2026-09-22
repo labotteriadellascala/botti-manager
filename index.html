@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: modificare l'Importo (o l'acconto) di una riga chiede conferma mostrando valore vecchio e nuovo — annullando, il valore torna quello di prima. Protezione contro le sovrascritture accidentali.">v3.00 — 18/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Tabella Ordini: la colonna Prodotto mostra il CODICE catalogo al posto della descrizione (+N acc.); multi-prodotto: elenco codici. Anche l'ordinamento della colonna segue il codice.">v3.01 — 22/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.00';
+window.APP_VERSION = '3.01';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3305,6 +3305,16 @@ function riepilogoProdotti(o) {
   }
   return `${righe.length} prodotti`;
 }
+// Come riepilogoProdotti, ma col SOLO CODICE al posto della descrizione (tabella Ordini).
+// Se un prodotto non ha codice a catalogo, ripiega sulla descrizione per non lasciare il vuoto.
+function riepilogoProdottiSoloCodice(o) {
+  const mono = c => `<span style="font-family:var(--mono);font-weight:600">${_esc(c)}</span>`;
+  const uno = r => (r.prodotto?mono(r.prodotto):_esc(r.prodottoNome||'—')) + (r.accessori&&r.accessori.length?` +${r.accessori.length} acc.`:'');
+  const righe = o.righe||[];
+  if(!righe.length) return o.prodotto?mono(o.prodotto):_esc(o.prodottoNome||'—');
+  if(righe.length===1) return uno(righe[0]);
+  return `${righe.length} prodotti: ` + righe.map(r=>r.prodotto?mono(r.prodotto):_esc(r.prodottoNome||'—')).join(', ');
+}
 // Come riepilogoProdotti, ma con il CODICE prodotto davanti alla descrizione.
 // Multi-prodotto: mostra anche l'elenco dei codici (es. "2 prodotti: BTT-M1, REF8-MET").
 function riepilogoProdottiConCodice(o) {
@@ -4374,7 +4384,7 @@ function renderOrdini() {
       case 'creato':   return o.creato || '';
       case 'cliente':  return o.cliente || '';
       case 'canale':   return o.canale || '';
-      case 'prodotto': return riepilogoProdotti(o);
+      case 'prodotto': return (o.righe&&o.righe[0]&&(o.righe[0].prodotto||o.righe[0].prodottoNome)) || o.prodotto || o.prodottoNome || '';   // ordina per codice, come mostrato in colonna
       case 'consegna': return o.consegna || '';
       case 'prezzo':   return o.prezzoTotale || 0;
       case 'saldo':    return calcolaSaldo(o);
@@ -4410,7 +4420,7 @@ function renderOrdini() {
     <td class="text-mono text-sm" style="white-space:nowrap;color:var(--ink2)">${o.creato?fmtDate(o.creato):'—'}</td>
     <td>${o.cliente}${bellOrdine(o)}</td>
     <td>${o.canale ? `<span class="badge badge-accent" style="font-size:11px">${o.canale}</span>` : '—'}</td>
-    <td>${riepilogoProdotti(o)}${o.fuoriStandard?` <span class="badge badge-accent">FS</span>`:''}</td>
+    <td>${riepilogoProdottiSoloCodice(o)}${o.fuoriStandard?` <span class="badge badge-accent">FS</span>`:''}</td>
     <td>${fmtDate(o.consegna)}</td>
     <td class="text-mono">${fmt(o.prezzoTotale)} €</td>
     <td class="text-mono" style="color:${saldo>0?'var(--red)':'var(--green)'}">${saldo>0?fmt(saldo)+' €':'✓'}</td>
