@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Liste preventivi (Bozze/Inviati/Accettati): su ogni riga nuovo tasto 'Scheda' che porta dritto alla scheda del lead.">v3.02 — 23/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="TV officina: le card seguono la stessa disposizione della Pianificazione (posizioni di trascinamento via nuova vista tv_posizioni, ordini e attività mescolati). Senza la vista, ordina per numero come prima.">v3.03 — 23/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.02';
+window.APP_VERSION = '3.03';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -2253,11 +2253,24 @@ async function _caricaDatiTV() {
       const r = await sb.from('tv_attivita').select('valore').limit(1);
       if (!r.error && r.data && r.data.length && Array.isArray(r.data[0].valore)) att = r.data[0].valore;
     } catch (e) {}
-    _renderTV(_calcTV(data || [], att));
+    // Posizioni di trascinamento dalla vista tv_posizioni (num → pianifPos), così la TV
+    // rispecchia ESATTAMENTE la disposizione della Pianificazione. Se la vista non
+    // esiste ancora, la TV funziona comunque (ordina per numero come prima).
+    const posMap = {};
+    try {
+      const r2 = await sb.from('tv_posizioni').select('num,pianif_pos');
+      if (!r2.error && Array.isArray(r2.data)) r2.data.forEach(r => { const p = parseFloat(r.pianif_pos); if (isFinite(p)) posMap[r.num] = p; });
+    } catch (e) {}
+    _renderTV(_calcTV(data || [], att, posMap));
   } catch (e) { _renderTV({ errore: String((e && e.message) || e) }); }
 }
 
-function _calcTV(rows, attivita) {
+function _calcTV(rows, attivita, posMap) {
+  posMap = posMap || {};
+  // Stesse formule di posizione della Pianificazione (_effPosOrd/_effPosAtt):
+  // così ordini e attività si dispongono sulla TV nell'ordine del trascinamento.
+  const effO = o => { const p = posMap[o.num]; return (typeof p==='number'&&isFinite(p)) ? p : 1e6 + (parseFloat(o.num)||0)*1000; };
+  const effA = a => { if(typeof a.pos==='number'&&isFinite(a.pos)) return a.pos; const m=/^att_(\d{10,})/.exec(a.id||''); return 2e9 + (m ? (+m[1])/1000 : 0); };
   const EVASO = { 'Completato':1, 'Saldato':1, 'Consegnato':1 };
   const WD = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
   function fmt(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -2279,7 +2292,7 @@ function _calcTV(rows, attivita) {
     const g = a.giorno || a.data || a.giornoKey || '';
     if (lunKeyOf(g) !== lunKey) return;
     const d = parse(g); let w = d ? (d.getDay()+6)%7 : 0; if (w<0||w>6) w=0;
-    const norm = { testo: a.testo||a.txt||a.text||a.nome||'', dest: DEST_TV.includes(a.dest)?a.dest:'Entrambi', fatta: !!a.fatta };
+    const norm = { testo: a.testo||a.txt||a.text||a.nome||'', dest: DEST_TV.includes(a.dest)?a.dest:'Entrambi', fatta: !!a.fatta, _eff: effA(a) };
     if (!norm.testo) return;
     days[w].att.push(norm);
     if (norm.fatta) days[w].attDone++;
@@ -2289,7 +2302,7 @@ function _calcTV(rows, attivita) {
   rows.forEach(o => {
     if (lunKeyOf(o.settimana) === lunKey) {
       const d = parse(o.settimana); let w = d ? (d.getDay()+6)%7 : 0; if (w<0||w>6) w=0;
-      const ev = !!EVASO[o.stato]; o._done = ev;
+      const ev = !!EVASO[o.stato]; o._done = ev; o._eff = effO(o);
       days[w].orders.push(o); tot++;
       if (ev){ days[w].done++; evasi++; }
       const cons = parse(o.consegna);
@@ -2298,7 +2311,12 @@ function _calcTV(rows, attivita) {
     const dc = parse(o.data_consegnato);
     if (dc && dc.getTime() === today.getTime()) consOggi++;
   });
-  days.forEach(g => g.orders.sort((a,b)=>String(a.num).localeCompare(String(b.num))));
+  // Lista unica per giorno: ordini + attività mescolati per posizione di trascinamento,
+  // identica alla disposizione della Pianificazione (giorni).
+  days.forEach(g => {
+    g.items = [ ...g.orders.map(o=>({t:'o', eff:o._eff, v:o})), ...g.att.map(a=>({t:'a', eff:a._eff, v:a})) ]
+      .sort((x,y)=>x.eff-y.eff);
+  });
 
   const show = [0,1,2,3,4];
   if (days[5].orders.length || days[5].att.length) show.push(5);
@@ -2391,10 +2409,11 @@ function _renderTV(s) {
       '<div class="ac"'+(a.fatta?' style="text-decoration:line-through;opacity:0.6"':'')+'>'+(a.fatta?'✓ ':'')+_tvEsc(a.testo)+'</div>'+
       '<div class="ad" style="color:'+c+'">'+_tvEsc(a.dest)+'</div></div>'; };
   const colonna = g => {
-    const cards = (g.orders.length
-      ? g.orders.slice(0,MAXc).map(card).join('') + (g.orders.length>MAXc?'<div class="tv-more">…+'+(g.orders.length-MAXc)+'</div>':'')
-      : (g.att.length?'':'<div class="tv-empty">—</div>'))
-      + g.att.map(cardAtt).join('');
+    const items = g.items || [];
+    const cards = items.length
+      ? items.slice(0,MAXc).map(it => it.t==='o' ? card(it.v) : cardAtt(it.v)).join('')
+        + (items.length>MAXc?'<div class="tv-more">…+'+(items.length-MAXc)+'</div>':'')
+      : '<div class="tv-empty">—</div>';
     const cont = (g.orders.length?g.done+'/'+g.orders.length:'') + (g.att.length?(g.orders.length?' · ':'')+'📌'+g.attDone+'/'+g.att.length:'');
     return '<div class="tv-day'+(g.idx===s.todayIdx?' oggi':'')+'">'+
       '<div class="dhd"><div class="dl">'+g.label+' <span>'+g.date.getDate()+'/'+(g.date.getMonth()+1)+'</span>'+(g.idx===s.todayIdx?'<span class="oggi-tag">OGGI</span>':'')+'</div>'+
