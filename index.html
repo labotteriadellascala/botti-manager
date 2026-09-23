@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: sulle card ordine dei giorni nuovo tasto ✎ per una nota di pianificazione (📝 sulla card) e pill operatore che cicla Stefano/Nikolaj/Entrambi/Andrea al click. Salvati sull'ordine.">v3.04 — 23/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="TV officina: le card ordine mostrano anche nota 📝 e operatore (via vista tv_posizioni estesa); la colonna di OGGI mostra fino a 14 card prima del taglio …+N.">v3.05 — 23/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.04';
+window.APP_VERSION = '3.05';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -2256,17 +2256,22 @@ async function _caricaDatiTV() {
     // Posizioni di trascinamento dalla vista tv_posizioni (num → pianifPos), così la TV
     // rispecchia ESATTAMENTE la disposizione della Pianificazione. Se la vista non
     // esiste ancora, la TV funziona comunque (ordina per numero come prima).
-    const posMap = {};
+    const posMap = {}, notaMap = {}, destMap = {};
     try {
-      const r2 = await sb.from('tv_posizioni').select('num,pianif_pos');
-      if (!r2.error && Array.isArray(r2.data)) r2.data.forEach(r => { const p = parseFloat(r.pianif_pos); if (isFinite(p)) posMap[r.num] = p; });
+      let r2 = await sb.from('tv_posizioni').select('num,pianif_pos,pianif_nota,pianif_dest');
+      if (r2.error) r2 = await sb.from('tv_posizioni').select('num,pianif_pos');   // vista non ancora estesa con nota/operatore
+      if (!r2.error && Array.isArray(r2.data)) r2.data.forEach(r => {
+        const p = parseFloat(r.pianif_pos); if (isFinite(p)) posMap[r.num] = p;
+        if (r.pianif_nota) notaMap[r.num] = r.pianif_nota;
+        if (r.pianif_dest) destMap[r.num] = r.pianif_dest;
+      });
     } catch (e) {}
-    _renderTV(_calcTV(data || [], att, posMap));
+    _renderTV(_calcTV(data || [], att, posMap, notaMap, destMap));
   } catch (e) { _renderTV({ errore: String((e && e.message) || e) }); }
 }
 
-function _calcTV(rows, attivita, posMap) {
-  posMap = posMap || {};
+function _calcTV(rows, attivita, posMap, notaMap, destMap) {
+  posMap = posMap || {}; notaMap = notaMap || {}; destMap = destMap || {};
   // Stesse formule di posizione della Pianificazione (_effPosOrd/_effPosAtt):
   // così ordini e attività si dispongono sulla TV nell'ordine del trascinamento.
   const effO = o => { const p = posMap[o.num]; return (typeof p==='number'&&isFinite(p)) ? p : 1e6 + (parseFloat(o.num)||0)*1000; };
@@ -2303,6 +2308,7 @@ function _calcTV(rows, attivita, posMap) {
     if (lunKeyOf(o.settimana) === lunKey) {
       const d = parse(o.settimana); let w = d ? (d.getDay()+6)%7 : 0; if (w<0||w>6) w=0;
       const ev = !!EVASO[o.stato]; o._done = ev; o._eff = effO(o);
+      o._nota = notaMap[o.num] || ''; o._dest = destMap[o.num] || '';
       days[w].orders.push(o); tot++;
       if (ev){ days[w].done++; evasi++; }
       const cons = parse(o.consegna);
@@ -2399,20 +2405,23 @@ function _renderTV(s) {
   }
 
   const MAXc = 8;
-  const card = o => '<div class="tv-card '+(o._done?'done':'todo')+'">'+
-    '<div class="cn">'+_tvEsc(o.num)+(o._done?' ✓':'')+'</div>'+
-    '<div class="cc">'+_tvEsc(o.cliente||'—')+'</div>'+
-    '<div class="cm">'+_tvEsc(o.modello||'—')+(o.finitura?' · '+_tvEsc(o.finitura):'')+'</div></div>';
   const ATT_COL_TV = { Stefano:'#6FA8DC', Nikolaj:'#E0C05A', Entrambi:'#A88FD8', Andrea:'#6FBF77' };
+  const card = o => '<div class="tv-card '+(o._done?'done':'todo')+'">'+
+    '<div class="cn" style="display:flex;justify-content:space-between;gap:0.6vmin"><span>'+_tvEsc(o.num)+(o._done?' ✓':'')+'</span>'+
+      (o._dest?'<span style="color:'+(ATT_COL_TV[o._dest]||'#9A9082')+';font-weight:700">'+_tvEsc(o._dest)+'</span>':'')+'</div>'+
+    '<div class="cc">'+_tvEsc(o.cliente||'—')+'</div>'+
+    '<div class="cm">'+_tvEsc(o.modello||'—')+(o.finitura?' · '+_tvEsc(o.finitura):'')+'</div>'+
+    (o._nota?'<div class="cm" style="color:#E0BC3A;margin-top:0.2vmin">📝 '+_tvEsc(o._nota)+'</div>':'')+'</div>';
   const cardAtt = a => { const c = ATT_COL_TV[a.dest]||'#9A9082';
     return '<div class="tv-att'+(a.fatta?' done':'')+'" style="border-color:'+c+'">'+
       '<div class="ac"'+(a.fatta?' style="text-decoration:line-through;opacity:0.6"':'')+'>'+(a.fatta?'✓ ':'')+_tvEsc(a.testo)+'</div>'+
       '<div class="ad" style="color:'+c+'">'+_tvEsc(a.dest)+'</div></div>'; };
   const colonna = g => {
     const items = g.items || [];
+    const cap = g.idx===s.todayIdx ? 14 : MAXc;   // la colonna di OGGI è larga: mostra più card
     const cards = items.length
-      ? items.slice(0,MAXc).map(it => it.t==='o' ? card(it.v) : cardAtt(it.v)).join('')
-        + (items.length>MAXc?'<div class="tv-more">…+'+(items.length-MAXc)+'</div>':'')
+      ? items.slice(0,cap).map(it => it.t==='o' ? card(it.v) : cardAtt(it.v)).join('')
+        + (items.length>cap?'<div class="tv-more">…+'+(items.length-cap)+'</div>':'')
       : '<div class="tv-empty">—</div>';
     const cont = (g.orders.length?g.done+'/'+g.orders.length:'') + (g.att.length?(g.orders.length?' · ':'')+'📌'+g.attDone+'/'+g.att.length:'');
     return '<div class="tv-day'+(g.idx===s.todayIdx?' oggi':'')+'">'+
