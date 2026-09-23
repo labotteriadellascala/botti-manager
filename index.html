@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="TV officina: le card seguono la stessa disposizione della Pianificazione (posizioni di trascinamento via nuova vista tv_posizioni, ordini e attività mescolati). Senza la vista, ordina per numero come prima.">v3.03 — 23/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: sulle card ordine dei giorni nuovo tasto ✎ per una nota di pianificazione (📝 sulla card) e pill operatore che cicla Stefano/Nikolaj/Entrambi/Andrea al click. Salvati sull'ordine.">v3.04 — 23/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.03';
+window.APP_VERSION = '3.04';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5371,6 +5371,25 @@ window.attDel = function(id){
 // riceve una posizione IMPLICITA deterministica: ordini per numero (1e6+num*1000),
 // attività dopo gli ordini (dal timestamp nell'id) → la prima visualizzazione è
 // identica a prima del drag&drop. Il drop calcola il punto medio tra i vicini.
+// Nota e operatore della CARD di pianificazione: vivono sull'ordine (jsonb dati,
+// campi pianifNota/pianifDest), salvataggio mirato con salvaOrdineSingolo.
+window.pfCardNota = async function(id){
+  const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return;
+  const t=prompt('Nota di pianificazione per l\'ordine '+(o.num||'')+' (lascia vuoto per toglierla):', o.pianifNota||'');
+  if(t===null) return;
+  const v=t.trim();
+  if(v) o.pianifNota=v; else delete o.pianifNota;
+  try{ await salvaOrdineSingolo(o); }catch(e){}
+  renderPianificazione();
+};
+window.pfCardDest = async function(id){
+  const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return;
+  const seq=['','Stefano','Nikolaj','Entrambi','Andrea'];
+  const next=seq[(seq.indexOf(o.pianifDest||'')+1)%seq.length];
+  if(next) o.pianifDest=next; else delete o.pianifDest;
+  try{ await salvaOrdineSingolo(o); }catch(e){}
+  renderPianificazione();
+};
 function _effPosOrd(o){ return (typeof o.pianifPos==='number'&&isFinite(o.pianifPos)) ? o.pianifPos : 1e6 + (parseFloat(o.num)||0)*1000; }
 function _effPosAtt(a){ if(typeof a.pos==='number'&&isFinite(a.pos)) return a.pos; const m=/^att_(\d{10,})/.exec(a.id||''); return 2e9 + (m ? (+m[1])/1000 : 0); }
 
@@ -5547,10 +5566,13 @@ function renderPianificazione(){
     <div style="display:flex;align-items:center;gap:4px"><div style="font-size:10px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_EVASO_PF[o.stato]?'<span style="color:var(--green)">'+_esc(o.stato)+'</span>':_esc(o.stato)}${_off?' · <span style="color:#2E6FB2;font-weight:700" title="QR di apertura scansionato in officina, lavorazione in corso">🔧 in officina</span>':''}</div><span class="pf-handle" title="Trascina per spostare">⠿</span></div>
     <div style="font-weight:600;font-size:12.5px;line-height:1.2;margin:1px 0">${_esc(o.cliente||'—')}</div>
     <div style="font-size:11px;color:var(--ink2);line-height:1.2">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
-    <div style="display:flex;gap:4px;margin-top:5px">
+    ${o.pianifNota?`<div style="font-size:11px;background:#FFF6E0;border:1px dashed #E0BC3A;color:#5C4A00;border-radius:5px;padding:2px 6px;margin-top:3px;white-space:pre-wrap">📝 ${_esc(o.pianifNota)}</div>`:''}
+    <div style="display:flex;gap:4px;margin-top:5px;align-items:center">
       <button class="btn btn-sm" title="Giorno precedente" onclick="event.stopPropagation();pianificaShiftGiorno('${o.id}',-1)" style="padding:1px 7px">‹</button>
       <button class="btn btn-sm btn-danger" title="Togli dalla pianificazione" onclick="event.stopPropagation();pianificaRemove('${o.id}')" style="padding:1px 7px">✕</button>
       <button class="btn btn-sm" title="Giorno successivo" onclick="event.stopPropagation();pianificaShiftGiorno('${o.id}',1)" style="padding:1px 7px">›</button>
+      <button class="btn btn-sm" title="Nota su questa card (appunto di pianificazione)" onclick="event.stopPropagation();pfCardNota('${o.id}')" style="padding:1px 7px">✎</button>
+      ${(()=>{const c=ATT_COLORI[o.pianifDest]; return `<button title="${o.pianifDest?('Assegnata a '+o.pianifDest):'Assegna a un operatore'} — clicca per cambiare" onclick="event.stopPropagation();pfCardDest('${o.id}')" style="margin-left:auto;font-size:9.5px;font-weight:700;font-family:var(--mono);border:1px solid ${c?c.bordo:'var(--border)'};background:${c?'#fff':'transparent'};color:${c?c.testo:'var(--ink3)'};border-radius:10px;padding:1px 7px;cursor:pointer">${o.pianifDest?_esc(o.pianifDest):'👤'}</button>`;})()}
     </div></div>`; };
 
   // attività libere della settimana, raggruppate per giorno
