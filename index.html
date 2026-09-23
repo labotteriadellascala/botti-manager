@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Tabella Ordini: la colonna Prodotto mostra il CODICE catalogo al posto della descrizione (+N acc.); multi-prodotto: elenco codici. Anche l'ordinamento della colonna segue il codice.">v3.01 — 22/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Liste preventivi (Bozze/Inviati/Accettati): su ogni riga nuovo tasto 'Scheda' che porta dritto alla scheda del lead.">v3.02 — 23/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.01';
+window.APP_VERSION = '3.02';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10144,6 +10144,7 @@ function mostraListaPreventivi(stato){
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_at(chi)}</span>
         <span class="text-mono" style="font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();apriEditorPreventivo('${p.lead_id}','${p.id}')">Apri</button>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" title="Vai alla scheda del lead" onclick="closeModal();gestisciLead('${p.lead_id}')">Scheda</button>
         ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Link</button>`:''}
         <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina" onclick="eliminaPreventivo('${p.id}')">🗑</button>
       </div>`;
