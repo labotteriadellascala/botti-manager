@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="TV officina: finestra a 3 giorni (oggi + 2 lavorativi, anche a cavallo di settimana, domenica saltata); giorni affollati in modalità compatta automatica (>12 voci), tetti 20/14 con …+N come ultima difesa.">v3.06 — 23/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: tasto ✎ anche sulle attività per modificarne il testo (prompt precompilato). La nota 📝 delle card ordine si modifica ripremendo il suo ✎.">v3.07 — 23/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.06';
+window.APP_VERSION = '3.07';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5361,6 +5361,15 @@ window.attAdd = function(dayIdx, dest){
   lista.push({ id:'att_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), testo, giorno:_giornoKey(dayIdx), dest:ATT_DEST.includes(dest)?dest:'Entrambi', fatta:false });
   _attSalva(lista);
 };
+// Modifica il testo di un'attività esistente (prompt precompilato col testo attuale)
+window.attModifica = function(id){
+  const lista=_attLista(); const a=lista.find(x=>x.id===id); if(!a) return;
+  const t=prompt('Modifica attività:', a.testo||'');
+  if(t===null) return;
+  const v=t.trim();
+  if(!v){ alert('Il testo non può restare vuoto: per eliminare l\'attività usa ✕.'); return; }
+  a.testo=v; _attSalva(lista);
+};
 window.attToggle = function(id){
   const lista = _attLista(); const a=lista.find(x=>x.id===id); if(!a) return;
   a.fatta = !a.fatta; _attSalva(lista);
@@ -5611,6 +5620,7 @@ function renderPianificazione(){
       <button class="btn btn-sm" title="Giorno precedente" onclick="attShift('${a.id}',-1)" style="padding:1px 7px">‹</button>
       <button class="btn btn-sm btn-danger" title="Elimina attività" onclick="attDel('${a.id}')" style="padding:1px 7px">✕</button>
       <button class="btn btn-sm" title="Giorno successivo" onclick="attShift('${a.id}',1)" style="padding:1px 7px">›</button>
+      <button class="btn btn-sm" title="Modifica il testo dell'attività" onclick="attModifica('${a.id}')" style="padding:1px 7px">✎</button>
       <button title="Assegnata a ${_esc(a.dest)} — clicca per cambiare" onclick="attCycleDest('${a.id}')" style="margin-left:auto;font-size:9.5px;font-weight:700;font-family:var(--mono);border:1px solid ${c.bordo};background:#fff;color:${c.testo};border-radius:10px;padding:1px 7px;cursor:pointer">${_esc(a.dest)}</button>
     </div></div>`; };
 
