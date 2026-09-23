@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="TV officina: le card ordine mostrano anche nota 📝 e operatore (via vista tv_posizioni estesa); la colonna di OGGI mostra fino a 14 card prima del taglio …+N.">v3.05 — 23/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="TV officina: finestra a 3 giorni (oggi + 2 lavorativi, anche a cavallo di settimana, domenica saltata); giorni affollati in modalità compatta automatica (>12 voci), tetti 20/14 con …+N come ultima difesa.">v3.06 — 23/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1317,7 +1317,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.05';
+window.APP_VERSION = '3.06';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -2283,34 +2283,39 @@ function _calcTV(rows, attivita, posMap, notaMap, destMap) {
   function lunKeyOf(s){ const d=parse(s); if(!d) return null; const w=(d.getDay()+6)%7; const m=new Date(d); m.setDate(d.getDate()-w); return fmt(m); }
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const todayIdx = (today.getDay()+6)%7;
-  const lun = new Date(today); lun.setDate(today.getDate()-todayIdx);
-  const dom = new Date(lun);   dom.setDate(lun.getDate()+6);
-  const lunKey = fmt(lun);
 
+  // Finestra a 3 GIORNI: oggi + i 2 giorni lavorativi successivi (la domenica si salta),
+  // anche a cavallo della settimana successiva. Oggi è sempre la prima colonna.
   const days = [];
-  for (let i=0;i<7;i++){ const d=new Date(lun); d.setDate(lun.getDate()+i); days.push({ idx:i, date:d, label:WD[i], orders:[], done:0, att:[], attDone:0 }); }
+  { let d = new Date(today);
+    while (days.length < 3) {
+      if (d.getDay() !== 0 || days.length === 0) {
+        days.push({ idx: days.length, date: new Date(d), key: fmt(d), label: WD[(d.getDay()+6)%7], orders:[], done:0, att:[], attDone:0 });
+      }
+      d.setDate(d.getDate()+1);
+    }
+  }
+  const byKey = {}; days.forEach(g => { byKey[g.key] = g; });
 
-  // attività libere della settimana (campi normalizzati come nel gestionale, tolleranti al legacy)
+  // attività libere dei 3 giorni (campi normalizzati come nel gestionale, tolleranti al legacy)
   const DEST_TV = ['Stefano','Nikolaj','Entrambi','Andrea'];
   (attivita||[]).forEach(a => {
-    const g = a.giorno || a.data || a.giornoKey || '';
-    if (lunKeyOf(g) !== lunKey) return;
-    const d = parse(g); let w = d ? (d.getDay()+6)%7 : 0; if (w<0||w>6) w=0;
+    const g = byKey[String(a.giorno || a.data || a.giornoKey || '').slice(0,10)];
+    if (!g) return;
     const norm = { testo: a.testo||a.txt||a.text||a.nome||'', dest: DEST_TV.includes(a.dest)?a.dest:'Entrambi', fatta: !!a.fatta, _eff: effA(a) };
     if (!norm.testo) return;
-    days[w].att.push(norm);
-    if (norm.fatta) days[w].attDone++;
+    g.att.push(norm);
+    if (norm.fatta) g.attDone++;
   });
 
   let tot=0, evasi=0, ritardo=0, consOggi=0;
   rows.forEach(o => {
-    if (lunKeyOf(o.settimana) === lunKey) {
-      const d = parse(o.settimana); let w = d ? (d.getDay()+6)%7 : 0; if (w<0||w>6) w=0;
+    const g = byKey[String(o.settimana||'').slice(0,10)];
+    if (g) {
       const ev = !!EVASO[o.stato]; o._done = ev; o._eff = effO(o);
       o._nota = notaMap[o.num] || ''; o._dest = destMap[o.num] || '';
-      days[w].orders.push(o); tot++;
-      if (ev){ days[w].done++; evasi++; }
+      g.orders.push(o); tot++;
+      if (ev){ g.done++; evasi++; }
       const cons = parse(o.consegna);
       if (!ev && cons && cons < today) ritardo++;
     }
@@ -2324,12 +2329,7 @@ function _calcTV(rows, attivita, posMap, notaMap, destMap) {
       .sort((x,y)=>x.eff-y.eff);
   });
 
-  const show = [0,1,2,3,4];
-  if (days[5].orders.length || days[5].att.length) show.push(5);
-  if (days[6].orders.length || days[6].att.length) show.push(6);
-  const giorni = show.map(i => days[i]);
-
-  return { lun, dom, giorni, todayIdx, tot, evasi, pct: tot?Math.round(evasi/tot*100):0, ritardo, consOggi, ts:new Date() };
+  return { lun: days[0].date, dom: days[2].date, giorni: days, todayIdx: 0, tot, evasi, pct: tot?Math.round(evasi/tot*100):0, ritardo, consOggi, ts:new Date() };
 }
 
 function _iniettaStileTV() {
@@ -2376,6 +2376,18 @@ function _iniettaStileTV() {
     .tv-card.done .cc{text-decoration:line-through;text-decoration-color:var(--mut)}
     .tv-card .cm{font-size:1.5vmin;color:var(--mut);line-height:1.15}
     .tv-more{font-family:'IBM Plex Mono',monospace;font-size:1.4vmin;color:var(--mut);text-align:center;padding-top:0.3vmin}
+    /* Giorno affollato (>12 voci): card e attività compatte, così si vede tutto */
+    .tv-day.folto .tv-dlist{gap:0.4vmin}
+    .tv-day.folto .tv-card{padding:0.4vmin 0.8vmin}
+    .tv-day.folto .tv-card .cc{font-size:1.55vmin}
+    .tv-day.folto .tv-card .cm{font-size:1.3vmin}
+    .tv-day.folto .tv-att{padding:0.3vmin 0.8vmin}
+    .tv-day.folto .tv-att .ac{font-size:1.5vmin}
+    .tv-day.oggi.folto .tv-card .cn{font-size:1.5vmin}
+    .tv-day.oggi.folto .tv-card .cc{font-size:2.1vmin}
+    .tv-day.oggi.folto .tv-card .cm{font-size:1.7vmin}
+    .tv-day.oggi.folto .tv-att .ac{font-size:1.9vmin}
+    .tv-day.oggi.folto .tv-att .ad{font-size:1.4vmin}
     .tv-att{background:#16130F;border:1px dashed var(--line);border-radius:0.8vmin;padding:0.6vmin 0.9vmin;display:flex;justify-content:space-between;gap:0.8vmin;align-items:baseline}
     .tv-att .ac{font-size:1.7vmin;font-weight:600;line-height:1.15}
     .tv-att .ad{font-family:'IBM Plex Mono',monospace;font-size:1.3vmin;flex:none}
@@ -2418,25 +2430,26 @@ function _renderTV(s) {
       '<div class="ad" style="color:'+c+'">'+_tvEsc(a.dest)+'</div></div>'; };
   const colonna = g => {
     const items = g.items || [];
-    const cap = g.idx===s.todayIdx ? 14 : MAXc;   // la colonna di OGGI è larga: mostra più card
+    const cap = g.idx===s.todayIdx ? 20 : 14;   // 3 colonne larghe: ci sta molto di più
+    const folto = items.length > 12;            // giorno affollato → card compatte (vedi CSS .folto)
     const cards = items.length
       ? items.slice(0,cap).map(it => it.t==='o' ? card(it.v) : cardAtt(it.v)).join('')
         + (items.length>cap?'<div class="tv-more">…+'+(items.length-cap)+'</div>':'')
       : '<div class="tv-empty">—</div>';
     const cont = (g.orders.length?g.done+'/'+g.orders.length:'') + (g.att.length?(g.orders.length?' · ':'')+'📌'+g.attDone+'/'+g.att.length:'');
-    return '<div class="tv-day'+(g.idx===s.todayIdx?' oggi':'')+'">'+
+    return '<div class="tv-day'+(g.idx===s.todayIdx?' oggi':'')+(folto?' folto':'')+'">'+
       '<div class="dhd"><div class="dl">'+g.label+' <span>'+g.date.getDate()+'/'+(g.date.getMonth()+1)+'</span>'+(g.idx===s.todayIdx?'<span class="oggi-tag">OGGI</span>':'')+'</div>'+
         '<div class="dn">'+cont+'</div></div>'+
       '<div class="tv-dlist">'+cards+'</div></div>';
   };
 
   root.innerHTML =
-    '<div class="tv-top"><div class="wk">Settimana <b>'+dd(s.lun)+' – '+dd(s.dom)+'</b></div>'+
+    '<div class="tv-top"><div class="wk">Oggi + 2 giorni <b>'+dd(s.lun)+' – '+dd(s.dom)+'</b></div>'+
       '<div class="mid"><div class="pct'+(s.pct>=100?' full':'')+'">'+s.pct+'%</div>'+
         '<div class="pcts">'+s.evasi+' di '+s.tot+' evasi</div></div>'+
       '<div class="clk" id="tv-clock">'+clk+'</div></div>'+
     '<div class="tv-days">'+ s.giorni.map(colonna).join('') +'</div>'+
-    '<div class="tv-foot"><span>In settimana: <b style="color:var(--ink)">'+s.tot+'</b></span>'+
+    '<div class="tv-foot"><span>Nei 3 giorni: <b style="color:var(--ink)">'+s.tot+'</b></span>'+
       (s.ritardo>0?'<span class="al">In ritardo: '+s.ritardo+'</span>':'')+
       '<span>Consegnati oggi: '+s.consOggi+'</span>'+
       '<span>Aggiornato alle '+s.ts.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})+' · auto ogni minuto</span></div>';
