@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: tasto ✎ anche sulle attività per modificarne il testo (prompt precompilato). La nota 📝 delle card ordine si modifica ripremendo il suo ✎.">v3.07 — 23/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Impostazioni: nuova card Account con l'email dell'utente connesso e pulsante Disconnetti (con conferma) — logout Supabase e ritorno alla schermata di accesso.">v3.08 — 26/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -930,6 +930,11 @@ td.fin-in{color:var(--green);font-weight:500}
       <input type="text" id="nuova-famiglia-input" placeholder="Es. Botte Vino" style="max-width:280px" onkeydown="if(event.key==='Enter')aggiungiFamiglia()">
       <button class="btn btn-primary" onclick="aggiungiFamiglia()">+ Aggiungi</button>
     </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Account</div>
+    <p style="font-size:13px;color:var(--ink2);margin-bottom:14px">Sei connesso come <b id="imp-account-email">—</b>. Disconnettendoti tornerai alla schermata di accesso: i dati restano al sicuro nel cloud.</p>
+    <button class="btn btn-danger" onclick="if(confirm('Disconnettersi dal gestionale?')) eseguiLogout()">⏻ Disconnetti</button>
   </div>
 </div>
 
@@ -1317,7 +1322,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.07';
+window.APP_VERSION = '3.08';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3127,6 +3132,12 @@ function canaleIcon(c) {
 
 // ─── IMPOSTAZIONI / CANALI ────────────────────────────────────────────────────
 function renderImpostazioni() {
+  // Email dell'account loggato nella card Account (già letta all'avvio in __UTENTE_EMAIL__)
+  const _accEl = document.getElementById('imp-account-email');
+  if (_accEl) {
+    if (window.__UTENTE_EMAIL__) _accEl.textContent = window.__UTENTE_EMAIL__;
+    else { try { sb.auth.getSession().then(r => { const u = r && r.data && r.data.session && r.data.session.user; if (u && u.email) _accEl.textContent = u.email; }); } catch(e){} }
+  }
   const canali = DB.get('canali')||[];
   document.getElementById('canali-list').innerHTML = canali.map((c,i)=>`
     <div style="display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border2);border-radius:99px;padding:4px 12px;font-size:13px">
