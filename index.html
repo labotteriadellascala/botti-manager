@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: nuova tabella 'Valore ordini per canale di arrivo' (anno corrente) — per canale: N ordini, valore, % e barre; totale in fondo. Mostra sempre tutti i canali.">v3.10 — 30/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: clic su un canale nella card 'Valore ordini per canale' → scheda con gli STATI degli ordini di quel canale (Inserito, Bloccato, In lavorazione, Completato… con N, valore e %).">v3.11 — 30/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.10';
+window.APP_VERSION = '3.11';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3427,6 +3427,44 @@ window.dashOrigineMese = function(mi){
      <div style="font-size:11px;color:var(--ink3);margin-top:8px">Canale = campo "Canale" dell'ordine, per data di inserimento. Valori netti come in tabella.</div>`,
     [ {label:'Chiudi', action:'closeModal()'} ]);
 };
+// Dettaglio STATI degli ordini di un canale (dalla card "Valore ordini per canale"):
+// per ogni stato N ordini + valore, stessi criteri della card (ricevuti nell'anno).
+window.dashCanaleStati = function(i){
+  const nome = (window._dashCanaliVoci||[])[i]; if (nome==null) return;
+  const ANNO = new Date().getFullYear();
+  const senza = nome === '— senza canale —';
+  const _f = n => (Number(n)||0).toLocaleString('it-IT');
+  const lista = (DB.get('ordini')||[]).filter(o=>{
+    if (!o.creato) return false;
+    const d = new Date(o.creato); if (d.getFullYear()!==ANNO) return false;
+    const c = String(o.canale||'').trim();
+    return senza ? !c : c===nome;
+  });
+  const STATI = ['Inserito','Bloccato','Da sviluppare','In lavorazione 1','In lavorazione 2','Completato','Saldato','Consegnato'];
+  const per = {}; let totN=0, totV=0;
+  lista.forEach(o=>{
+    const s = STATI.includes(o.stato) ? o.stato : (o.stato||'Inserito');
+    (per[s] = per[s] || { n:0, val:0 });
+    per[s].n += 1; per[s].val += o.prezzoTotale||0;
+    totN += 1; totV += o.prezzoTotale||0;
+  });
+  const ordine = [...STATI, ...Object.keys(per).filter(s=>!STATI.includes(s))];
+  const body = totN ? ordine.filter(s=>per[s]).map(s=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px">
+        <span style="width:150px">${statusBadge(s)}</span>
+        <span class="text-mono" style="width:34px;text-align:right"><strong>${per[s].n}</strong></span>
+        <span class="text-mono" style="flex:1;text-align:right;font-variant-numeric:tabular-nums">${_f(Math.round(per[s].val))} €</span>
+        <span class="text-mono" style="width:40px;text-align:right;color:var(--ink3);font-size:11px">${totV>0?Math.round(per[s].val/totV*100):0}%</span>
+      </div>`).join('')
+      + `<div style="display:flex;justify-content:flex-end;gap:10px;padding:9px 0;border-top:2px solid var(--border);font-size:13px;font-weight:700">
+          Totale <span class="text-mono">${totN} ordini</span> · <span class="text-mono">${_f(Math.round(totV))} €</span>
+        </div>`
+    : '<div style="color:var(--ink3);font-size:13px">Nessun ordine per questo canale nell\'anno.</div>';
+  showModal('Stati ordini — '+_esc(nome)+' · '+ANNO,
+    `<div style="max-height:60vh;overflow:auto">${body}</div>
+     <div style="font-size:11px;color:var(--ink3);margin-top:8px">Ordini ricevuti nel ${ANNO} (data di inserimento) per questo canale, in tutti gli stati attuali.</div>`,
+    [ {label:'Chiudi', action:'closeModal()'} ]);
+};
 function renderDashboard() {
   const ordini = DB.get('ordini')||[];
   const ANNO = new Date().getFullYear();
@@ -3595,11 +3633,12 @@ function renderDashboard() {
     });
     const voci = Object.entries(perCan).sort((a,b)=>b[1].val-a[1].val);
     const maxV = Math.max(1, ...voci.map(([,x])=>x.val));
+    window._dashCanaliVoci = voci.map(([c])=>c);   // per il click (nomi con apostrofi: passo l'indice)
     document.getElementById('dash-canali').innerHTML = voci.length ? `
     <div class="card" style="margin-top:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:12px">📣 Valore ordini per canale di arrivo — ${ANNO}</div>
       <div style="display:flex;flex-direction:column;gap:7px">
-        ${voci.map(([c,x])=>`<div style="display:flex;align-items:center;gap:10px;font-size:13px">
+        ${voci.map(([c,x],i)=>`<div onclick="dashCanaleStati(${i})" title="Clicca: stato degli ordini di ${_esc(c)}" style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer">
           <span style="width:170px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(c)}">${_esc(c)}</span>
           <div style="flex:1;height:8px;background:var(--border);border-radius:99px;overflow:hidden"><div style="height:100%;width:${Math.round(x.val/maxV*100)}%;background:var(--accent);border-radius:99px"></div></div>
           <span class="text-mono" style="width:34px;text-align:right"><strong>${x.n}</strong></span>
@@ -3610,7 +3649,7 @@ function renderDashboard() {
       <div style="display:flex;justify-content:flex-end;gap:10px;font-size:13px;font-weight:700;border-top:2px solid var(--border);margin-top:10px;padding-top:8px">
         Totale <span class="text-mono">${cTotN} ordini</span> · <span class="text-mono">${fmt(Math.round(cTotV))} €</span>
       </div>
-      <div style="font-size:11px;font-family:var(--mono);color:var(--ink3);margin-top:8px">Ordini ricevuti nel ${ANNO} (data di inserimento), valore = prezzo totale ordine. Mostra sempre tutti i canali, anche col filtro in alto attivo.</div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--ink3);margin-top:8px">Ordini ricevuti nel ${ANNO} (data di inserimento), valore = prezzo totale ordine. Mostra sempre tutti i canali, anche col filtro in alto attivo. Clicca un canale per lo <strong>stato degli ordini</strong>.</div>
     </div>` : '';
   }
 
