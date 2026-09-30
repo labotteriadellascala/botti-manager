@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivo online: il cliente può indicare la data di consegna richiesta (facoltativa) all'accettazione; precompila la Data consegna dell'ordine creato dal preventivo e compare nell'Anagrafica cliente.">v3.09 — 30/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: nuova tabella 'Valore ordini per canale di arrivo' (anno corrente) — per canale: N ordini, valore, % e barre; totale in fondo. Mostra sempre tutti i canali.">v3.10 — 30/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -761,6 +761,7 @@ td.fin-in{color:var(--green);font-weight:500}
   </div>
   <div id="dash-daconsegnare"></div>
   <div id="dash-resoconto"></div>
+  <div id="dash-canali"></div>
   <div id="dash-valoremedio"></div>
   <div id="dash-topprodotti"></div>
   <div id="dash-statclienti"></div>
@@ -1322,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.09';
+window.APP_VERSION = '3.10';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3579,6 +3580,39 @@ function renderDashboard() {
   <p style="font-size:12px;color:var(--ink3);margin-top:10px">
     📥 Ricevuti = ordini per data di inserimento. 📦 Consegnati = ordini spostati in "Consegnato" dal Piano produzione, contati dal mese in cui li sposti${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}. Clicca un mese per vedere l'<strong>origine</strong> degli ordini ricevuti.
   </p>`;
+
+  // ── ORDINI PER CANALE DI ARRIVO (anno intero, TUTTI i canali: ignora il filtro in alto) ──
+  {
+    const perCan = {}; let cTotN=0, cTotV=0;
+    ordini.forEach(o=>{
+      if (!o.creato) return;
+      const d = new Date(o.creato);
+      if (d.getFullYear()!==ANNO) return;
+      const c = String(o.canale||'').trim() || '— senza canale —';
+      (perCan[c] = perCan[c] || { n:0, val:0 });
+      perCan[c].n += 1; perCan[c].val += o.prezzoTotale||0;
+      cTotN += 1; cTotV += o.prezzoTotale||0;
+    });
+    const voci = Object.entries(perCan).sort((a,b)=>b[1].val-a[1].val);
+    const maxV = Math.max(1, ...voci.map(([,x])=>x.val));
+    document.getElementById('dash-canali').innerHTML = voci.length ? `
+    <div class="card" style="margin-top:18px">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin-bottom:12px">📣 Valore ordini per canale di arrivo — ${ANNO}</div>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        ${voci.map(([c,x])=>`<div style="display:flex;align-items:center;gap:10px;font-size:13px">
+          <span style="width:170px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(c)}">${_esc(c)}</span>
+          <div style="flex:1;height:8px;background:var(--border);border-radius:99px;overflow:hidden"><div style="height:100%;width:${Math.round(x.val/maxV*100)}%;background:var(--accent);border-radius:99px"></div></div>
+          <span class="text-mono" style="width:34px;text-align:right"><strong>${x.n}</strong></span>
+          <span class="text-mono" style="width:96px;text-align:right;font-variant-numeric:tabular-nums">${fmt(Math.round(x.val))} €</span>
+          <span class="text-mono" style="width:40px;text-align:right;color:var(--ink3);font-size:11px">${cTotV>0?Math.round(x.val/cTotV*100):0}%</span>
+        </div>`).join('')}
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;font-size:13px;font-weight:700;border-top:2px solid var(--border);margin-top:10px;padding-top:8px">
+        Totale <span class="text-mono">${cTotN} ordini</span> · <span class="text-mono">${fmt(Math.round(cTotV))} €</span>
+      </div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--ink3);margin-top:8px">Ordini ricevuti nel ${ANNO} (data di inserimento), valore = prezzo totale ordine. Mostra sempre tutti i canali, anche col filtro in alto attivo.</div>
+    </div>` : '';
+  }
 
   // ── VALORE MEDIO ORDINE (esclusi Bloccato e Da sviluppare) ──────────────────
   // Ordini ricevuti nell'anno. NB: escludendo "Da sviluppare", un ordine che matura
