@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Impostazioni: nuova card Account con l'email dell'utente connesso e pulsante Disconnetti (con conferma) — logout Supabase e ritorno alla schermata di accesso.">v3.08 — 26/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivo online: il cliente può indicare la data di consegna richiesta (facoltativa) all'accettazione; precompila la Data consegna dell'ordine creato dal preventivo e compare nell'Anagrafica cliente.">v3.09 — 30/09/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1322,7 +1322,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.08';
+window.APP_VERSION = '3.09';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9596,6 +9596,7 @@ window.anagraficaClienteLead = async function(leadId){
       ${riga('Email', gv('cliente_email'))}
       ${riga('SDI', gv('cliente_sdi'))}
       ${riga('PEC', gv('cliente_pec'))}
+      ${riga('Consegna richiesta', gv('consegna_richiesta') ? fmtDate(gv('consegna_richiesta')) : '')}
     </div>
     <div style="font-size:11px;color:var(--ink3);margin-top:8px">Dati compilati dal cliente all'accettazione online${lista.length>1?' (uniti dai '+lista.length+' preventivi accettati: vince il primo valore compilato)':''}.</div>`;
   showModal('Anagrafica cliente — accettazione '+_at(pAcc.numero||''), html, [
@@ -9794,7 +9795,7 @@ async function creaOrdineDaPreventivo(prevId){
     email: gm('cliente_email') || (lead&&lead.email) || '',
     cf: gm('cliente_cf_piva','cliente_cf','cliente_piva'),
     canale: '',
-    consegna: '',
+    consegna: gm('consegna_richiesta') || '',   // data di consegna richiesta dal cliente all'accettazione (facoltativa)
     stato: 'Inserito',
     prezzoTotale: (p.totale!=null) ? Number(p.totale) : 0,
     noteOrdine: nota,
