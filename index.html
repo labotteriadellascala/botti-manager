@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: clic su un canale nella card 'Valore ordini per canale' → scheda con gli STATI degli ordini di quel canale (Inserito, Bloccato, In lavorazione, Completato… con N, valore e %).">v3.11 — 30/09/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: riga '+ Pannello (codice nuovo)' tutta su una riga; sfrido vuoto nelle righe semilavorato di distinta = default dalle Impostazioni (prima valeva 0).">v3.12 — 01/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.11';
+window.APP_VERSION = '3.12';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7751,7 +7751,7 @@ function _costCalcola(){
   let MAT=0;
   (_cost.distinta||[]).forEach(r=>{ const qty=_cNum(r.qty);
     if(r.kind==='archivio'){
-      if(r.tipo==='SL'||r.tipo==='MP'){ const area=(_cNum(r.l1)*_cNum(r.l2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):0)/100; r._costo=area*(1+sc)*_cNum(r.cmq)*qty; }
+      if(r.tipo==='SL'||r.tipo==='MP'){ const area=(_cNum(r.l1)*_cNum(r.l2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):(r.tipo==='SL'?_costImp.scarto:0))/100; r._costo=area*(1+sc)*_cNum(r.cmq)*qty; }   // sfrido vuoto: SL → default Impostazioni, MP intera → 0
       else if(r.tipo==='AC'){ r._costo=_cNum(r.costo)*qty; }
       else r._costo=0;
     }
@@ -7914,14 +7914,14 @@ function _costRigaDistintaHtml(r,i){
   if(r.kind==='pannello'){
     const mp=(DB.get('materiali')||[]).filter(m=>(m.tipo||{}).materiaPrima).sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
     const opts=`<option value="">— materia prima —</option>`+mp.map(m=>`<option value="${_esc(m.nome)}" ${r.mpNome===m.nome?'selected':''}>${_esc(m.nome)}</option>`).join('');
-    return `<div class="distinta-row" style="flex-wrap:wrap">
-      <input type="text" style="flex:1;min-width:140px" placeholder="descrizione pezzo" value="${_esc(r.descr||'')}" oninput="_cost.distinta[${i}].descr=this.value">
-      <select style="min-width:150px" onchange="_cost.distinta[${i}].mpNome=this.value;_costDisegna()">${opts}</select>
-      <input type="number" style="width:80px" placeholder="lato1" value="${_esc(r.lato1)}" oninput="_cost.distinta[${i}].lato1=this.value;_costRiep()">
-      <input type="number" style="width:80px" placeholder="lato2" value="${_esc(r.lato2)}" oninput="_cost.distinta[${i}].lato2=this.value;_costRiep()">
-      <input type="number" class="qty-input" placeholder="pz" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
-      <input type="number" style="width:70px" placeholder="sfrido%" value="${_esc(r.scarto)}" oninput="_cost.distinta[${i}].scarto=this.value;_costRiep()">
-      <span id="cost-drc-${i}" style="min-width:80px;text-align:right;font-weight:600">${_cEuro(r._costo)}</span>
+    return `<div class="distinta-row" style="flex-wrap:nowrap">
+      <input type="text" style="flex:2;min-width:0" placeholder="descrizione pezzo" title="Descrizione del pezzo" value="${_esc(r.descr||'')}" oninput="_cost.distinta[${i}].descr=this.value">
+      <select style="flex:2;min-width:0" title="Materia prima (pannello) da cui si taglia" onchange="_cost.distinta[${i}].mpNome=this.value;_costDisegna()">${opts}</select>
+      <input type="number" style="width:62px" placeholder="lato1" title="Lato 1 (mm)" value="${_esc(r.lato1)}" oninput="_cost.distinta[${i}].lato1=this.value;_costRiep()">
+      <input type="number" style="width:62px" placeholder="lato2" title="Lato 2 (mm)" value="${_esc(r.lato2)}" oninput="_cost.distinta[${i}].lato2=this.value;_costRiep()">
+      <input type="number" class="qty-input" placeholder="pz" title="Quantità" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
+      <input type="number" style="width:58px" placeholder="sfrido%" title="Sfrido % (vuoto = default dalle Impostazioni)" value="${_esc(r.scarto)}" oninput="_cost.distinta[${i}].scarto=this.value;_costRiep()">
+      <span id="cost-drc-${i}" style="min-width:70px;text-align:right;font-weight:600;white-space:nowrap">${_cEuro(r._costo)}</span>
       ${del}
     </div>`;
   }
