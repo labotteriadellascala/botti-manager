@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: riga '+ Pannello (codice nuovo)' tutta su una riga; sfrido vuoto nelle righe semilavorato di distinta = default dalle Impostazioni (prima valeva 0).">v3.12 — 01/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: 'Costo di produzione (FC = mat + mano + costi fissi)' e nuova sezione 'Venduto davvero a €' — margine reale, % e guadagno €/ora netto costo dipendente, salvati con la costificazione.">v3.13 — 01/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.12';
+window.APP_VERSION = '3.13';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7963,7 +7963,7 @@ function _costRiepHtml(c){
   h+=rg('Manodopera (MANO)',_cEuro(c.MANO)+(c.ore?` · ${c.ore} h`:''));
   h+=rg('Costi fissi',_cEuro(c.FISSI));
   if(c.P_RATE>0) h+=rg('% sul prezzo',(c.P_RATE*100).toFixed(1)+'%');
-  h+=rg('Costo fisso (FC)',_cEuro(c.FC));
+  h+=rg('Costo di produzione (FC = mat + mano + costi fissi)',_cEuro(c.FC));
   h+=rg('Margine sul prezzo',(c.m*100).toFixed(0)+'%');
   if(c.blocco){ h+=`<div style="color:var(--red);font-weight:700;margin-top:8px">⛔ Prezzo impossibile: margine + % sul prezzo ≥ 100%. Riduci il margine o le percentuali.</div>`; }
   else {
@@ -7972,8 +7972,32 @@ function _costRiepHtml(c){
     h+=rg('Margine €',_cEuro(c.margineEuro));
     h+=rg('Reso €/ora',c.ore?_cEuro(c.resoOra):'— (0 ore)');
   }
+  // ── Vendita REALE: Andrea indica il prezzo a cui ha venduto davvero ──
+  h+=`<div style="border-top:1px dashed var(--border);margin-top:12px;padding-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <span style="font-weight:600">Venduto davvero a €</span>
+      <input type="number" step="0.01" min="0" id="cost-prezzo-reale" placeholder="es. 3200" value="${_esc(_cost.prezzoReale!=null?_cost.prezzoReale:'')}" style="width:120px;text-align:right" oninput="_cost.prezzoReale=this.value;_costRealeOut()">
+    </div>
+    <div id="cost-reale-out">${_costRealeHtml(c)}</div>
+  </div>`;
   h+=`</div>`; return h;
 }
+// Righe della vendita reale (aggiornate da sole mentre digiti, senza perdere il fuoco)
+function _costRealeHtml(c){
+  const rg=(l,v,col)=>`<div style="display:flex;justify-content:space-between;padding:3px 0${col?';color:'+col+';font-weight:700':''}"><span>${l}</span><span style="font-variant-numeric:tabular-nums">${v}</span></div>`;
+  const P=_cNum(_cost.prezzoReale);
+  if(!(P>0)) return `<div style="font-size:11px;color:var(--ink3);margin-top:4px">Scrivi il prezzo reale (netto IVA, stessa base dei costi) e vedi margine e guadagno orario effettivi.</div>`;
+  const costo = c.FC + c.P_RATE*P;                       // le % sul prezzo scalano col prezzo reale
+  const margine = P - costo;
+  const margPct = margine/P*100;
+  let h = rg('Costo totale reale', _cEuro(costo));
+  h += rg('Margine € reale', _cEuro(margine), margine<0?'var(--red)':'var(--green)');
+  h += rg('Margine % sul prezzo', margPct.toFixed(1)+'%');
+  h += rg('Guadagno €/ora (netto costo dipendente)', c.ore ? _cEuro(margine/c.ore) : '— (0 ore)');
+  if(margine<0) h += `<div style="color:var(--red);font-size:12px;margin-top:4px">⚠ Venduto sotto il costo di produzione.</div>`;
+  return h;
+}
+function _costRealeOut(){ const o=document.getElementById('cost-reale-out'); if(o) o.innerHTML=_costRealeHtml(_costCalcola()); }
 // Aggiorna solo il riepilogo e i costi-riga (senza ridisegnare gli input → non perde il fuoco).
 function _costRiep(){
   const c=_costCalcola();
@@ -8032,6 +8056,7 @@ async function _costSalva(){
   if(!_cost.nome || !_cost.nome.trim()){ alert('Dai un nome alla costificazione.'); return; }
   const c=_costCalcola();
   const dati={ nome:_cost.nome.trim(), prodottoId:_cost.prodottoId||'', margine:_cNum(_cost.margine),
+    prezzoReale:(_cost.prezzoReale!=null && _cost.prezzoReale!=='') ? _cNum(_cost.prezzoReale) : null,
     distinta:_cost.distinta, manodopera:_cost.manodopera, extra:_cost.extra,
     totali:{ MAT:c.MAT, MANO:c.MANO, FISSI:c.FISSI, P_RATE:c.P_RATE, FC:c.FC, prezzo:c.prezzo, costo:c.costo, margineEuro:c.margineEuro, resoOra:c.resoOra },
     impostazioni:{ scarto:_costImp.scarto, tariffa:_costImp.tariffa }, salvato_il:new Date().toISOString() };
@@ -8046,6 +8071,7 @@ async function _costApri(id){
   const r=_costList.find(x=>String(x.id)===String(id)); if(!r||!r.dati) return;
   const d=r.dati;
   _cost={ id:r.id, codice:r.codice, nome:d.nome||'', prodottoId:d.prodottoId||'', margine:d.margine!=null?d.margine:60,
+    prezzoReale:d.prezzoReale!=null?d.prezzoReale:'',
     distinta:Array.isArray(d.distinta)?d.distinta:[], manodopera:Array.isArray(d.manodopera)?d.manodopera:[], extra:Array.isArray(d.extra)?d.extra:[] };
   _costDisegna();
 }
