@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: 'Costo di produzione (FC = mat + mano + costi fissi)' e nuova sezione 'Venduto davvero a €' — margine reale, % e guadagno €/ora netto costo dipendente, salvati con la costificazione.">v3.13 — 01/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: sotto il prezzo di vendita teorico e il venduto reale compaiono le righe informative + IVA 22% (totale lordo); i calcoli restano sul netto.">v3.14 — 03/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.13';
+window.APP_VERSION = '3.14';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7968,6 +7968,7 @@ function _costRiepHtml(c){
   if(c.blocco){ h+=`<div style="color:var(--red);font-weight:700;margin-top:8px">⛔ Prezzo impossibile: margine + % sul prezzo ≥ 100%. Riduci il margine o le percentuali.</div>`; }
   else {
     h+=rg('PREZZO di vendita',_cEuro(c.prezzo),true);
+    h+=`<div style="display:flex;justify-content:space-between;padding:1px 0 3px;font-size:12px;color:var(--ink3)"><span>Prezzo di vendita + IVA 22%</span><span style="font-variant-numeric:tabular-nums">${_cEuro(c.prezzo*1.22)}</span></div>`;
     h+=rg('Costo totale',_cEuro(c.costo));
     h+=rg('Margine €',_cEuro(c.margineEuro));
     h+=rg('Reso €/ora',c.ore?_cEuro(c.resoOra):'— (0 ore)');
@@ -7990,7 +7991,8 @@ function _costRealeHtml(c){
   const costo = c.FC + c.P_RATE*P;                       // le % sul prezzo scalano col prezzo reale
   const margine = P - costo;
   const margPct = margine/P*100;
-  let h = rg('Costo totale reale', _cEuro(costo));
+  let h = `<div style="display:flex;justify-content:space-between;padding:1px 0 3px;font-size:12px;color:var(--ink3)"><span>Venduto + IVA 22%</span><span style="font-variant-numeric:tabular-nums">${_cEuro(P*1.22)}</span></div>`;
+  h += rg('Costo totale reale', _cEuro(costo));
   h += rg('Margine € reale', _cEuro(margine), margine<0?'var(--red)':'var(--green)');
   h += rg('Margine % sul prezzo', margPct.toFixed(1)+'%');
   h += rg('Guadagno €/ora (netto costo dipendente)', c.ore ? _cEuro(margine/c.ore) : '— (0 ore)');
