@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: sotto il prezzo di vendita teorico e il venduto reale compaiono le righe informative + IVA 22% (totale lordo); i calcoli restano sul netto.">v3.14 — 03/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: riga TOTALE in fondo alla tabella (totale, caparre, da saldare e conteggio) calcolata sulle sole righe visibili — si aggiorna con ricerca e filtri.">v3.15 — 04/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.14';
+window.APP_VERSION = '3.15';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10855,7 +10855,28 @@ function renderOrdiniEvento() {
       <th></th>
     </tr></thead>
     <tbody id="oe-tbody">${buildOeRows(listaIdx)}</tbody>
+    <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+      <td colspan="4" style="text-align:right;color:var(--ink2)">TOTALE <span id="oe-tot-n" style="font-weight:400;color:var(--ink3);font-size:11px"></span></td>
+      <td class="text-mono" id="oe-tot-tot"></td>
+      <td class="text-mono" id="oe-tot-cap"></td>
+      <td class="text-mono" id="oe-tot-saldo"></td>
+      <td colspan="2"></td>
+    </tr></tfoot>
   </table></div></div>`;
+  aggiornaTotaliOe();
+}
+
+// Totali della tabella Ordini Evento: sommano SOLO le righe visibili (filtri attivi)
+function aggiornaTotaliOe() {
+  let n=0, tot=0, cap=0;
+  document.querySelectorAll('.oe-row').forEach(row=>{
+    if (row.style.display === 'none') return;
+    n++; tot += parseFloat(row.dataset.totale)||0; cap += parseFloat(row.dataset.caparra)||0;
+  });
+  const f = v => v.toLocaleString('it-IT') + ' €';
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('oe-tot-n', '('+n+' ordini'+((document.getElementById('oe-search')||{}).value||(document.getElementById('oe-filter-stato')||{}).value||(document.getElementById('oe-filter-canale')||{}).value?' · filtro attivo':'')+')');
+  set('oe-tot-tot', f(tot)); set('oe-tot-cap', f(cap)); set('oe-tot-saldo', f(tot-cap));
 }
 
 function buildOeRows(listaIdx) {
@@ -10867,7 +10888,8 @@ function buildOeRows(listaIdx) {
     return `<tr class="oe-row"
       data-search="${(o.num+' '+o.ragioneSociale+' '+o.canale).toLowerCase()}"
       data-stato="${o.convertito?'convertito':'da_convertire'}"
-      data-canale="${_esc(o.canale||'')}">
+      data-canale="${_esc(o.canale||'')}"
+      data-totale="${parseFloat(o.totale)||0}" data-caparra="${parseFloat(o.caparra)||0}">
       <td class="text-mono text-sm">${o.num||i+1}</td>
       <td><span class="badge badge-accent" style="font-size:11px">${o.canale||'—'}</span></td>
       <td>${o.ragioneSociale||'—'}</td>
@@ -10896,6 +10918,7 @@ function filtraOrdiniEvento() {
     const canaleMatch = !canale || (row.dataset.canale||'') === canale;
     row.style.display = (searchMatch && statoMatch && canaleMatch) ? '' : 'none';
   });
+  aggiornaTotaliOe();
 }
 
 function nuovoOrdineEvento() {
