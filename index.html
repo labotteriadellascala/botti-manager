@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: riga TOTALE in fondo alla tabella (totale, caparre, da saldare e conteggio) calcolata sulle sole righe visibili — si aggiorna con ricerca e filtri.">v3.15 — 04/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: numerazione anti-doppione — lista ricaricata dal cloud prima di numerare e numero = max+1 (niente riusi dopo le eliminazioni); tasto ✎ accanto al numero per correggere i doppioni esistenti.">v3.16 — 04/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.15';
+window.APP_VERSION = '3.16';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10769,13 +10769,16 @@ function deleteContatto(i) {
   const list = getContatti(); list.splice(i,1); saveContatti(list); renderContatti();
 }
 
-function creaOrdineEventoDaContatto(i) {
+async function creaOrdineEventoDaContatto(i) {
   const list = getContatti();
   const x = list[i];
+  // Lista fresca dal cloud + numero = max+1 (stessa protezione anti-doppione di confermaNuovoOrdineEvento)
+  const localiNonSync = (getOrdiniEvento()||[]).filter(o=>!o._id);
+  try { await caricaOrdiniEventoDaCloud(); } catch(e) {}
   const oeList = getOrdiniEvento();
+  localiNonSync.forEach(o=>oeList.push(o));
   const canale = x.evento||'';
-  const esistenti = oeList.filter(o=>o.canale===canale);
-  const num = canale ? canale+' - '+(esistenti.length+1) : 'EV-'+String(oeList.length+1).padStart(3,'0');
+  const num = _oeProssimoNum(canale, oeList);
   oeList.push({
     num, canale, data:new Date().toISOString().slice(0,10),
     ragioneSociale:x.nome, telefono:x.telefono, mail:x.email,
@@ -10940,20 +10943,50 @@ function nuovoOrdineEvento() {
   ]);
 }
 
-function confermaNuovoOrdineEvento() {
+// Prossimo numero ordine evento: MAX del progressivo + 1 (robusto ai buchi da
+// eliminazione; il vecchio conteggio riusava i numeri). Da usare su lista FRESCA dal cloud.
+function _oeProssimoNum(canale, lista){
+  lista = lista || [];
+  if (canale) {
+    let max = 0;
+    lista.filter(o=>o.canale===canale).forEach(o=>{ const m=String(o.num||'').match(/-\s*(\d+)\s*$/); if(m) max=Math.max(max, parseInt(m[1],10)); });
+    return canale + ' - ' + (max+1);
+  }
+  let max = 0;
+  lista.forEach(o=>{ const m=String(o.num||'').match(/^EV-(\d+)$/); if(m) max=Math.max(max, parseInt(m[1],10)); });
+  return 'EV-' + String(max+1).padStart(3,'0');
+}
+async function confermaNuovoOrdineEvento() {
   var canale = document.getElementById('oe-nuovo-canale').value;
   if(!canale) { alert('Seleziona un canale'); return; }
   closeModal();
+  // RICARICO la lista dal cloud PRIMA di numerare: il numero nasceva dalla copia
+  // locale e da telefono con cache vecchia usciva un numero doppio (successo il 04/10).
+  // Gli eventuali ordini locali non ancora sincronizzati (senza _id) vengono preservati.
+  const localiNonSync = (getOrdiniEvento()||[]).filter(o=>!o._id);
+  try { await caricaOrdiniEventoDaCloud(); } catch(e) {}
   var list = getOrdiniEvento();
-  var esistenti = list.filter(function(o){return o.canale===canale});
-  var nextN = esistenti.length + 1;
-  var num = canale + ' - ' + nextN;
+  localiNonSync.forEach(o=>list.push(o));
+  var num = _oeProssimoNum(canale, list);
   var oggi = new Date().toISOString().slice(0,10);
   list.push({ num:num, canale:canale, data:oggi, ragioneSociale:'', telefono:'', mail:'', indirizzo:'', cap:'', citta:'', cf:'', piva:'', prodotti:[''], noteGenerali:'', totale:'', caparra:'' });
   saveOrdiniEvento(list);
   editOrdineEvento(list.length-1);
 }
 
+// Correzione manuale del numero ordine evento (es. doppione nato da cache vecchia)
+function rinominaNumeroOe(i){
+  const list = getOrdiniEvento();
+  const o = list[i]; if(!o) return;
+  const t = prompt('Numero ordine evento:', o.num||'');
+  if (t===null) return;
+  const v = t.trim();
+  if (!v) { alert('Il numero non può essere vuoto.'); return; }
+  if (list.some((x,j)=>j!==i && x.num===v)) { alert('Esiste già un ordine evento con il numero "'+v+'": scegline un altro.'); return; }
+  o.num = v;
+  saveOrdiniEvento(list);
+  renderFormOrdineEvento(o, i);
+}
 async function deleteOrdineEvento(i) {
   if(!confirm('Eliminare questo ordine evento?')) return;
   const list = getOrdiniEvento();
@@ -11105,6 +11138,7 @@ function renderFormOrdineEvento(o, i) {
       <span style="font-size:13px;color:var(--ink2)">Evento:</span>
       <span class="badge badge-accent">${o.canale||'—'}</span>
       <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)">${o.num}</span>
+      <button class="btn btn-sm btn-ghost" style="padding:1px 7px;font-size:11px" title="Correggi il numero ordine (es. doppione)" onclick="rinominaNumeroOe(${i})">✎</button>
       ${o.convertito?`<span class="badge badge-green">✓ Convertito il ${o.dataConversione||''}</span>`:`<span class="badge badge-gray">Da convertire</span>`}
     </div>
     <div class="form-grid">
