@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: numerazione anti-doppione — lista ricaricata dal cloud prima di numerare e numero = max+1 (niente riusi dopo le eliminazioni); tasto ✎ accanto al numero per correggere i doppioni esistenti.">v3.16 — 04/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: flag 🏷 'Venduto dall'esposizione' — checkbox nel form, badge ESPO in lista, filtro dedicato; alla conversione l'ordine nasce Completato (evaso, non entra in produzione).">v3.17 — 05/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.16';
+window.APP_VERSION = '3.17';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10839,6 +10839,7 @@ function renderOrdiniEvento() {
       <option value="">Tutti gli stati</option>
       <option value="da_convertire">Da convertire</option>
       <option value="convertito">Convertiti</option>
+      <option value="espo">🏷 Venduti da esposizione</option>
     </select>
     <select id="oe-filter-canale" onchange="filtraOrdiniEvento()" style="max-width:200px">
       <option value="">Tutti i canali/eventi</option>
@@ -10892,6 +10893,7 @@ function buildOeRows(listaIdx) {
       data-search="${(o.num+' '+o.ragioneSociale+' '+o.canale).toLowerCase()}"
       data-stato="${o.convertito?'convertito':'da_convertire'}"
       data-canale="${_esc(o.canale||'')}"
+      data-espo="${o.espo?'1':'0'}"
       data-totale="${parseFloat(o.totale)||0}" data-caparra="${parseFloat(o.caparra)||0}">
       <td class="text-mono text-sm">${o.num||i+1}</td>
       <td><span class="badge badge-accent" style="font-size:11px">${o.canale||'—'}</span></td>
@@ -10900,7 +10902,7 @@ function buildOeRows(listaIdx) {
       <td class="text-mono">${o.totale?o.totale+' €':'—'}</td>
       <td class="text-mono">${o.caparra?o.caparra+' €':'—'}</td>
       <td class="text-mono" style="color:${saldo>0?'var(--red)':'var(--green)'}">${saldo>0?saldo.toLocaleString('it-IT')+' €':'✓'}</td>
-      <td>${statoBadge}</td>
+      <td>${o.espo?'<span class="badge badge-purple" style="font-size:10px" title="Venduto dall\'esposizione">🏷 ESPO</span> ':''}${statoBadge}</td>
       <td style="display:flex;gap:4px">
         <button class="btn btn-sm btn-ghost" onclick="editOrdineEvento(${i})">Apri</button>
         <button class="btn btn-sm btn-ghost" onclick="stampaOrdineEvento(${i})">⬇ PDF</button>
@@ -10917,7 +10919,7 @@ function filtraOrdiniEvento() {
   const canale = (document.getElementById('oe-filter-canale')||{}).value||'';
   document.querySelectorAll('.oe-row').forEach(row=>{
     const searchMatch = !q || row.dataset.search.includes(q);
-    const statoMatch  = !stato || row.dataset.stato === stato;
+    const statoMatch  = !stato || (stato==='espo' ? row.dataset.espo==='1' : row.dataset.stato === stato);
     const canaleMatch = !canale || (row.dataset.canale||'') === canale;
     row.style.display = (searchMatch && statoMatch && canaleMatch) ? '' : 'none';
   });
@@ -11075,7 +11077,7 @@ function convertiInOrdine(i) {
     cf: oe.cf||oe.piva||'',
     canale: oe.canale||'',
     consegna: '',
-    stato: 'Inserito',
+    stato: oe.espo ? 'Completato' : 'Inserito',   // venduto dall'esposizione: già pronto, non entra in produzione
     prezzoTotale: parseFloat(oe.totale)||0,
     indirizzoSpedizione: { via: oe.indirizzo||'', cap: oe.cap||'', citta: oe.citta||'' },
     fattUgualeSpedizione: true,
@@ -11118,6 +11120,7 @@ function convertiInOrdine(i) {
     banner.className = 'alert alert-amber';
     banner.style.marginBottom = '16px';
     banner.innerHTML = `⇄ Stai convertendo l'ordine evento <strong>${oe.num}</strong>. I prodotti della fiera sono nelle note del primo prodotto: assegna i prodotti dal catalogo e conferma.` +
+      (oe.espo ? `<div style="margin-top:6px;font-weight:600">🏷 Venduto dall'esposizione: l'ordine nasce già <b>Completato</b> (non entra in produzione).</div>` : '') +
       (notaOe ? `<div style="margin-top:8px;font-size:12px;white-space:pre-line;color:var(--ink2)"><strong>Prodotti fiera:</strong>\n${notaOe}</div>` : '');
     cont.insertBefore(banner, cont.firstChild);
   }
@@ -11205,6 +11208,10 @@ function renderFormOrdineEvento(o, i) {
       <span style="font-size:13px;color:var(--ink2)">Da saldare</span>
       <span style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--red)" id="oe-saldo-display">— €</span>
     </div>
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="oe-espo" ${o.espo?'checked':''} style="width:auto;margin-top:2px">
+      <span>🏷 <b>Venduto dall'esposizione</b> <span style="color:var(--ink3)">— il cliente ha comprato un prodotto già esposto in fiera: alla conversione l'ordine nasce <b>Completato</b> (evaso, non entra in produzione).</span></span>
+    </label>
   </div>
   <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:28px">
     <button class="btn btn-danger" onclick="deleteOrdineEvento(${i});nav('ordini-evento',null)">Elimina</button>
@@ -11272,6 +11279,7 @@ function salvaOrdineEvento() {
   list[_oeIdx].totale = document.getElementById('oe-totale').value;
   list[_oeIdx].caparra = document.getElementById('oe-caparra').value;
   list[_oeIdx].metodoCaparra = (document.getElementById('oe-metodo-caparra')||{}).value||'';
+  list[_oeIdx].espo = !!((document.getElementById('oe-espo')||{}).checked);
   saveOrdiniEvento(list);
   nav('ordini-evento', document.querySelectorAll('.nav-item')[1]);
   renderOrdiniEvento();
