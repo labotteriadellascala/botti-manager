@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: flag 🏷 'Venduto dall'esposizione' — checkbox nel form, badge ESPO in lista, filtro dedicato; alla conversione l'ordine nasce Completato (evaso, non entra in produzione).">v3.17 — 05/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: la scheda origine per canale si apre anche per i CONSEGNATI — clic sulle celle Consegnati di un mese (criterio: data di spostamento in Consegnato).">v3.18 — 05/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.17';
+window.APP_VERSION = '3.18';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3388,7 +3388,8 @@ function totProdotti(o) { return (o.righe||[]).length||1; }
 // Dettaglio ORIGINE (canale) degli ordini ricevuti in un mese: aperto cliccando
 // la riga del mese nella tabella ricevuti/consegnati. Stessi criteri della
 // tabella: data di inserimento (o.creato) nell'anno corrente + filtro canale attivo.
-window.dashOrigineMese = function(mi){
+window.dashOrigineMese = function(mi, tipo){
+  tipo = tipo==='consegnati' ? 'consegnati' : 'ricevuti';
   const ordini = DB.get('ordini')||[];
   const ANNO = new Date().getFullYear();
   const canaleSel = (document.getElementById('dash-canale')||{}).value || '';
@@ -3396,8 +3397,11 @@ window.dashOrigineMese = function(mi){
   const per = {}; let totN=0, totV=0;
   ordini.forEach(o=>{
     if (canaleSel && (o.canale||'')!==canaleSel) return;
-    if (!o.creato) return;
-    const d = new Date(o.creato);
+    // stessi criteri della tabella: ricevuti per data di inserimento,
+    // consegnati per data di spostamento in "Consegnato"
+    let d = null;
+    if (tipo==='ricevuti'){ if (!o.creato) return; d = new Date(o.creato); }
+    else { if (!(o.stato==='Consegnato' && o.dataConsegnato)) return; d = new Date(o.dataConsegnato); }
     if (d.getFullYear()!==ANNO || d.getMonth()!==mi) return;
     const c = String(o.canale||'').trim() || '— senza canale —';
     (per[c] = per[c] || { n:0, val:0 });
@@ -3407,7 +3411,7 @@ window.dashOrigineMese = function(mi){
   const mesiNomi = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
   let body;
   if (!totN) {
-    body = '<div style="color:var(--ink3);font-size:13px">Nessun ordine ricevuto in questo mese.</div>';
+    body = '<div style="color:var(--ink3);font-size:13px">Nessun ordine '+(tipo==='consegnati'?'consegnato':'ricevuto')+' in questo mese.</div>';
   } else {
     const maxV = Math.max(...Object.values(per).map(x=>x.val), 1);
     body = Object.entries(per).sort((a,b)=>b[1].val-a[1].val).map(([c,x])=>`
@@ -3422,9 +3426,9 @@ window.dashOrigineMese = function(mi){
           Totale <span class="text-mono">${totN} ordini</span> · <span class="text-mono">${_f(Math.round(totV))} €</span>
         </div>`;
   }
-  showModal('Origine ordini ricevuti — '+mesiNomi[mi]+' '+ANNO+(canaleSel?' · '+_esc(canaleSel):''),
+  showModal('Origine ordini '+(tipo==='consegnati'?'consegnati':'ricevuti')+' — '+mesiNomi[mi]+' '+ANNO+(canaleSel?' · '+_esc(canaleSel):''),
     `<div style="max-height:60vh;overflow:auto">${body}</div>
-     <div style="font-size:11px;color:var(--ink3);margin-top:8px">Canale = campo "Canale" dell'ordine, per data di inserimento. Valori netti come in tabella.</div>`,
+     <div style="font-size:11px;color:var(--ink3);margin-top:8px">Canale = campo "Canale" dell'ordine, ${tipo==='consegnati'?'per data di spostamento in "Consegnato"':'per data di inserimento'}. Valori netti come in tabella.</div>`,
     [ {label:'Chiudi', action:'closeModal()'} ]);
 };
 // Dettaglio STATI degli ordini di un canale (dalla card "Valore ordini per canale"):
@@ -3580,12 +3584,14 @@ function renderDashboard() {
 
   const righe = mesiNomi.map((nome,i)=>{
     const vuoto = ric[i].n===0 && con[i].n===0;
+    // celle CONSEGNATI cliccabili per conto loro (stessa scheda origine, criterio consegnati)
+    const clkCon = con[i].n>0 ? ` onclick="event.stopPropagation();dashOrigineMese(${i},'consegnati')" title="Clicca: da dove arrivano gli ordini consegnati a ${nome}"` : '';
     return `<tr ${ric[i].n>0?`onclick="dashOrigineMese(${i})" title="Clicca: da dove arrivano gli ordini ricevuti a ${nome}"`:''} style="${vuoto?'opacity:.45;':''}${ric[i].n>0?'cursor:pointer':''}">
       <td style="font-weight:600">${nome}${ric[i].n>0?' <span style="font-size:10px;color:var(--ink3)">▸</span>':''}</td>
       <td style="text-align:center">${ric[i].n||'—'}</td>
       <td class="text-mono" style="text-align:right">${ric[i].val?fmt(Math.round(ric[i].val))+' €':'—'}</td>
-      <td style="text-align:center;border-left:1px solid var(--border)">${con[i].n||'—'}</td>
-      <td class="text-mono" style="text-align:right">${con[i].val?fmt(Math.round(con[i].val))+' €':'—'}</td>
+      <td${clkCon} style="text-align:center;border-left:1px solid var(--border);${con[i].n>0?'cursor:pointer':''}">${con[i].n||'—'}${con[i].n>0?' <span style="font-size:10px;color:var(--ink3)">▸</span>':''}</td>
+      <td${clkCon} class="text-mono" style="text-align:right;${con[i].n>0?'cursor:pointer':''}">${con[i].val?fmt(Math.round(con[i].val))+' €':'—'}</td>
     </tr>`;
   }).join('');
 
@@ -3616,7 +3622,7 @@ function renderDashboard() {
     </tfoot>
   </table></div></div>
   <p style="font-size:12px;color:var(--ink3);margin-top:10px">
-    📥 Ricevuti = ordini per data di inserimento. 📦 Consegnati = ordini spostati in "Consegnato" dal Piano produzione, contati dal mese in cui li sposti${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}. Clicca un mese per vedere l'<strong>origine</strong> degli ordini ricevuti.
+    📥 Ricevuti = ordini per data di inserimento. 📦 Consegnati = ordini spostati in "Consegnato" dal Piano produzione, contati dal mese in cui li sposti${canaleSel?` · filtro canale: <strong>${canaleSel}</strong>`:''}. Clicca un mese per l'<strong>origine</strong> dei ricevuti, o le celle Consegnati per l'origine degli evasi.
   </p>`;
 
   // ── ORDINI PER CANALE DI ARRIVO (anno intero, TUTTI i canali: ignora il filtro in alto) ──
