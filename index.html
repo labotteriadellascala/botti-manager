@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dashboard: la scheda origine per canale si apre anche per i CONSEGNATI — clic sulle celle Consegnati di un mese (criterio: data di spostamento in Consegnato).">v3.18 — 05/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini: cronologia azioni per ordine (creazione con origine, cambi di stato da form/kanban/scheda, con data-ora e autore Andrea/Giulia) — sezione 🕘 nel form Modifica ordine. Attiva dal 06/10/2026.">v3.19 — 06/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.18';
+window.APP_VERSION = '3.19';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -4778,6 +4778,11 @@ function renderFormOrdineHTML(ord) {
         <div style="font-size:11px;color:var(--ink3);margin:-4px 0 8px">Puoi impostare una sequenza di avvisi. “Fatto” li barra e li tiene nello storico qui sotto (non li cancella).</div>
         <div id="prom-editor"></div>
       </div>
+      <div class="form-group" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:14px;margin-top:6px">
+        <label>🕘 Cronologia</label>
+        <div style="font-size:11px;color:var(--ink3);margin:-4px 0 8px">Creazione e cambi di stato dell'ordine, con data/ora e autore.</div>
+        ${_ordCronologiaHtml(ord)}
+      </div>
     </div>
   </div>
   <div class="card">
@@ -5173,6 +5178,15 @@ function salvaOrdine() {
     ordineToccato = { id, num: '…', ...dati, creato: new Date().toISOString() };
     statoPrecedente = undefined;                  // ordine nuovo: nessuno stato precedente
     ordini.push(ordineToccato);
+  }
+
+  // ─── Cronologia azioni: creazione (con origine) e cambi di stato dal form ───
+  if (!_editId) {
+    _ordLog(ordineToccato, 'Ordine creato'
+      + (window._oeConversioneNum ? ' — conversione da '+window._oeConversioneNum
+        : (window._prevPerAllegato && window._prevPerAllegato.numero ? ' — da preventivo '+window._prevPerAllegato.numero : '')));
+  } else if (statoPrecedente !== ordineToccato.stato) {
+    _ordLog(ordineToccato, 'Stato → '+ordineToccato.stato+(statoPrecedente?' (da '+statoPrecedente+')':''));
   }
 
   // ─── dataConsegnato anche quando lo stato cambia da "Modifica ordine" ───────
@@ -6221,12 +6235,33 @@ function calcolaSaldo(o) {
   return Math.max(0, tot-versato);
 }
 
+// ─── CRONOLOGIA AZIONI ORDINE (storicoAzioni nel jsonb, zero DDL) ─────────────
+// Registra creazione e cambi di stato con data/ora e autore, da oggi in poi.
+function _ordLog(o, testo){
+  if(!o) return;
+  if(!Array.isArray(o.storicoAzioni)) o.storicoAzioni = [];
+  o.storicoAzioni.push({ ts:new Date().toISOString(), chi: window.__UTENTE_EMAIL__||null, testo });
+  if(o.storicoAzioni.length>100) o.storicoAzioni = o.storicoAzioni.slice(-100);   // tetto di sicurezza
+}
+function _ordLogNome(email){ return (typeof UTENTI_NOMI!=='undefined' && UTENTI_NOMI[email]) || (email ? String(email).split('@')[0] : '—'); }
+function _ordCronologiaHtml(o){
+  const lista = (o && Array.isArray(o.storicoAzioni)) ? o.storicoAzioni.slice().reverse() : [];
+  if(!lista.length) return '<div style="font-size:12px;color:var(--ink3)">Nessuna azione registrata (la cronologia è attiva dal 06/10/2026).</div>';
+  const f = ts => { const d=new Date(ts); return d.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}); };
+  return '<div style="max-height:180px;overflow:auto">'+lista.map(r=>`<div style="display:flex;gap:10px;padding:4px 0;border-top:1px solid var(--border);font-size:12px">
+      <span class="text-mono" style="color:var(--ink3);white-space:nowrap">${f(r.ts)}</span>
+      <span style="flex:1">${_esc(r.testo||'')}</span>
+      <span style="color:var(--ink3)">${_esc(_ordLogNome(r.chi))}</span>
+    </div>`).join('')+'</div>';
+}
+
 function cambiaStato(id, stato) {
   const ordini = DB.get('ordini')||[];
   const idx = ordini.findIndex(o=>o.id===id);
   if(idx>=0) {
     const precedente = ordini[idx].stato;
     ordini[idx].stato=stato;
+    if (precedente !== stato) _ordLog(ordini[idx], 'Stato → '+stato+(precedente?' (da '+precedente+')':''));
     // Registro la data di consegna effettiva quando l'ordine ENTRA in "Consegnato"
     if (stato==='Consegnato' && precedente!=='Consegnato' && !ordini[idx].dataConsegnato) {
       ordini[idx].dataConsegnato = new Date().toISOString().slice(0,10);
