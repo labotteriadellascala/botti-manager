@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini: cronologia azioni per ordine (creazione con origine, cambi di stato da form/kanban/scheda, con data-ora e autore Andrea/Giulia) — sezione 🕘 nel form Modifica ordine. Attiva dal 06/10/2026.">v3.19 — 06/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: i costi extra diventano voci fisse (Materiale di consumo, Vernici, Lavorazioni esterne legno, Lavorazioni esterne carpenteria, Imballi, Altro), ognuna a € fisso o % sui materiali. Attiva dall'08/10/2026.">v3.20 — 08/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.19';
+window.APP_VERSION = '3.20';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7836,7 +7836,24 @@ async function renderCostificatore(){
   if(!_cost) _costNuova();
   _costDisegna();
 }
-function _costNuova(){ _cost={ id:null, codice:null, nome:'', prodottoId:'', distinta:[], manodopera:[], extra:[], margine:60 }; }
+function _costNuova(){ _cost={ id:null, codice:null, nome:'', prodottoId:'', distinta:[], manodopera:[], extra:_costNormExtra([]), margine:60 }; }
+
+// Costi extra = VOCI FISSE (v3.20). Ognuna: € fisso oppure % sui materiali.
+// Le righe libere delle costificazioni salvate prima (senza "key") restano in coda,
+// col vecchio editor, così i totali salvati non cambiano.
+const COST_VOCI_EXTRA=[
+  ['consumo','Materiale di consumo'], ['vernici','Vernici'],
+  ['est_legno','Lavorazioni esterne legno'], ['est_carp','Lavorazioni esterne carpenteria'],
+  ['imballi','Imballi'], ['altro','Altro']
+];
+function _costNormExtra(arr){
+  arr=Array.isArray(arr)?arr:[];
+  const fisse=COST_VOCI_EXTRA.map(([key,descr])=>{
+    const r=arr.find(x=>x&&x.key===key);
+    return { key, descr, tipo:(r&&r.tipo==='perc')?'perc':'fisso', valore:r?r.valore:'', base:'materiali' };
+  });
+  return fisse.concat(arr.filter(x=>x&&!x.key));
+}
 
 async function _costCaricaImp(){
   try{ const {data,error}=await sb.from('costificazioni').select('dati').eq('codice','__config__').limit(1);
@@ -7905,9 +7922,9 @@ function _costDisegna(){
 
   // ── COSTI EXTRA ──
   html+=`<div class="card" style="margin-bottom:14px"><div class="form-section-title">Costi extra</div>
-    <div id="cost-extra">${(_cost.extra||[]).map((r,i)=>_costRigaExtraHtml(r,i)).join('')||'<div style="font-size:12px;color:var(--ink3)">Nessuna riga.</div>'}</div>
-    <button class="btn btn-sm" style="margin-top:10px" onclick="_costAddExtra()">+ Costo extra</button>
-    <div style="font-size:11px;color:var(--ink3);margin-top:6px">% sul <b>prezzo</b> (es. commissioni) = si scala dal margine; % su materiali/manodopera = costo aggiunto.</div>
+    <div id="cost-extra">${(_cost.extra||[]).map((r,i)=>r.key?_costRigaVoceHtml(r,i):'').join('')}</div>
+    ${(_cost.extra||[]).some(r=>!r.key)?`<div style="font-size:11px;color:var(--ink3);margin:10px 0 4px">Righe libere della versione precedente (puoi eliminarle):</div>${(_cost.extra||[]).map((r,i)=>r.key?'':_costRigaExtraHtml(r,i)).join('')}`:''}
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px">Ogni voce: <b>€ fisso</b> oppure <b>% sui materiali</b> (MAT). Lascia vuoto se non serve.</div>
   </div>`;
 
   // ── MARGINE + RIEPILOGO ──
@@ -7984,6 +8001,15 @@ function _costRigaManoHtml(r,i){
     <button class="btn btn-sm btn-danger" onclick="_costDel('manodopera',${i})">×</button>
   </div>`;
 }
+function _costRigaVoceHtml(r,i){
+  const selTipo=`<select style="width:150px" onchange="_cost.extra[${i}].tipo=this.value;_costRiep()"><option value="fisso" ${r.tipo==='fisso'?'selected':''}>€ fisso</option><option value="perc" ${r.tipo==='perc'?'selected':''}>% sui materiali</option></select>`;
+  return `<div class="distinta-row" style="flex-wrap:wrap;align-items:center">
+    <span style="flex:1;min-width:180px;font-size:13px;font-weight:500">${_esc(r.descr)}</span>
+    ${selTipo}
+    <input type="number" style="width:100px" placeholder="0" step="0.01" value="${_esc(r.valore)}" oninput="_cost.extra[${i}].valore=this.value;_costRiep()">
+    <span id="cost-erc-${i}" style="min-width:80px;text-align:right;font-weight:600">${r._costo==null?'—':_cEuro(r._costo)}</span>
+  </div>`;
+}
 function _costRigaExtraHtml(r,i){
   const selTipo=`<select onchange="_cost.extra[${i}].tipo=this.value;_costDisegna()"><option value="fisso" ${r.tipo==='fisso'?'selected':''}>€ fisso</option><option value="perc" ${r.tipo==='perc'?'selected':''}>%</option></select>`;
   const bases=[['prezzo','sul prezzo'],['materiali','su materiali'],['manodopera','su manodopera'],['matmano','su mat+mano']];
@@ -8002,9 +8028,9 @@ function _costRiepHtml(c){
   let h=`<div style="max-width:420px;margin-left:auto">`;
   h+=rg('Materiali (MAT)',_cEuro(c.MAT));
   h+=rg('Manodopera (MANO)',_cEuro(c.MANO)+(c.ore?` · ${c.ore} h`:''));
-  h+=rg('Costi fissi',_cEuro(c.FISSI));
+  h+=rg('Costi extra',_cEuro(c.FISSI));
   if(c.P_RATE>0) h+=rg('% sul prezzo',(c.P_RATE*100).toFixed(1)+'%');
-  h+=rg('Costo di produzione (FC = mat + mano + costi fissi)',_cEuro(c.FC));
+  h+=rg('Costo di produzione (FC = mat + mano + costi extra)',_cEuro(c.FC));
   h+=rg('Margine sul prezzo',(c.m*100).toFixed(0)+'%');
   if(c.blocco){ h+=`<div style="color:var(--red);font-weight:700;margin-top:8px">⛔ Prezzo impossibile: margine + % sul prezzo ≥ 100%. Riduci il margine o le percentuali.</div>`; }
   else {
@@ -8068,7 +8094,6 @@ function _costAddDistinta(kind){
 }
 function _costSetArchivio(i,nome){ const q=_cost.distinta[i].qty; _cost.distinta[i]=nome?_costRigaArchivioFromMat(nome,q):{kind:'archivio',nome:'',qty:q,tipo:null}; _costDisegna(); }
 function _costAddMano(){ _cost.manodopera=_cost.manodopera||[]; _cost.manodopera.push({descr:'', ore:'', tariffa:''}); _costDisegna(); }
-function _costAddExtra(){ _cost.extra=_cost.extra||[]; _cost.extra.push({descr:'', tipo:'fisso', valore:'', base:'prezzo'}); _costDisegna(); }
 function _costDel(sez,i){ _cost[sez].splice(i,1); _costDisegna(); }
 function _costAggiornaTutto(){ (_cost.distinta||[]).forEach(r=>{ if(r.kind!=='archivio') return; const live=_costSnapMateriale(r.nome); if(!live.trovato) return; if(r.tipo==='AC') r.costo=live.costoUn; else r.cmq=live.cmq; }); _costDisegna(); }
 
@@ -8115,7 +8140,7 @@ async function _costApri(id){
   const d=r.dati;
   _cost={ id:r.id, codice:r.codice, nome:d.nome||'', prodottoId:d.prodottoId||'', margine:d.margine!=null?d.margine:60,
     prezzoReale:d.prezzoReale!=null?d.prezzoReale:'',
-    distinta:Array.isArray(d.distinta)?d.distinta:[], manodopera:Array.isArray(d.manodopera)?d.manodopera:[], extra:Array.isArray(d.extra)?d.extra:[] };
+    distinta:Array.isArray(d.distinta)?d.distinta:[], manodopera:Array.isArray(d.manodopera)?d.manodopera:[], extra:_costNormExtra(d.extra) };
   _costDisegna();
 }
 
