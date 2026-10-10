@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: i costi extra diventano voci fisse (Materiale di consumo, Vernici, Lavorazioni esterne legno, Lavorazioni esterne carpenteria, Imballi, Altro), ognuna a € fisso o % sui materiali. Attiva dall'08/10/2026.">v3.20 — 08/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Fix: i pulsanti in alto (+ Nuovo prodotto, + Nuovo ordine, ↻ Aggiorna…) sparivano su tutte le pagine dopo aver aperto una scheda del Registro Finanziario diversa da Movimenti. Attiva dal 10/10/2026.">v3.21 — 10/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.20';
+window.APP_VERSION = '3.21';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3312,6 +3312,7 @@ function nav(page, el) {
 
   const actions = document.getElementById('topbar-actions');
   actions.innerHTML = '';
+  actions.style.display = '';   // il Registro Finanziario (schede ≠ Movimenti) la nasconde: va rimostrata a ogni cambio pagina
   if(page==='ordini') actions.innerHTML=`<button class="btn btn-primary" onclick="nav('nuovo-ordine',document.querySelector('.nav-item:nth-child(3)'))">+ Nuovo ordine</button>`;
   if(page==='produzione') actions.innerHTML=``;
   if(page==='prodotti') actions.innerHTML=`<button class="btn btn-primary" onclick="showModalNuovoProdotto()">+ Nuovo prodotto</button>`;
