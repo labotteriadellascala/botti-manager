@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Fix: i pulsanti in alto (+ Nuovo prodotto, + Nuovo ordine, ↻ Aggiorna…) sparivano su tutte le pagine dopo aver aperto una scheda del Registro Finanziario diversa da Movimenti. Attiva dal 10/10/2026.">v3.21 — 10/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: barra di scorrimento orizzontale fissa in fondo allo schermo, sincronizzata con la tabella movimenti — niente più discesa in fondo pagina per scorrere a destra/sinistra.">v3.22 — 13/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.21';
+window.APP_VERSION = '3.22';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -12272,7 +12272,7 @@ function skeleton(){
        <button class="btn btn-sm btn-danger" id="fin-del-sel" onclick="finDeleteSelected()" disabled>Elimina selezionati (0)</button>
      </div>
      <div class="card" style="padding:0">
-       <div class="table-wrap"><table>
+       <div class="table-wrap" id="fin-tw"><table>
          <thead><tr>
            <th style="width:30px;text-align:center"><input type="checkbox" onclick="finSelAll(this.checked)" title="Seleziona/deseleziona tutto"></th><th>Data</th><th>Tipo</th><th>Categoria</th><th>Natura</th><th>Descrizione</th>
            <th>Evento</th><th style="text-align:right">Lordo</th><th>IVA%</th>
@@ -12301,9 +12301,41 @@ window.renderFinanze = function(){
   const act = document.getElementById('topbar-actions');
   if(act){ act.style.display=''; act.innerHTML = `<button class="btn btn-primary" onclick="finToggleForm(true)">+ Nuovo movimento</button> <button class="btn btn-sm" onclick="finToggleImport(true)" style="border-color:var(--border2);color:var(--ink2)">⇩ Importa</button>`; }
   if(!BUILT) skeleton();
+  _finScrollbarInit();
   finTab(TAB);
   renderTable(); renderResoconto();
 };
+// Barra di scorrimento orizzontale FISSA in fondo allo schermo, sincronizzata
+// con la tabella movimenti: così si scorre a dx/sx senza dover arrivare in fondo.
+// Compare solo sul Registro (tab Movimenti) e solo se la tabella sborda.
+function _finScrollbarInit(){
+  if (document.getElementById('fin-hscroll')) return;
+  const tw = document.getElementById('fin-tw'); if (!tw) return;
+  const bar = document.createElement('div');
+  bar.id = 'fin-hscroll';
+  bar.style.cssText = 'position:fixed;bottom:0;height:18px;overflow-x:auto;overflow-y:hidden;background:var(--bg);border-top:1px solid var(--border);z-index:500;display:none;box-shadow:0 -2px 6px rgba(0,0,0,.06)';
+  bar.innerHTML = '<div id="fin-hscroll-sp" style="height:1px"></div>';
+  document.body.appendChild(bar);
+  // sincronizzazione bidirezionale (assegnare lo stesso valore non rigenera l'evento: niente loop)
+  bar.addEventListener('scroll', ()=>{ tw.scrollLeft = bar.scrollLeft; });
+  tw.addEventListener('scroll',  ()=>{ bar.scrollLeft = tw.scrollLeft; });
+  const sync = ()=>{
+    const pg = document.getElementById('page-finanze');
+    const attiva = pg && pg.classList.contains('active') && TAB==='mov' && FIN_UNLOCKED;
+    const serve = attiva && tw.scrollWidth > tw.clientWidth + 4;
+    bar.style.display = serve ? 'block' : 'none';
+    if (serve) {
+      const r = tw.getBoundingClientRect();
+      bar.style.left = r.left + 'px';
+      bar.style.width = r.width + 'px';
+      document.getElementById('fin-hscroll-sp').style.width = tw.scrollWidth + 'px';
+      bar.scrollLeft = tw.scrollLeft;
+    }
+  };
+  window.addEventListener('resize', sync);
+  setInterval(sync, 700);   // copre cambi pagina/tab/filtri senza agganciare ogni evento
+  sync();
+}
 window.finTab = function(t){
   TAB = t;
   document.getElementById('fin-t-mov').classList.toggle('active', t==='mov');
