@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: barra di scorrimento orizzontale fissa in fondo allo schermo, sincronizzata con la tabella movimenti — niente più discesa in fondo pagina per scorrere a destra/sinistra.">v3.22 — 13/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivo online: incisione personalizzata (+45 € ben evidenziati, totale live). Conversione in ordine: +45 € sul totale e testo in nota; incisione visibile in Anagrafica cliente.">v3.23 — 14/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.22';
+window.APP_VERSION = '3.23';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9765,6 +9765,7 @@ window.anagraficaClienteLead = async function(leadId){
       ${riga('SDI', gv('cliente_sdi'))}
       ${riga('PEC', gv('cliente_pec'))}
       ${riga('Consegna richiesta', gv('consegna_richiesta') ? fmtDate(gv('consegna_richiesta')) : '')}
+      ${riga('Incisione (+ 45 €)', gv('incisione_testo'))}
     </div>
     <div style="font-size:11px;color:var(--ink3);margin-top:8px">Dati compilati dal cliente all'accettazione online${lista.length>1?' (uniti dai '+lista.length+' preventivi accettati: vince il primo valore compilato)':''}.</div>`;
   showModal('Anagrafica cliente — accettazione '+_at(pAcc.numero||''), html, [
@@ -9950,9 +9951,13 @@ async function creaOrdineDaPreventivo(prevId){
     if (parts.length) misTxt = 'Misure: ' + parts.join(', ');
   }
   const sdi = gm('cliente_sdi'), pec = gm('cliente_pec');
+  // Incisione scelta dal cliente all'accettazione online: +45 € sul totale (sovrapprezzo fisso)
+  const incisione = gm('incisione_testo');
+  const totConInc = ((p.totale!=null) ? Number(p.totale) : 0) + (incisione ? 45 : 0);
   const nota = [
-    `Da preventivo ${p.numero||''}. Totale ${_prevEuro(p.totale)} (IVA inclusa).`,
+    `Da preventivo ${p.numero||''}. Totale ${_prevEuro(totConInc)} (IVA inclusa)${incisione?` — incluso sovrapprezzo incisione € 45,00`:''}.`,
     voci ? 'Voci:\n' + voci : '',
+    incisione ? `✒ INCISIONE PERSONALIZZATA (+ € 45,00): "${incisione}"` : '',
     misTxt,
     (sdi||pec) ? `SDI: ${sdi||'—'} · PEC: ${pec||'—'}` : '',
     p.note ? 'Note preventivo:\n' + p.note : ''
@@ -9965,7 +9970,7 @@ async function creaOrdineDaPreventivo(prevId){
     canale: '',
     consegna: gm('consegna_richiesta') || '',   // data di consegna richiesta dal cliente all'accettazione (facoltativa)
     stato: 'Inserito',
-    prezzoTotale: (p.totale!=null) ? Number(p.totale) : 0,
+    prezzoTotale: totConInc,
     noteOrdine: nota,
     indirizzoSpedizione: {
       via: gm('cliente_indirizzo','cliente_via'),
