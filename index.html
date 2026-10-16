@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivo online: incisione personalizzata (+45 € ben evidenziati, totale live). Conversione in ordine: +45 € sul totale e testo in nota; incisione visibile in Anagrafica cliente.">v3.23 — 14/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: tasto ⧉ su ogni riga della distinta materiali per duplicarla (copia inserita subito sotto, costi ricalcolati) + area totale in m² (lati × quantità) mostrata prima del costo su ogni riga con dimensioni.">v3.24 — 16/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.23';
+window.APP_VERSION = '3.24';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -7755,6 +7755,7 @@ let _costTabellaOk = true;                     // false se la tabella non esiste
 
 function _costMat(nome){ return (DB.get('materiali')||[]).find(m=>m.nome===nome); }
 function _cEuro(n){ return '€ ' + (Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _cMq(n){ return (n==null) ? '' : (Number(n)||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' m²'; }
 function _cNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n; }
 
 // Fotografia del costo unitario di un materiale d'archivio, coi valori di OGGI.
@@ -7793,14 +7794,14 @@ function _costCalcola(){
   let MAT=0;
   (_cost.distinta||[]).forEach(r=>{ const qty=_cNum(r.qty);
     if(r.kind==='archivio'){
-      if(r.tipo==='SL'||r.tipo==='MP'){ const area=(_cNum(r.l1)*_cNum(r.l2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):(r.tipo==='SL'?_costImp.scarto:0))/100; r._costo=area*(1+sc)*_cNum(r.cmq)*qty; }   // sfrido vuoto: SL → default Impostazioni, MP intera → 0
-      else if(r.tipo==='AC'){ r._costo=_cNum(r.costo)*qty; }
-      else r._costo=0;
+      if(r.tipo==='SL'||r.tipo==='MP'){ const area=(_cNum(r.l1)*_cNum(r.l2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):(r.tipo==='SL'?_costImp.scarto:0))/100; r._area=area*qty; r._costo=area*(1+sc)*_cNum(r.cmq)*qty; }   // sfrido vuoto: SL → default Impostazioni, MP intera → 0
+      else if(r.tipo==='AC'){ r._area=null; r._costo=_cNum(r.costo)*qty; }
+      else { r._area=null; r._costo=0; }
     }
     else if(r.kind==='pannello'){ const mp=r.mpNome?_costMat(r.mpNome):null; const cmq=mp&&mp.costo_mq!=null?Number(mp.costo_mq):0;
       const area=(_cNum(r.lato1)*_cNum(r.lato2))/1e6; const sc=(r.scarto!=null&&r.scarto!==''?_cNum(r.scarto):_costImp.scarto)/100;
-      r._cmq=cmq; r._costo=area*(1+sc)*cmq*qty; }
-    else if(r.kind==='acquisto'){ r._costo=_cNum(r.costo)*qty; }
+      r._cmq=cmq; r._area=area*qty; r._costo=area*(1+sc)*cmq*qty; }
+    else if(r.kind==='acquisto'){ r._area=null; r._costo=_cNum(r.costo)*qty; }
     MAT+=r._costo||0;
   });
   let MANO=0, ore=0;
@@ -7941,6 +7942,7 @@ function _costDisegna(){
 
 function _costTipoBadge(t){ return t==='SL'?'semilavorato':t==='AC'?'acquisto':t==='MP'?'materia prima':t; }
 function _costRigaDistintaHtml(r,i){
+  const dup=`<button class="btn btn-sm btn-ghost" title="Duplica questa riga" style="padding:2px 7px" onclick="_costDupRiga(${i})">⧉</button>`;
   const del=`<button class="btn btn-sm btn-danger" onclick="_costDel('distinta',${i})">×</button>`;
   if(r.kind==='archivio'){
     const mat=(DB.get('materiali')||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
@@ -7952,7 +7954,8 @@ function _costRigaDistintaHtml(r,i){
       <input type="number" style="width:66px" title="lato 2 (mm)" placeholder="lato2" value="${_esc(r.l2)}" oninput="_cost.distinta[${i}].l2=this.value;_costRiep()">
       <input type="number" class="qty-input" title="quantità" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
       <input type="number" style="width:60px" title="sfrido %" placeholder="sfrido" value="${_esc(r.scarto)}" oninput="_cost.distinta[${i}].scarto=this.value;_costRiep()">
-      <span style="min-width:78px;font-size:11px;color:${_cNum(r.cmq)?'var(--ink3)':'var(--red)'}" title="€/mq dalla materia prima (archivio)">€/mq ${_esc(r.cmq)}${_cNum(r.cmq)?'':' ⚠'}</span>`;
+      <span style="min-width:78px;font-size:11px;color:${_cNum(r.cmq)?'var(--ink3)':'var(--red)'}" title="€/mq dalla materia prima (archivio)">€/mq ${_esc(r.cmq)}${_cNum(r.cmq)?'':' ⚠'}</span>
+      <span id="cost-dra-${i}" style="min-width:70px;text-align:right;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums;white-space:nowrap" title="Area totale (lato1 × lato2 × quantità, senza sfrido)">${_cMq(r._area)}</span>`;
     } else if(r.tipo==='AC'){
       campi=`
       <input type="number" style="width:90px" title="costo €/unità (default dall'archivio)" placeholder="costo" value="${_esc(r.costo)}" oninput="_cost.distinta[${i}].costo=this.value;_costRiep()">
@@ -7967,7 +7970,7 @@ function _costRigaDistintaHtml(r,i){
       <select style="flex:1;min-width:150px" onchange="_costSetArchivio(${i},this.value)">${opts}</select>
       ${campi}
       <span id="cost-drc-${i}" style="min-width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${_cEuro(r._costo)}</span>
-      ${del}
+      ${dup}${del}
     </div>`;
   }
   if(r.kind==='pannello'){
@@ -7980,8 +7983,9 @@ function _costRigaDistintaHtml(r,i){
       <input type="number" style="width:62px" placeholder="lato2" title="Lato 2 (mm)" value="${_esc(r.lato2)}" oninput="_cost.distinta[${i}].lato2=this.value;_costRiep()">
       <input type="number" class="qty-input" placeholder="pz" title="Quantità" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
       <input type="number" style="width:58px" placeholder="sfrido%" title="Sfrido % (vuoto = default dalle Impostazioni)" value="${_esc(r.scarto)}" oninput="_cost.distinta[${i}].scarto=this.value;_costRiep()">
+      <span id="cost-dra-${i}" style="min-width:64px;text-align:right;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums;white-space:nowrap" title="Area totale (lato1 × lato2 × quantità, senza sfrido)">${_cMq(r._area)}</span>
       <span id="cost-drc-${i}" style="min-width:70px;text-align:right;font-weight:600;white-space:nowrap">${_cEuro(r._costo)}</span>
-      ${del}
+      ${dup}${del}
     </div>`;
   }
   // acquisto manuale
@@ -7990,7 +7994,7 @@ function _costRigaDistintaHtml(r,i){
     <input type="number" style="width:100px" placeholder="costo €" value="${_esc(r.costo)}" oninput="_cost.distinta[${i}].costo=this.value;_costRiep()">
     <input type="number" class="qty-input" placeholder="qty" value="${_esc(r.qty)}" oninput="_cost.distinta[${i}].qty=this.value;_costRiep()">
     <span id="cost-drc-${i}" style="min-width:80px;text-align:right;font-weight:600">${_cEuro(r._costo)}</span>
-    ${del}
+    ${dup}${del}
   </div>`;
 }
 function _costRigaManoHtml(r,i){
@@ -8071,7 +8075,7 @@ function _costRealeOut(){ const o=document.getElementById('cost-reale-out'); if(
 // Aggiorna solo il riepilogo e i costi-riga (senza ridisegnare gli input → non perde il fuoco).
 function _costRiep(){
   const c=_costCalcola();
-  (_cost.distinta||[]).forEach((r,i)=>{ const el=document.getElementById('cost-drc-'+i); if(el) el.textContent=_cEuro(r._costo); });
+  (_cost.distinta||[]).forEach((r,i)=>{ const el=document.getElementById('cost-drc-'+i); if(el) el.textContent=_cEuro(r._costo); const ea=document.getElementById('cost-dra-'+i); if(ea) ea.textContent=_cMq(r._area); });
   (_cost.manodopera||[]).forEach((r,i)=>{ const el=document.getElementById('cost-mrc-'+i); if(el) el.textContent=_cEuro(r._costo); });
   (_cost.extra||[]).forEach((r,i)=>{ const el=document.getElementById('cost-erc-'+i); if(el) el.textContent=(r._costo==null?'—':_cEuro(r._costo)); });
   const rp=document.getElementById('cost-riep'); if(rp) rp.innerHTML=_costRiepHtml(c);
@@ -8096,6 +8100,14 @@ function _costAddDistinta(kind){
 function _costSetArchivio(i,nome){ const q=_cost.distinta[i].qty; _cost.distinta[i]=nome?_costRigaArchivioFromMat(nome,q):{kind:'archivio',nome:'',qty:q,tipo:null}; _costDisegna(); }
 function _costAddMano(){ _cost.manodopera=_cost.manodopera||[]; _cost.manodopera.push({descr:'', ore:'', tariffa:''}); _costDisegna(); }
 function _costDel(sez,i){ _cost[sez].splice(i,1); _costDisegna(); }
+// Duplica una riga della distinta: copia profonda inserita subito sotto l'originale
+function _costDupRiga(i){
+  const r = (_cost.distinta||[])[i]; if(!r) return;
+  const copia = JSON.parse(JSON.stringify(r));
+  delete copia._costo; delete copia._area;   // costo e area li ricalcola _costDisegna
+  _cost.distinta.splice(i+1, 0, copia);
+  _costDisegna();
+}
 function _costAggiornaTutto(){ (_cost.distinta||[]).forEach(r=>{ if(r.kind!=='archivio') return; const live=_costSnapMateriale(r.nome); if(!live.trovato) return; if(r.tipo==='AC') r.costo=live.costoUn; else r.cmq=live.cmq; }); _costDisegna(); }
 
 // Impostazioni (default sfrido % e tariffa €/h) — condivise su Supabase.
