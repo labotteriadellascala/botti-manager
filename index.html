@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: tasto ⧉ su ogni riga della distinta materiali per duplicarla (copia inserita subito sotto, costi ricalcolati) + area totale in m² (lati × quantità) mostrata prima del costo su ogni riga con dimensioni.">v3.24 — 16/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Auto-refresh dei dati dal cloud: ogni 5 minuti e al ritorno sulla finestra, solo se non c'è nulla di aperto (niente modali, form in compilazione o campi attivi).">v3.25 — 22/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.24';
+window.APP_VERSION = '3.25';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -11459,7 +11459,7 @@ function stampaOrdineEvento(i) {
 // Solo LETTURE (le stesse dell'avvio): non scrive mai nulla, quindi non può
 // sovrascrivere il lavoro di Giulia. Il form ordine aperto NON viene ridisegnato.
 let _aggiornamentoInCorso = false;
-window.aggiornaTuttoDalCloud = async function(){
+window.aggiornaTuttoDalCloud = async function(silenzioso){
   if(_aggiornamentoInCorso) return;
   _aggiornamentoInCorso = true;
   const btn=document.getElementById('btn-aggiorna-globale');
@@ -11477,11 +11477,48 @@ window.aggiornaTuttoDalCloud = async function(){
     _riRenderPaginaCorrente();
     if(btn){ btn.textContent='✓ Aggiornato'; setTimeout(()=>{ btn.textContent='↻ Aggiorna'; btn.disabled=false; },1500); }
   }catch(e){
-    alert('Aggiornamento dal cloud non riuscito: '+((e&&e.message)||e));
+    if(silenzioso) console.warn('Auto-refresh dal cloud non riuscito (riproverà):', (e&&e.message)||e);
+    else alert('Aggiornamento dal cloud non riuscito: '+((e&&e.message)||e));
     if(btn){ btn.textContent='↻ Aggiorna'; btn.disabled=false; }
   }
   _aggiornamentoInCorso = false;
 };
+
+// ─── AUTO-REFRESH DATI DAL CLOUD ─────────────────────────────────────────────
+// Rilegge i dati ogni 5 minuti e al ritorno sulla finestra, SOLO se non c'è
+// nulla di aperto: niente modali, niente form in compilazione, niente campo
+// attivo. Così non si perde mai quello che si sta scrivendo.
+(function(){
+  var INTERVALLO = 300000;          // 5 minuti
+  var ultimoRefresh = Date.now();   // il primo caricamento lo fa avviaApp
+  function qualcosaDiAperto(){
+    var mr = document.getElementById('modal-root');
+    if(mr && mr.children.length) return true;                 // modale generico aperto
+    var mi = document.getElementById('modal-imp');
+    if(mi && mi.style.display !== 'none' && mi.offsetParent !== null) return true;  // Impostazioni
+    if(document.querySelector('.pv-ov')) return true;         // editor preventivo aperto
+    var np = document.getElementById('page-nuovo-ordine');
+    if(np && np.classList.contains('active')) return true;    // form Nuovo ordine / Modifica ordine
+    if(document.getElementById('oe-rs')) return true;         // form Ordine Evento aperto
+    var ae = document.activeElement;
+    if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;  // sta scrivendo in un campo
+    return false;
+  }
+  function tentaRefresh(){
+    if(document.hidden) return;                               // scheda in background: aspetta il ritorno
+    if(!_appAvviata) return;                                  // non loggato / pagina TV o QR
+    if(_aggiornamentoInCorso) return;
+    if(qualcosaDiAperto()) return;
+    if(Date.now() - ultimoRefresh < 60000) return;            // anti-rimbalzo: max 1 al minuto
+    ultimoRefresh = Date.now();
+    window.aggiornaTuttoDalCloud(true);                       // silenzioso: se fallisce, riproverà
+  }
+  setInterval(tentaRefresh, INTERVALLO);
+  window.addEventListener('focus', tentaRefresh);
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') tentaRefresh();
+  });
+})();
 function _riRenderPaginaCorrente(){
   const p = window._paginaCorrente || 'dashboard';
   if(p==='dashboard') renderDashboard();
