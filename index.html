@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Auto-refresh dei dati dal cloud: ogni 5 minuti e al ritorno sulla finestra, solo se non c'è nulla di aperto (niente modali, form in compilazione o campi attivi).">v3.25 — 22/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: i filtri (ricerca, stato, canale) restano attivi quando apri/chiudi un ordine, lo converti o scatta l'auto-refresh.">v3.26 — 23/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.25';
+window.APP_VERSION = '3.26';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10881,6 +10881,10 @@ function getOrdiniEvento() { return DB.get('ordiniEvento')||[]; }
 function saveOrdiniEvento(list) { DB.set('ordiniEvento', list); }
 function saveOrdiniEvento(list) { DB.set('ordiniEvento', list); }
 
+// Filtri della lista Ordini Evento: tenuti in memoria e riapplicati a ogni
+// re-render (uscita da un ordine, conversione, auto-refresh), come nel Piano di produzione.
+let _oeFiltri = { q:'', stato:'', canale:'' };
+
 function renderOrdiniEvento() {
   const list = getOrdiniEvento();
   const c = document.getElementById('oe-lista-container');
@@ -10918,16 +10922,16 @@ function renderOrdiniEvento() {
 
   c.innerHTML = `
   <div class="search-bar" style="margin-bottom:12px">
-    <input type="text" id="oe-search" placeholder="🔍 Cerca per N° ordine, cliente, canale…" style="max-width:380px" oninput="filtraOrdiniEvento()">
+    <input type="text" id="oe-search" placeholder="🔍 Cerca per N° ordine, cliente, canale…" style="max-width:380px" value="${_esc(_oeFiltri.q)}" oninput="filtraOrdiniEvento()">
     <select id="oe-filter-stato" onchange="filtraOrdiniEvento()" style="max-width:160px">
       <option value="">Tutti gli stati</option>
-      <option value="da_convertire">Da convertire</option>
-      <option value="convertito">Convertiti</option>
-      <option value="espo">🏷 Venduti da esposizione</option>
+      <option value="da_convertire" ${_oeFiltri.stato==='da_convertire'?'selected':''}>Da convertire</option>
+      <option value="convertito" ${_oeFiltri.stato==='convertito'?'selected':''}>Convertiti</option>
+      <option value="espo" ${_oeFiltri.stato==='espo'?'selected':''}>🏷 Venduti da esposizione</option>
     </select>
     <select id="oe-filter-canale" onchange="filtraOrdiniEvento()" style="max-width:200px">
       <option value="">Tutti i canali/eventi</option>
-      ${[...new Set(list.map(o=>o.canale).filter(Boolean))].sort().map(cn=>`<option value="${cn}">${cn}</option>`).join('')}
+      ${[...new Set(list.map(o=>o.canale).filter(Boolean))].sort().map(cn=>`<option value="${cn}" ${cn===_oeFiltri.canale?'selected':''}>${cn}</option>`).join('')}
     </select>
   </div>
   <div class="card" style="padding:0"><div class="table-wrap"><table>
@@ -10951,7 +10955,7 @@ function renderOrdiniEvento() {
       <td colspan="2"></td>
     </tr></tfoot>
   </table></div></div>`;
-  aggiornaTotaliOe();
+  filtraOrdiniEvento();   // riapplica i filtri salvati (aggiorna anche i totali)
 }
 
 // Totali della tabella Ordini Evento: sommano SOLO le righe visibili (filtri attivi)
@@ -10998,9 +11002,11 @@ function buildOeRows(listaIdx) {
 }
 
 function filtraOrdiniEvento() {
-  const q = (document.getElementById('oe-search')||{}).value?.toLowerCase()||'';
+  const qRaw = (document.getElementById('oe-search')||{}).value||'';
   const stato = (document.getElementById('oe-filter-stato')||{}).value||'';
   const canale = (document.getElementById('oe-filter-canale')||{}).value||'';
+  _oeFiltri = { q:qRaw, stato:stato, canale:canale };   // memorizza per il prossimo render
+  const q = qRaw.toLowerCase();
   document.querySelectorAll('.oe-row').forEach(row=>{
     const searchMatch = !q || row.dataset.search.includes(q);
     const statoMatch  = !stato || (stato==='espo' ? row.dataset.espo==='1' : row.dataset.stato === stato);
