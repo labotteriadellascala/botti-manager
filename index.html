@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: i filtri (ricerca, stato, canale) restano attivi quando apri/chiudi un ordine, lo converti o scatta l'auto-refresh.">v3.26 — 23/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivi: tasto ↺ Riattiva sui preventivi scaduti — nuova data di validità, stato di nuovo 'inviato', stesso link per il cliente.">v3.27 — 28/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.26';
+window.APP_VERSION = '3.27';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9832,6 +9832,7 @@ function _prevListaHtml(leadId){
       <span style="flex:1;text-align:right;font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
       <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="apriEditorPreventivo('${leadId}','${p.id}')">Apri</button>
       ${(p.stato==='accettato'||p.stato==='lavorato')?`<button class="btn btn-sm btn-primary" style="font-size:11px" title="Crea un ordine precompilato con i dati di questo preventivo" onclick="creaOrdineDaPreventivo('${p.id}')">→ Crea ordine</button>`:''}
+      ${_prevEScaduto(p)?`<button class="btn btn-sm" style="font-size:11px;background:var(--amber-bg);border-color:var(--amber)" title="Riattiva il preventivo scaduto con una nuova data di validità" onclick="riattivaPreventivo('${p.id}')">↺ Riattiva</button>`:''}
       ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Copia link</button>`:''}
       <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina preventivo" onclick="eliminaPreventivo('${p.id}')">🗑</button>
     </div>`).join('');
@@ -10395,6 +10396,39 @@ async function eliminaPreventivo(id){
   closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
 }
 
+// ── Riattiva un preventivo scaduto ───────────────────────────────────────────
+// Nuova data di validità + stato di nuovo 'inviato'. Il token non cambia, quindi
+// il link già in mano al cliente torna attivo: non serve rimandare nulla.
+function _prevOggiISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _prevEScaduto(p){ return p.stato==='scaduto' || (p.stato==='inviato' && p.valido_fino && p.valido_fino < _prevOggiISO()); }
+function riattivaPreventivo(id){
+  const p = _prevList.find(x=>x.id===id); if(!p) return;
+  const vf = new Date(Date.now()+7*86400000);
+  const def = `${vf.getFullYear()}-${String(vf.getMonth()+1).padStart(2,'0')}-${String(vf.getDate()).padStart(2,'0')}`;
+  const quando = p.valido_fino ? ' (scaduto il '+p.valido_fino.split('-').reverse().join('/')+')' : '';
+  const html = `
+    <div style="font-size:13px;margin-bottom:10px">Preventivo <b>${_at(p.numero||'')}</b>${quando}. Scegli fino a quando torna valido: il link già inviato al cliente si riattiva da solo, non serve rimandarlo.</div>
+    <div class="form-group"><label>Valido fino al</label><input type="date" id="pv-riattiva-data" value="${def}" min="${_prevOggiISO()}"></div>`;
+  showModal('Riattiva preventivo', html, [
+    {label:'↺ Riattiva', action:`confermaRiattivaPreventivo('${id}')`, primary:true},
+    {label:'Annulla', action:'closeModal()'}
+  ]);
+}
+async function confermaRiattivaPreventivo(id){
+  const cur = _prevList.find(x=>x.id===id); if(!cur) return;
+  const data = (document.getElementById('pv-riattiva-data')||{}).value;
+  if(!data){ alert('Scegli la nuova data di validità.'); return; }
+  if(data < _prevOggiISO()){ alert('La data deve essere oggi o nel futuro.'); return; }
+  let q = sb.from('preventivi').update({ stato:'inviato', valido_fino:data }).eq('id', id);
+  if (cur.updated_at) q = q.eq('updated_at', cur.updated_at);   // locking ottimistico, come il resto
+  const { data:rows, error } = await q.select();
+  if (error){ alert('Errore riattivazione: '+error.message); return; }
+  if (!rows||!rows.length){ alert('⚠️ Questo preventivo è stato modificato da un altro dispositivo. Ricarico.'); await caricaPreventivi(true); closeModal(); return; }
+  await caricaPreventivi(true);
+  closeModal(); disegnaLeadMkt(); aggiornaBadgeLead();
+  alert('Preventivo '+(cur.numero||'')+' riattivato: valido fino al '+data.split('-').reverse().join('/')+'.\nIl link già inviato al cliente è di nuovo attivo.');
+}
+
 // Finestra con la lista dei preventivi (aperta cliccando i cruscotti). stato='' = tutti.
 const PREV_STATO_LABEL = { bozza:'Bozze', inviato:'Inviati', accettato:'Accettati', lavorato:'Lavorati', scaduto:'Scaduti', annullato:'Annullati' };
 function mostraListaPreventivi(stato){
@@ -10415,6 +10449,7 @@ function mostraListaPreventivi(stato){
         <span class="text-mono" style="font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();apriEditorPreventivo('${p.lead_id}','${p.id}')">Apri</button>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" title="Vai alla scheda del lead" onclick="closeModal();gestisciLead('${p.lead_id}')">Scheda</button>
+        ${_prevEScaduto(p)?`<button class="btn btn-sm" style="font-size:11px;background:var(--amber-bg);border-color:var(--amber)" title="Riattiva il preventivo scaduto con una nuova data di validità" onclick="riattivaPreventivo('${p.id}')">↺ Riattiva</button>`:''}
         ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Link</button>`:''}
         <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina" onclick="eliminaPreventivo('${p.id}')">🗑</button>
       </div>`;
@@ -10472,6 +10507,7 @@ async function preventiviOrdine(ordineId){
         <span class="badge ${PREV_STATO_BADGE[p.stato]||'badge-gray'}" style="font-size:10px">${p.stato||'bozza'}</span>
         <span style="flex:1;text-align:right;font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();apriEditorPreventivo(null,'${p.id}',null)">Apri</button>
+        ${_prevEScaduto(p)?`<button class="btn btn-sm" style="font-size:11px;background:var(--amber-bg);border-color:var(--amber)" title="Riattiva il preventivo scaduto con una nuova data di validità" onclick="riattivaPreventivo('${p.id}')">↺ Riattiva</button>`:''}
         ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Link</button>`:''}
         <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina" onclick="eliminaPreventivo('${p.id}')">🗑</button>
       </div>`).join('');
