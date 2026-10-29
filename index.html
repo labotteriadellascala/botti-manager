@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costificatore: nuova voce fissa 'Spedizione' nei costi extra (€ fisso o % sui materiali); le costificazioni salvate la ricevono vuota, totali invariati.">v3.28 — 29/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Mastrini: tasto ⬇ Esporta CSV — tutti i mastrini con natura, n. movimenti e totali (lordo, imponibile, IVA) dal Registro Finanziario.">v3.29 — 29/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.28';
+window.APP_VERSION = '3.29';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -13026,6 +13026,26 @@ function natSel(sel,onchg){ return `<select class="fc" onchange="${onchg}">`+NAT
 let MAST_Q='', MAST_NAT='';
 window.finMastFilter = function(){ const s=document.getElementById('mast-search'), f=document.getElementById('mast-filter-nat'); MAST_Q = s?s.value:''; MAST_NAT = f?f.value:''; mastRows(); };
 window.finMastReset = function(){ MAST_Q=''; MAST_NAT=''; drawMastrini(); };
+// Esporta TUTTI i mastrini in CSV (ignora i filtri): nome, natura, n. movimenti e
+// totali dal Registro Finanziario. Formato italiano come gli altri export: ; e virgola decimale.
+window.finMastExportCSV = function(){
+  if(!MASTRINI.length){ alert('Nessun mastrino da esportare.'); return; }
+  const num = v => (Number(v)||0).toFixed(2).replace('.',',');
+  const cell = s => { s=String(s==null?'':s); return /[;"\r\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  let out = 'Mastrino;Natura;N. movimenti;Totale lordo EUR;Totale imponibile EUR;Totale IVA EUR\r\n';
+  MASTRINI.slice()
+    .sort((a,b)=> ((a.natura==='Entrata'?0:1)-(b.natura==='Entrata'?0:1)) || a.nome.localeCompare(b.nome,'it'))
+    .forEach(m=>{
+      const movs = DATA.filter(x=>String(x.categoria||'').toLowerCase()===String(m.nome).toLowerCase());
+      let L=0,I=0,V=0;
+      movs.forEach(x=>{ L+=Number(x.lordo)||0; const i=imp(x),v=iva(x); if(isFinite(i))I+=i; if(isFinite(v))V+=v; });
+      out += [cell(m.nome), cell(m.natura), movs.length, num(L), num(I), num(V)].join(';')+'\r\n';
+    });
+  const blob = new Blob(['﻿'+out],{type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download = 'mastrini_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+};
 function mastRows(){
   const q=MAST_Q.trim().toLowerCase();
   const list = MASTRINI.slice()
@@ -13061,6 +13081,7 @@ function drawMastrini(){
      </select>
      <span id="mast-count" style="font-size:12px;color:var(--ink3);white-space:nowrap"></span>
      <button class="btn btn-sm btn-ghost" onclick="finMastReset()">Azzera filtri</button>
+     <button class="btn btn-sm" onclick="finMastExportCSV()" title="Scarica tutti i mastrini in CSV: nome, natura, n. movimenti e totali (lordo, imponibile, IVA) dal Registro Finanziario">⬇ Esporta CSV</button>
    </div>
    <div class="card" style="padding:0"><div class="table-wrap"><table>
      <thead><tr><th>Mastrino</th><th style="width:240px">Natura</th><th style="text-align:right">Utilizzo</th><th style="width:50px"></th></tr></thead>
