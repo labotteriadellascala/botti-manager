@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Mastrini: tasto ⬇ Esporta CSV — tutti i mastrini con natura, n. movimenti e totali (lordo, imponibile, IVA) dal Registro Finanziario.">v3.29 — 29/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nature dei mastrini riclassificate in 8 categorie (Entrata, Costo fisso, Costo variabile, Marketing, Tasse e contributi, Debiti e investimenti, Spese occasionali, Escluso dall'analisi): migrazione automatica una tantum, menu a tendina solo con le nuove, analisi per natura e punto di pareggio aggiornati.">v3.30 — 29/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.29';
+window.APP_VERSION = '3.30';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -12229,14 +12229,77 @@ const DEFAULT_NATURA = {
  "Attrezzatura":"Investimento / Capex",
  "Iva (versamento)":"Partita di giro / rettifica","Note di credito a clienti":"Partita di giro / rettifica"
 };
-const NATURA_TIPI = ["Entrata","Costo fisso","Variabile - produzione","Variabile - eventi","Semi-variabile","Discrezionale","Oneri finanziari","Tributi e contributi","Investimento / Capex","Partita di giro / rettifica"];
+// Riclassificazione v3.30 (29/10/2026): 8 nature. Le vecchie 10 non sono più selezionabili;
+// i mastrini salvati col vecchio schema vengono migrati UNA volta al caricamento (mappa per
+// nome dal CSV di riclassificazione; fallback sulla vecchia natura per mastrini non in mappa).
+const NATURA_TIPI = ["Entrata","Costo fisso","Costo variabile","Marketing","Tasse e contributi","Debiti e investimenti","Spese occasionali","Escluso dall'analisi"];
+const NATURA_MIGRA_NOME = {
+  'accessori rivendita (luci, sgabelli ecc.)':'Costo variabile',
+  'agenzie marketing':'Marketing',
+  'attrezzatura':'Debiti e investimenti',
+  'autostrada':'Costo variabile',
+  'benzina':'Costo variabile',
+  'commissioni':'Debiti e investimenti',
+  'consumabili non produttivi (caffè, acqua, altro)':'Costo fisso',
+  'costi furgone':'Costo fisso',
+  'costi laser':'Costo variabile',
+  'energia':'Costo fisso',
+  'eventi - alloggio':'Marketing',
+  'eventi - attrezzatura':'Marketing',
+  'eventi - cibo':'Marketing',
+  'fiere ed eventi':'Marketing',
+  'finanziamento':'Debiti e investimenti',
+  'formazione':'Spese occasionali',
+  'grafica (bigliettini da visita, striscioni, banner ecc)':'Marketing',
+  'imballi':'Costo variabile',
+  'inail':'Tasse e contributi',
+  'inps':'Tasse e contributi',
+  'irpef':'Tasse e contributi',
+  'iva (versamento)':"Escluso dall'analisi",
+  'lavorazioni esterne carpenteria':'Costo variabile',
+  'lavorazioni esterne legno':'Costo variabile',
+  'liberi professionisti non ricorrenti':'Spese occasionali',
+  'materia prima':'Costo variabile',
+  'materiale di consumo (minuteria, punte, inserti)':'Costo variabile',
+  'multe':'Spese occasionali',
+  'note di credito a clienti':"Escluso dall'analisi",
+  'pranzi e cene aziendali':'Spese occasionali',
+  'pubblicità':'Marketing',
+  'riscaldamento':'Costo fisso',
+  'spedizione':'Costo variabile',
+  'vernici':'Costo variabile'
+};
+const NATURA_MIGRA_VECCHIA = {
+  'Variabile - produzione':'Costo variabile',
+  'Variabile - eventi':'Marketing',
+  'Semi-variabile':'Costo fisso',
+  'Discrezionale':'Spese occasionali',
+  'Oneri finanziari':'Debiti e investimenti',
+  'Tributi e contributi':'Tasse e contributi',
+  'Investimento / Capex':'Debiti e investimenti',
+  'Partita di giro / rettifica':"Escluso dall'analisi"
+};
+function migraNatureMastrini(){
+  let n=0;
+  MASTRINI.forEach(m=>{
+    if(NATURA_TIPI.includes(m.natura)) return;   // già nel nuovo schema: non si tocca
+    const nuova = NATURA_MIGRA_NOME[String(m.nome||'').trim().toLowerCase()] || NATURA_MIGRA_VECCHIA[m.natura];
+    if(nuova){ m.natura=nuova; n++; }
+  });
+  return n;
+}
 let MASTRINI = [];
 function catEntrate(){ return MASTRINI.filter(m=>m.natura==='Entrata').map(m=>m.nome).sort((a,b)=>a.localeCompare(b,'it')); }
 function catUscite(){ return MASTRINI.filter(m=>m.natura!=='Entrata').map(m=>m.nome).sort((a,b)=>a.localeCompare(b,'it')); }
 const ALIQ = [0.22,0.10,0.05,0.04,0.00];
-const NAT_ORDER = ["Costo fisso","Variabile - produzione","Variabile - eventi","Semi-variabile","Discrezionale","Oneri finanziari","Tributi e contributi","Investimento / Capex"];
-const BE_FIX = ["Costo fisso","Semi-variabile","Discrezionale","Oneri finanziari"];
-const BE_VAR = ["Variabile - produzione","Variabile - eventi"];
+const NAT_ORDER = ["Costo fisso","Costo variabile","Marketing","Tasse e contributi","Debiti e investimenti","Spese occasionali"];
+const BE_FIX = ["Costo fisso","Marketing","Spese occasionali"];
+const BE_VAR = ["Costo variabile"];
+// Mastrini contati come FISSI nel punto di pareggio anche se la loro natura è esclusa
+// (si pagano ogni mese a prescindere dalle vendite). Restano esclusi: Irpef, Attrezzatura,
+// Commissioni, Iva (versamento), Note di credito.
+const BE_FIX_MASTRINI = ['inps','inail','finanziamento'];
+const beFisso = m => BE_FIX.includes(nat(m.categoria)) || BE_FIX_MASTRINI.includes(String(m.categoria||'').trim().toLowerCase());
 const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 
 let EDIT_ID = null, BUILT = false, TAB = 'mov';
@@ -12262,6 +12325,7 @@ async function caricaFinanzeDaCloud(){
     let found=false, mastFound=false;
     (data||[]).forEach(r=>{ if(r.id==='fin_movimenti'){ DATA = Array.isArray(r.valore)?r.valore:[]; found=true; } if(r.id==='fin_pin'){ FIN_PIN = r.valore||''; } if(r.id==='fin_mastrini'){ MASTRINI = Array.isArray(r.valore)?r.valore:[]; mastFound=true; } });
     if(!mastFound || !MASTRINI.length){ MASTRINI = Object.keys(DEFAULT_NATURA).map(k=>({nome:k,natura:DEFAULT_NATURA[k]})); await salvaMastrini(); }
+    if(migraNatureMastrini()>0) await salvaMastrini();   // riclassificazione nature v3.30 (una tantum)
     if(!found){ let old=[]; try{ old=JSON.parse(localStorage.getItem('fin_movimenti')||'[]'); }catch(e){} DATA = old||[]; if(DATA.length) await salvaFinanze(); }   /* migrazione una-tantum dal vecchio browser */
   }catch(e){ console.error('Finanze load fail:', e); }
   finally{ FIN_LOADED = true; }
@@ -12683,7 +12747,7 @@ function renderResoconto(){
   // break-even (netto)
   const ric = sum(m=>m.tipo==='Entrata'?imp(m):0);
   const cv  = arr.reduce((s,m)=>s+(BE_VAR.includes(nat(m.categoria))?imp(m):0),0);
-  const cf  = arr.reduce((s,m)=>s+(BE_FIX.includes(nat(m.categoria))?imp(m):0),0);
+  const cf  = arr.reduce((s,m)=>s+((m.tipo!=='Entrata'&&beFisso(m))?imp(m):0),0);
   const mc  = ric-cv; const mcp = ric>0?mc/ric:0;
   const be  = mcp>0?cf/mcp:null;
 
@@ -12774,7 +12838,7 @@ function renderResoconto(){
      <div class="row"><span>Costi fissi rilevanti</span><span class="mono">${eurF(cf)}</span></div>
      <div class="row big"><span>Fatturato di pareggio</span><span class="mono">${be!=null?eurF(be):'n/d'}</span></div>
    </div>
-   <div style="font-size:11px;color:var(--ink3);margin-top:6px;max-width:520px">Fissi = Costo fisso + Semi-variabile + Discrezionale + Oneri finanziari. Esclusi tributi, capex e partite di giro. Semi-variabile trattato come fisso (semplificazione prudenziale).</div>
+   <div style="font-size:11px;color:var(--ink3);margin-top:6px;max-width:520px">Fissi = Costo fisso + Marketing + Spese occasionali, più Inps, Inail e Finanziamento (si pagano ogni mese a prescindere dalle vendite). Variabili = Costo variabile. Esclusi: Irpef, Attrezzatura, Commissioni e le voci «Escluso dall'analisi».</div>
 
    <div class="fin-secT">Analisi per natura (netto)</div>
    <div class="card" style="padding:0;max-width:560px"><div class="table-wrap"><table>
