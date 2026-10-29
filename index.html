@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario · Analisi: tabella 'Costi medi mensili per natura' — medie su ultimi 4/8/12 mesi chiusi (mese in corso escluso), divisione per i soli mesi con dati, % sull'incassato medio del periodo.">v3.31 — 29/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costi medi mensili per natura: corretto il divisore (lo storico parte dal primo mese con incassi, le quote retrodatate non contano) e dettaglio mastrini a fisarmonica cliccando una natura.">v3.32 — 29/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.31';
+window.APP_VERSION = '3.32';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -12726,6 +12726,14 @@ function _finResiduo(m){ return Math.max(0, (m.lordo||0) - _finCassaLordo(m)); }
 function _finNorm(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase(); }
 function _finDupKey(x){ return (x.tipo==='Entrata'?'E|':'U|')+(x.data||'')+'|'+(Number(x.lordo)||0).toFixed(2)+'|'+_finNorm(x.descrizione); }
 
+// Apre/chiude il dettaglio mastrini di una natura nella tabella "Costi medi mensili per natura"
+window.mcToggleNat = function(i){
+  const trs = document.querySelectorAll('.mc-det-'+i); if(!trs.length) return;
+  const apri = trs[0].style.display==='none';
+  trs.forEach(tr=>{ tr.style.display = apri ? '' : 'none'; });
+  const ar = document.getElementById('mc-ar-'+i); if(ar) ar.textContent = apri ? '▾' : '▸';
+};
+
 function renderResoconto(){
   const box = document.getElementById('fin-res'); if(!box) return;
   const arr = load();
@@ -12807,29 +12815,41 @@ function renderResoconto(){
   const mesiTh = MESI3.map(x=>`<th style="text-align:right">${x}</th>`).join('');
 
   // ── Costi medi mensili per natura: medie sugli ultimi 4/8/12 mesi CHIUSI ──
-  // (mese in corso escluso; competenza ripartita; valori netti; la divisione è
-  // SEMPRE per i mesi con dati effettivi, mai per 4/8/12 a prescindere)
+  // (mese in corso escluso; competenza ripartita; valori netti)
   const mesiChiusi = (()=>{ const out=[]; const d=new Date(); d.setDate(1); for(let k=0;k<12;k++){ d.setMonth(d.getMonth()-1); out.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); } return out; })();
-  const mBuck = {};   // 'YYYY-MM' -> { ent: entrate nette, nat: {natura: costo netto} }
+  const mBuck = {};   // 'YYYY-MM' -> { ent: entrate nette, nat: {natura: costo netto}, cat: {mastrino: netto} }
   arr.forEach(m=>{
+    const nMov = nat(m.categoria), cMov = m.categoria || '—';
     finSpread(m).forEach(q=>{
       const key=q.y+'-'+String(q.mi+1).padStart(2,'0');
-      const b=mBuck[key]||(mBuck[key]={ent:0,nat:{}});
+      const b=mBuck[key]||(mBuck[key]={ent:0,nat:{},cat:{}});
       const netto=q.lordo-q.iva;
       if(m.tipo==='Entrata') b.ent+=netto;
-      else { const n=nat(m.categoria); b.nat[n]=(b.nat[n]||0)+netto; }
+      else b.nat[nMov]=(b.nat[nMov]||0)+netto;
+      b.cat[cMov]=(b.cat[cMov]||0)+netto;
     });
   });
   const _mcHasData = k => { const b=mBuck[k]; return !!b && (Math.abs(b.ent)>0.005 || Object.keys(b.nat).some(n=>Math.abs(b.nat[n])>0.005)); };
+  // Ancora dello storico: il primo mese chiuso (nella finestra di 12) con INCASSI.
+  // Movimenti retrodatati (es. un costo datato gennaio con ripartizione annuale)
+  // creano quote di competenza in mesi precedenti all'inizio reale del registro:
+  // quei mesi NON entrano in queste medie, né nelle somme né nel divisore.
+  const mcPrimo = [...mesiChiusi].reverse().find(k=>{ const b=mBuck[k]; return !!b && Math.abs(b.ent)>0.005; })
+               || [...mesiChiusi].reverse().find(_mcHasData) || null;
   const MC_NATURE = ['Entrata', ...NAT_ORDER, "Escluso dall'analisi"];
   const mcCols = [4,8,12].map(N=>{
-    const mesi = mesiChiusi.slice(0,N).filter(_mcHasData);
+    // X = mesi chiusi della finestra dal primo mese utile in poi: un mese senza
+    // movimenti DOPO l'inizio dello storico conta comunque nel divisore.
+    const mesi = mcPrimo ? mesiChiusi.slice(0,N).filter(k=>k>=mcPrimo) : [];
     const X = mesi.length;
-    const somma = {}; let sommaEnt=0;
+    const somma = {}; let sommaEnt=0; const cat = {};
     MC_NATURE.forEach(n=>somma[n]=0);
-    mesi.forEach(k=>{ const b=mBuck[k]; sommaEnt+=b.ent; Object.keys(b.nat).forEach(n=>{ if(n in somma) somma[n]+=b.nat[n]; }); });
+    mesi.forEach(k=>{ const b=mBuck[k]; if(!b) return; sommaEnt+=b.ent;
+      Object.keys(b.nat).forEach(n=>{ if(n in somma) somma[n]+=b.nat[n]; });
+      Object.keys(b.cat).forEach(c=>{ cat[c]=(cat[c]||0)+b.cat[c]; });
+    });
     somma['Entrata']=sommaEnt;
-    return { N, X, somma, sommaEnt };
+    return { N, X, somma, sommaEnt, cat };
   });
   const mcCell = (c,n)=>{
     if(!c.X) return `<td class="text-mono" style="text-align:right;color:var(--ink3)">—</td>`;
@@ -12839,8 +12859,29 @@ function renderResoconto(){
     return `<td class="text-mono" style="text-align:right;white-space:nowrap">${eurF(media)}${perc}</td>`;
   };
   const mcTh = mcCols.map(c=>`<th style="text-align:right;white-space:nowrap">Media ${c.N} mesi${c.X<c.N?` <span style="color:var(--ink3);font-weight:400">(su ${c.X} ${c.X===1?'mese':'mesi'})</span>`:''}</th>`).join('');
-  const mcRows = MC_NATURE.map(n=>`<tr${n==='Entrata'?' style="border-bottom:2px solid var(--border2)"':''}><td>${esc(n)}</td>${mcCols.map(c=>mcCell(c,n)).join('')}</tr>`).join('')
-    + `<tr style="font-weight:700;border-top:2px solid var(--border2)"><td>TOTALE COSTI</td>${mcCols.map(c=>mcCell(c,'TOTALE')).join('')}</tr>`;
+  // Dettaglio a fisarmonica: i mastrini di ogni natura, stesse finestre e stesse regole.
+  const mcCatNomi = (()=>{ const s=new Set(); mcCols.forEach(c=>Object.keys(c.cat).forEach(k=>s.add(k))); return [...s]; })();
+  const mcDetCell = (c,tot,isEnt)=>{
+    if(!c.X) return `<td class="text-mono" style="text-align:right;color:var(--ink3)">—</td>`;
+    const perc = (!isEnt && c.sommaEnt>0) ? ` <span style="color:var(--ink3);font-size:11px">· ${Math.round(tot/c.sommaEnt*1000)/10}%</span>` : '';
+    return `<td class="text-mono" style="text-align:right;white-space:nowrap">${eurF(tot/c.X)}${perc}</td>`;
+  };
+  const mcDetRows = MC_NATURE.map((n,i)=>{
+    const voci = mcCatNomi
+      .filter(nm => nat(nm)===n)
+      .map(nm => ({ nm, tot: mcCols.map(c=>c.cat[nm]||0) }))
+      .filter(v => v.tot.some(t=>Math.abs(t)>0.005))
+      .sort((a,b)=> b.tot[2]-a.tot[2]);   // dal più costoso (finestra 12 mesi)
+    return voci.map(v=>`<tr class="mc-det-${i}" style="display:none"><td style="padding-left:28px;color:var(--ink2);font-size:12px">↳ ${esc(v.nm)}</td>${mcCols.map((c,j)=>mcDetCell(c,v.tot[j],n==='Entrata')).join('')}</tr>`).join('');
+  });
+  const mcRows = MC_NATURE.map((n,i)=>{
+    const det = mcDetRows[i];
+    const stEnt = n==='Entrata' ? 'border-bottom:2px solid var(--border2);' : '';
+    const attr = det ? ` onclick="mcToggleNat(${i})" title="Clicca per vedere i mastrini" style="cursor:pointer;${stEnt}"` : (stEnt?` style="${stEnt}"`:'');
+    const ar = det ? `<span id="mc-ar-${i}" style="display:inline-block;width:14px;color:var(--ink3)">▸</span>` : `<span style="display:inline-block;width:14px"></span>`;
+    return `<tr${attr}><td>${ar}${esc(n)}</td>${mcCols.map(c=>mcCell(c,n)).join('')}</tr>${det}`;
+  }).join('')
+    + `<tr style="font-weight:700;border-top:2px solid var(--border2)"><td><span style="display:inline-block;width:14px"></span>TOTALE COSTI</td>${mcCols.map(c=>mcCell(c,'TOTALE')).join('')}</tr>`;
 
   box.innerHTML = `
    <div class="fin-kpis">
@@ -12888,7 +12929,7 @@ function renderResoconto(){
      <thead><tr><th>Natura</th>${mcTh}</tr></thead>
      <tbody>${mcRows}</tbody>
    </table></div></div>
-   <div style="font-size:11px;color:var(--ink3);margin-top:6px;max-width:640px">Il mese in corso è escluso. Ogni media divide per i mesi con dati effettivi: finché lo storico non copre 4/8/12 mesi, l'intestazione indica «(su X mesi)». La % accanto all'importo è sull'incassato medio dello stesso periodo.</div>
+   <div style="font-size:11px;color:var(--ink3);margin-top:6px;max-width:640px">Il mese in corso è escluso. Lo storico parte dal primo mese con incassi registrati: le quote di competenza di movimenti retrodatati prima di quel mese restano fuori da queste medie. Ogni media divide per i mesi chiusi con dati da lì in poi: finché la finestra non è piena, l'intestazione indica «(su X mesi)». La % accanto all'importo è sull'incassato medio dello stesso periodo. Clicca una natura per aprire l'elenco dei suoi mastrini.</div>
 
    <div class="fin-secT">Costi per categoria per mese — ${curY}
      <span style="font-weight:400;font-size:11px;color:var(--ink3)">(competenza ripartita, valori netti)</span></div>
