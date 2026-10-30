@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Costi medi mensili per natura: corretto il divisore (lo storico parte dal primo mese con incassi, le quote retrodatate non contano) e dettaglio mastrini a fisarmonica cliccando una natura.">v3.32 — 29/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: acconti multipli — un movimento in ACCONTO può avere più versamenti (importo + data ciascuno, pulsante + acconto); ogni versamento conta in cassa nel suo mese; residuo e resoconto aggiornati; movimenti vecchi compatibili.">v3.33 — 30/10/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1323,7 +1323,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.32';
+window.APP_VERSION = '3.33';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -12532,7 +12532,11 @@ window.finSubmit = function(){
     descrizione:g('ff-desc'), evento:g('ff-eve'), lordo:lordo, aliquota:parseFloat(g('ff-aliq')),
     pagato:g('ff-pag'), dataSaldo:g('ff-saldo'), note:g('ff-note'), ripartizione:g('ff-rip') };
   const arr = load();
-  if(EDIT_ID){ const i=arr.findIndex(x=>x.id===EDIT_ID); if(i>=0) arr[i]=m; }
+  if(EDIT_ID){
+    const i=arr.findIndex(x=>x.id===EDIT_ID);
+    // merge, non sostituzione: i campi non presenti nel form (acconti, carta, daVerif…) vanno conservati
+    if(i>=0){ arr[i]=Object.assign({}, arr[i], m); if(arr[i].pagato!=='ACCONTO'){ delete arr[i].acconti; arr[i].acconto=0; } }
+  }
   else arr.push(m);
   save(arr); EDIT_ID=null;
   document.getElementById('fin-form').style.display='none';
@@ -12659,8 +12663,8 @@ function renderTable(){
       <td id="imp-${id}" class="text-mono" style="text-align:right">${eurF(imp(m))}</td>
       <td id="iva-${id}" class="text-mono" style="text-align:right">${eurF(iva(m))}</td>
       <td><select class="fc" onchange="finUpd('${id}','pagato',this)"><option ${m.pagato==='SI'?'selected':''}>SI</option><option ${m.pagato==='NO'?'selected':''}>NO</option><option ${m.pagato==='ACCONTO'?'selected':''}>ACCONTO</option></select>
-        <input type="number" step="0.01" class="fc" id="ac-${id}" value="${m.pagato==='ACCONTO'?(m.acconto!=null?m.acconto:''):''}" onchange="finUpd('${id}','acconto',this)" placeholder="acconto €" title="Importo versato in acconto (cassa)" style="margin-top:3px;font-size:11px;text-align:right;display:${m.pagato==='ACCONTO'?'block':'none'}">
-        <input type="date" class="fc" id="ds-${id}" value="${(m.pagato==='SI'||m.pagato==='ACCONTO')?(m.dataSaldo||m.data||''):''}" onchange="finUpd('${id}','dataSaldo',this)" title="Data del pagamento (cassa)" style="margin-top:3px;font-size:11px;display:${(m.pagato==='SI'||m.pagato==='ACCONTO')?'block':'none'}">
+        <input type="date" class="fc" id="ds-${id}" value="${m.pagato==='SI'?(m.dataSaldo||m.data||''):''}" onchange="finUpd('${id}','dataSaldo',this)" title="Data del pagamento (cassa)" style="margin-top:3px;font-size:11px;display:${m.pagato==='SI'?'block':'none'}">
+        <div id="accl-${id}">${_finAccListHtml(m)}</div>
         <span id="res-${id}" style="display:${m.pagato==='ACCONTO'?'block':'none'};font-size:10px;color:var(--red);margin-top:2px">residuo ${eurF(_finResiduo(m))}</span></td>
       <td><select class="fc" style="min-width:104px" onchange="finUpd('${id}','ripartizione',this)" title="Su quanti mesi spalmare la competenza"><option value="mensile" ${(m.ripartizione||'mensile')==='mensile'?'selected':''}>Mensile</option><option value="trimestrale" ${m.ripartizione==='trimestrale'?'selected':''}>Trimestrale</option><option value="semestrale" ${m.ripartizione==='semestrale'?'selected':''}>Semestrale</option><option value="annuale" ${m.ripartizione==='annuale'?'selected':''}>Annuale</option></select></td>
       <td><input type="text" class="fc" style="min-width:100px" value="${esc(m.note)}" onchange="finUpd('${id}','note',this)"></td>
@@ -12675,14 +12679,14 @@ window.finGrow = function(t){ if(window.CSS && CSS.supports && CSS.supports('fie
 window.finUpd = function(id, field, el){
   const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
   let v;
-  if(field==='lordo'||field==='acconto'){
+  if(field==='lordo'){
     v=parseFloat(String(el.value).replace(',','.')); if(isNaN(v)) v=0;
     // Conferma sulle variazioni di IMPORTO (richiesta Andrea: capitava di
     // sovrascrivere per errore). Se annulli, il valore vecchio torna al suo posto.
     const vecchio = Number(m[field])||0;
     if(vecchio !== v){
       const desc = String(m.descrizione||'').replace(/\s+/g,' ').slice(0,70);
-      if(!confirm('Confermi la modifica dell\''+(field==='lordo'?'IMPORTO':'ACCONTO')+'?\n\n'+(desc?'"'+desc+'"\n':'')+'Da '+eurF(vecchio)+'  →  a '+eurF(v))){
+      if(!confirm('Confermi la modifica dell\'IMPORTO?\n\n'+(desc?'"'+desc+'"\n':'')+'Da '+eurF(vecchio)+'  →  a '+eurF(v))){
         el.value = vecchio;
         return;
       }
@@ -12691,7 +12695,15 @@ window.finUpd = function(id, field, el){
   else if(field==='aliquota'){ v=parseFloat(el.value); if(!isFinite(v)) v=null; }
   else v=el.value;
   m[field]=v;
-  if(field==='pagato'){ if(v==='SI'||v==='ACCONTO'){ if(!m.dataSaldo) m.dataSaldo = m.data||''; if(v==='SI') m.acconto=0; } else { m.dataSaldo=''; m.acconto=0; } }
+  if(field==='pagato'){
+    if(v==='SI'){ if(!m.dataSaldo) m.dataSaldo = m.data||''; m.acconto=0; delete m.acconti; }
+    else if(v==='ACCONTO'){
+      // primo versamento pronto da compilare (se non c'è già una lista o un acconto vecchio)
+      if(!_finAcconti(m).length) m.acconti=[{data:(m.dataSaldo||m.data||new Date().toISOString().slice(0,10)), importo:0}];
+      _finAccSync(m);
+    }
+    else { m.dataSaldo=''; m.acconto=0; delete m.acconti; }
+  }
   save(arr);
   if(field==='categoria'){ const n=document.getElementById('nat-'+id); if(n) n.textContent=nat(m.categoria); }
   if(field==='evento'){ renderTable(); return; }   // il colore riga (viola) e il filtro eventi dipendono da questo valore
@@ -12701,20 +12713,90 @@ window.finUpd = function(id, field, el){
   }
   if(field==='pagato'){
     const tr=document.getElementById('row-'+id); if(tr) tr.classList.toggle('fin-unpaid', m.pagato==='NO');
-    const cassaVis=(v==='SI'||v==='ACCONTO');
-    const ds=document.getElementById('ds-'+id); if(ds){ ds.style.display=cassaVis?'block':'none'; ds.value=cassaVis?(m.dataSaldo||''):''; }
-    const ac=document.getElementById('ac-'+id); if(ac){ ac.style.display=(v==='ACCONTO')?'block':'none'; ac.value=(v==='ACCONTO')?(m.acconto!=null?m.acconto:''):''; }
+    const ds=document.getElementById('ds-'+id); if(ds){ ds.style.display=(v==='SI')?'block':'none'; ds.value=(v==='SI')?(m.dataSaldo||''):''; }
+    const al=document.getElementById('accl-'+id); if(al) al.innerHTML=_finAccListHtml(m);
     const rs=document.getElementById('res-'+id); if(rs){ rs.style.display=(v==='ACCONTO')?'block':'none'; rs.textContent='residuo '+eurF(_finResiduo(m)); }
   }
-  if(field==='acconto'||field==='lordo'){ const rs=document.getElementById('res-'+id); if(rs && m.pagato==='ACCONTO'){ rs.textContent='residuo '+eurF(_finResiduo(m)); } }
+  if(field==='lordo'){ const rs=document.getElementById('res-'+id); if(rs && m.pagato==='ACCONTO'){ rs.textContent='residuo '+eurF(_finResiduo(m)); } }
   // Il Resoconto (aggregati su tutti i movimenti) è pesante da ricostruire: rifallo
   // solo se la sua tab è aperta. Passando alla tab Resoconto, finTab('res') la rigenera.
   if(TAB==='res') renderResoconto();
 };
 
-// Cassa di un movimento (competenza NON toccata): SI = tutto, ACCONTO = importo versato, NO = nulla.
-function _finCassaLordo(m){ if(m.pagato==='SI') return m.lordo||0; if(m.pagato==='ACCONTO') return Math.min(m.lordo||0, Math.max(0, Number(m.acconto)||0)); return 0; }
-function _finCassaFrac(m){ const L=m.lordo||0; if(m.pagato==='SI') return 1; if(m.pagato==='ACCONTO') return L>0 ? Math.min(1,(Number(m.acconto)||0)/L) : 0; return 0; }
+// ── Acconti multipli: UI della cella SALDATO ──
+function _finAccListHtml(m){
+  if(m.pagato!=='ACCONTO') return '';
+  const righe = _finAcconti(m).map((a,i)=>`<div style="display:flex;gap:3px;margin-top:3px;align-items:center;white-space:nowrap">
+      <input type="number" step="0.01" class="fc" value="${a.importo!=null&&a.importo!==0?a.importo:''}" onchange="finAccUpd('${m.id}',${i},'importo',this)" placeholder="€" title="Importo del versamento" style="font-size:11px;text-align:right;width:72px;flex:none">
+      <input type="date" class="fc" value="${a.data||''}" onchange="finAccUpd('${m.id}',${i},'data',this)" title="Data del versamento (cassa)" style="font-size:11px;width:118px;flex:none">
+      <button class="btn btn-sm btn-ghost" onclick="finAccDel('${m.id}',${i})" title="Togli questo versamento" style="padding:0 5px;flex:none">✕</button>
+    </div>`).join('');
+  return righe + `<button class="btn btn-sm btn-ghost" onclick="finAccAdd('${m.id}')" title="Aggiungi un altro versamento" style="margin-top:3px;font-size:11px">+ acconto</button>`;
+}
+// Materializza la lista (migra al volo l'eventuale campo singolo dei movimenti vecchi)
+function _finAccMaterializza(m){ m.acconti = _finAcconti(m).map(a=>({data:a.data||'', importo:Number(a.importo)||0})); return m.acconti; }
+// Tiene m.acconto = totale versato e m.dataSaldo = data dell'ultimo versamento
+function _finAccSync(m){
+  m.acconto = Math.round(_finAccTot(m)*100)/100;
+  const lst=_finAcconti(m);
+  if(lst.length) m.dataSaldo = lst[lst.length-1].data || m.dataSaldo || m.data || '';
+}
+function _finAccRefresh(id,m){
+  const al=document.getElementById('accl-'+id); if(al) al.innerHTML=_finAccListHtml(m);
+  const rs=document.getElementById('res-'+id); if(rs) rs.textContent='residuo '+eurF(_finResiduo(m));
+  if(TAB==='res') renderResoconto();
+}
+window.finAccAdd = function(id){
+  const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
+  _finAccMaterializza(m).push({data:new Date().toISOString().slice(0,10), importo:0});
+  _finAccSync(m); save(arr); _finAccRefresh(id,m);
+};
+window.finAccUpd = function(id,i,campo,el){
+  const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
+  const lst=_finAccMaterializza(m); const a=lst[i]; if(!a) return;
+  if(campo==='importo'){
+    let v=parseFloat(String(el.value).replace(',','.')); if(isNaN(v)) v=0;
+    const vecchio=Number(a.importo)||0;
+    // conferma solo quando si MODIFICA un versamento già inserito (non sul primo inserimento)
+    if(vecchio && vecchio!==v && !confirm('Confermi la modifica del versamento?\nDa '+eurF(vecchio)+'  →  a '+eurF(v))){ el.value=vecchio; return; }
+    a.importo=v;
+  } else a.data=el.value;
+  _finAccSync(m); save(arr); _finAccRefresh(id,m);
+};
+window.finAccDel = function(id,i){
+  const arr=load(); const m=arr.find(x=>x.id===id); if(!m) return;
+  const lst=_finAccMaterializza(m); const a=lst[i]; if(!a) return;
+  if((Number(a.importo)||0) && !confirm('Togliere questo versamento di '+eurF(a.importo)+'?')) return;
+  lst.splice(i,1);
+  _finAccSync(m); save(arr); _finAccRefresh(id,m);
+};
+
+// ── Acconti multipli ──
+// Un movimento in ACCONTO può avere più versamenti: m.acconti = [{data, importo}].
+// Retrocompatibilità: i movimenti vecchi hanno il campo singolo m.acconto + m.dataSaldo
+// → _finAcconti li espone come lista virtuale da 1, senza bisogno di migrazione.
+// m.acconto resta sincronizzato al TOTALE versato (residuo, export, codice esistente).
+function _finAcconti(m){
+  if(Array.isArray(m.acconti)) return m.acconti;
+  const a=Number(m.acconto)||0;
+  return a>0 ? [{data:(m.dataSaldo||m.data||''), importo:a}] : [];
+}
+function _finAccTot(m){ return _finAcconti(m).reduce((s,a)=>s+(Number(a.importo)||0),0); }
+// Quote di CASSA di un movimento: [{data, lordo}]. SI = tutto alla data saldo;
+// ACCONTO = un versamento per voce, ognuno nel SUO mese (totale comunque ≤ lordo); NO = niente.
+function _finCassaQuote(m){
+  if(m.pagato==='SI') return (m.lordo||0) ? [{data:(m.dataSaldo||m.data||''), lordo:m.lordo||0}] : [];
+  if(m.pagato!=='ACCONTO') return [];
+  let resto = Math.max(0, m.lordo||0); const out=[];
+  _finAcconti(m).forEach(a=>{
+    const v=Math.min(Math.max(0,Number(a.importo)||0), resto); resto-=v;
+    if(v>0) out.push({data:(a.data||m.dataSaldo||m.data||''), lordo:v});
+  });
+  return out;
+}
+// Cassa di un movimento (competenza NON toccata): SI = tutto, ACCONTO = somma dei versamenti, NO = nulla.
+function _finCassaLordo(m){ if(m.pagato==='SI') return m.lordo||0; if(m.pagato==='ACCONTO') return Math.min(m.lordo||0, Math.max(0, _finAccTot(m))); return 0; }
+function _finCassaFrac(m){ const L=m.lordo||0; if(m.pagato==='SI') return 1; if(m.pagato==='ACCONTO') return L>0 ? Math.min(1,_finAccTot(m)/L) : 0; return 0; }
 function _finCassaImp(m){ return imp(m)*_finCassaFrac(m); }
 function _finCassaIva(m){ return iva(m)*_finCassaFrac(m); }
 function _finResiduo(m){ return Math.max(0, (m.lordo||0) - _finCassaLordo(m)); }
@@ -12761,12 +12843,20 @@ function renderResoconto(){
 
   // (la vecchia tabella "Dettaglio per categoria" è sostituita dalla matrice costi categoria×mese, costruita più sotto con la competenza ripartita)
 
-  // per mese — la cassa resta intera nel mese di pagamento; la competenza viene ripartita sui mesi successivi
-  const dataCassa = m => (m.pagato==='SI' || m.pagato==='ACCONTO') ? (m.dataSaldo || m.data || '') : '';
+  // per mese — la cassa va nel mese di ogni pagamento (con gli acconti multipli ogni
+  // versamento pesa nel SUO mese); la competenza viene ripartita sui mesi successivi
+  const cassaMap = {}; // 'YYYY-mi' -> {cE,cU,cD,cC}
   // mappa competenza ripartita ("YYYY-mi" -> {kE,kU,kD,kC}) + raccolta di tutti gli anni toccati (cassa + competenza ripartita)
   const compMap = {}; const yset = new Set();
   arr.forEach(m=>{
-    const dc=dataCassa(m); if(dc) yset.add(dc.slice(0,4));
+    const L=m.lordo||0, fIva = L>0 ? iva(m)/L : 0;
+    _finCassaQuote(m).forEach(qc=>{
+      if(!qc.data) return;
+      yset.add(qc.data.slice(0,4));
+      const key=qc.data.slice(0,4)+'-'+((+qc.data.slice(5,7))-1);
+      const o=cassaMap[key]||(cassaMap[key]={cE:0,cU:0,cD:0,cC:0});
+      if(m.tipo==='Entrata'){ o.cE+=qc.lordo; o.cD+=qc.lordo*fIva; } else { o.cU+=qc.lordo; o.cC+=qc.lordo*fIva; }
+    });
     finSpread(m).forEach(q=>{
       yset.add(String(q.y));
       const key=q.y+'-'+q.mi; const o=compMap[key]||(compMap[key]={kE:0,kU:0,kD:0,kC:0});
@@ -12779,11 +12869,10 @@ function renderResoconto(){
   // non devono più portare il default in avanti, es. 2027), altrimenti l'ultimo disponibile.
   const curY = window.FIN_ANNO || (years.includes(nowY) ? nowY : (years[years.length-1] || nowY));
   window.FIN_ANNO = curY;
-  const inM = (ds,mi) => !!ds && ds.slice(0,4)===String(curY) && (+ds.slice(5,7))===mi+1;
   const colNeg = v => v<-0.005?'color:var(--red)':'';
   const cmpRows = MESI.map((nm,i)=>{
-    let cE=0,cU=0,cD=0,cC=0;
-    arr.forEach(m=>{ const dc=dataCassa(m); if(inM(dc,i)){ if(m.tipo==='Entrata'){cE+=_finCassaLordo(m);cD+=_finCassaIva(m);} else {cU+=_finCassaLordo(m);cC+=_finCassaIva(m);} } });
+    const cc = cassaMap[curY+'-'+i] || {cE:0,cU:0,cD:0,cC:0};
+    const cE=cc.cE, cU=cc.cU, cD=cc.cD, cC=cc.cC;
     const kc = compMap[curY+'-'+i] || {kE:0,kU:0,kD:0,kC:0};
     const kE=kc.kE, kU=kc.kU, kD=kc.kD, kC=kc.kC;
     return `<tr><td>${nm}</td>`+
