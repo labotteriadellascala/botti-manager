@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario: acconti multipli — un movimento in ACCONTO può avere più versamenti (importo + data ciascuno, pulsante + acconto); ogni versamento conta in cassa nel suo mese; residuo e resoconto aggiornati; movimenti vecchi compatibili.">v3.33 — 30/10/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Protezione dati catalogo: una risposta vuota dal cloud (es. sessione scaduta) non risemina più i dati di esempio né riscrive prodotti/accessori/famiglie/materiali; refresh solo con sessione valida. Ordini: la ricerca trova anche i codici prodotto; nuovo filtro per intervallo di date su inserimento o consegna.">v3.34 — 03/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -782,6 +782,12 @@ td.fin-in{color:var(--green);font-weight:500}
     <select id="filter-canale" onchange="renderOrdini()" style="max-width:180px">
       <option value="">Tutti i canali</option>
     </select>
+    <select id="filter-data-tipo" onchange="renderOrdini()" style="max-width:170px" title="Su quale data applicare l'intervallo qui a fianco">
+      <option value="creato">Data inserimento</option>
+      <option value="consegna">Data evasione (consegna)</option>
+    </select>
+    <input type="date" id="filter-data-da" onchange="renderOrdini()" title="Dal giorno (compreso)" style="max-width:150px">
+    <input type="date" id="filter-data-a" onchange="renderOrdini()" title="Al giorno (compreso)" style="max-width:150px">
     <button type="button" class="btn" onclick="esportaOrdiniExcel()" title="Esporta in Excel gli ordini attualmente visualizzati (filtri e ordinamento inclusi)">⬇ Excel</button>
   </div>
   <div class="card" style="padding:0">
@@ -1323,7 +1329,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.33';
+window.APP_VERSION = '3.34';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -2552,8 +2558,8 @@ async function caricaImpostazioniDaCloud(defaults) {
   const { data, error } = await sb.from('impostazioni').select('*');
   if (error) {
     console.error('✖ Errore caricamento impostazioni:', error.message);
-    // fallback: uso i default così l'app non resta con le tendine vuote
-    SEZIONI_IMPOSTAZIONI.forEach(k => { _cache[k] = defaults[k] || []; });
+    // fallback: default SOLO dove la memoria è vuota (mai buttare via la copia buona)
+    SEZIONI_IMPOSTAZIONI.forEach(k => { if(!(Array.isArray(_cache[k]) && _cache[k].length)) _cache[k] = defaults[k] || []; });
     return;
   }
   const presenti = {};
@@ -2561,9 +2567,13 @@ async function caricaImpostazioniDaCloud(defaults) {
   for (const k of SEZIONI_IMPOSTAZIONI) {
     if (k in presenti) {
       _cache[k] = presenti[k];                    // c'è nel cloud → uso quello
+    } else if (Array.isArray(_cache[k]) && _cache[k].length) {
+      // Chiave assente ma in memoria c'è già qualcosa: può essere una lettura filtrata
+      // (sessione scaduta → il server risponde "vuoto" senza errore). Tengo la copia
+      // in memoria e NON scrivo niente: un caricamento non deve mai riseminare i default.
+      console.warn('⚠ impostazioni: "'+k+'" assente nella risposta — mantengo la copia in memoria');
     } else {
-      _cache[k] = defaults[k] || [];              // manca → uso il default E lo salvo nel cloud
-      await salvaImpostazione(k, _cache[k]);
+      _cache[k] = defaults[k] || [];              // prima apertura: default SOLO in memoria (nessuna scrittura)
     }
   }
   console.log('✔ Impostazioni caricate dal cloud (canali/famiglie/colori)');
@@ -2658,14 +2668,14 @@ async function caricaMaterialiDaCloud(defaults) {
   const { data, error } = await sb.from('materiali').select('*');
   if (error) {
     console.error('✖ Errore caricamento materiali:', error.message);
-    _cache.materiali = defaults || [];
+    if (!(Array.isArray(_cache.materiali) && _cache.materiali.length)) { _cache.materiali = defaults || []; _matBaseline = {}; }
     return;
   }
   if (!data || data.length === 0) {
-    // cloud vuoto la prima volta → uso i default e li salvo
-    _cache.materiali = defaults || [];
-    _matBaseline = {};
-    await sincronizzaMateriali(_cache.materiali);
+    // Risposta vuota ≠ prima installazione (può essere la sessione scaduta):
+    // mai scrivere sul cloud da un caricamento. Copia in memoria se c'è, sennò default.
+    if (!(Array.isArray(_cache.materiali) && _cache.materiali.length)) { _cache.materiali = defaults || []; _matBaseline = {}; }
+    console.warn('⚠ materiali: risposta vuota dal cloud — nessuna riscrittura');
   } else {
     _matBaseline = {};
     _cache.materiali = data.map(r => {
@@ -2703,12 +2713,15 @@ async function caricaProdottiDaCloud(defaults) {
   const { data, error } = await sb.from('prodotti').select('*');
   if (error) {
     console.error('✖ Errore caricamento prodotti:', error.message);
-    _cache.prodotti = defaults || [];
+    if (!(Array.isArray(_cache.prodotti) && _cache.prodotti.length)) _cache.prodotti = defaults || [];
     return;
   }
   if (!data || data.length === 0) {
-    _cache.prodotti = defaults || [];
-    await sincronizzaProdotti(_cache.prodotti);
+    // Risposta vuota ≠ prima installazione: con la sessione scaduta i permessi filtrano
+    // tutto e il server risponde "0 righe" SENZA errore. Mai riscrivere il cloud da un
+    // caricamento: tengo la copia in memoria se c'è, altrimenti i default solo in memoria.
+    if (!(Array.isArray(_cache.prodotti) && _cache.prodotti.length)) _cache.prodotti = defaults || [];
+    console.warn('⚠ prodotti: risposta vuota dal cloud — nessuna riscrittura');
   } else {
     _cache.prodotti = data.map(r => r.dati || { id: r.codice });
   }
@@ -2740,12 +2753,13 @@ async function caricaAccessoriDaCloud(defaults) {
   const { data, error } = await sb.from('accessori').select('*');
   if (error) {
     console.error('✖ Errore caricamento accessori:', error.message);
-    _cache.accessori = defaults || [];
+    if (!(Array.isArray(_cache.accessori) && _cache.accessori.length)) _cache.accessori = defaults || [];
     return;
   }
   if (!data || data.length === 0) {
-    _cache.accessori = defaults || [];
-    await sincronizzaAccessori(_cache.accessori);
+    // Come per i prodotti: risposta vuota ≠ prima installazione → nessuna riscrittura.
+    if (!(Array.isArray(_cache.accessori) && _cache.accessori.length)) _cache.accessori = defaults || [];
+    console.warn('⚠ accessori: risposta vuota dal cloud — nessuna riscrittura');
   } else {
     _cache.accessori = data.map(r => r.dati || { id: r.codice });
   }
@@ -4495,8 +4509,24 @@ function renderOrdini() {
   const q = (document.getElementById('search-ordini')||{}).value||'';
   const canaleSel = (document.getElementById('filter-canale')||{}).value||'';
   let list = [...ordini].sort((a,b)=>new Date(b.creato)-new Date(a.creato));
-  if(q) list = list.filter(o=>(o.cliente+(o.righe||[]).map(r=>r.prodottoNome||'').join(' ')+o.num+(o.tel||'')).toLowerCase().includes(q.toLowerCase()));
+  // La ricerca copre anche i CODICI prodotto (r.prodotto), non solo i nomi: è il codice
+  // che compare nella colonna "Prodotto + accessori", quindi deve essere cercabile.
+  if(q) list = list.filter(o=>((o.cliente||'')+' '
+    +(o.righe||[]).map(r=>(r.prodotto||'')+' '+(r.prodottoNome||'')).join(' ')+' '
+    +(o.prodotto||'')+' '+(o.prodottoNome||'')+' '+(o.num||'')+' '+(o.tel||'')).toLowerCase().includes(q.toLowerCase()));
   if(_filtroStatiOrdini.size) list = list.filter(o=>_filtroStatiOrdini.has(o.stato));
+  // Intervallo di date: si applica alla data scelta nella tendina (inserimento o consegna).
+  // Attivo solo se almeno un estremo è compilato; gli ordini senza quella data restano fuori.
+  const dtTipo = (document.getElementById('filter-data-tipo')||{}).value||'creato';
+  const dtDa = (document.getElementById('filter-data-da')||{}).value||'';
+  const dtA  = (document.getElementById('filter-data-a')||{}).value||'';
+  if(dtDa || dtA) list = list.filter(o=>{
+    const d = String((dtTipo==='consegna' ? o.consegna : o.creato)||'').slice(0,10);
+    if(!d) return false;
+    if(dtDa && d < dtDa) return false;
+    if(dtA && d > dtA) return false;
+    return true;
+  });
   if(canaleSel) list = list.filter(o=>(o.canale||'')===canaleSel);
 
   // Popolo la tendina canali con i canali reali (da Impostazioni), mantenendo la scelta corrente
@@ -11498,11 +11528,28 @@ function stampaOrdineEvento(i) {
 }
 
 // ─── ↻ AGGIORNA GLOBALE: rilegge tutto dal cloud SENZA ricaricare la pagina ──
-// Solo LETTURE (le stesse dell'avvio): non scrive mai nulla, quindi non può
-// sovrascrivere il lavoro di Giulia. Il form ordine aperto NON viene ridisegnato.
+// Dalla v3.34 è DAVVERO solo-lettura: i caricatori non riscrivono più i default
+// sul cloud quando una risposta torna vuota. Il form ordine aperto NON viene ridisegnato.
+// Sessione valida = requisito: con la sessione scaduta i permessi filtrano tutto e le
+// letture tornano "0 righe" senza errore → sembrerebbe un gestionale vuoto. Meglio
+// non aggiornare affatto e avvisare.
+async function _sessioneValida(){
+  try{
+    const r = await sb.auth.getSession();
+    const s = r && r.data && r.data.session;
+    if(!s) return false;
+    if(s.expires_at && s.expires_at*1000 < Date.now()+30000) return false;  // scaduta o in scadenza
+    return true;
+  }catch(e){ return false; }
+}
 let _aggiornamentoInCorso = false;
 window.aggiornaTuttoDalCloud = async function(silenzioso){
   if(_aggiornamentoInCorso) return;
+  if(!(await _sessioneValida())){
+    if(silenzioso) console.warn('⚠ Auto-refresh saltato: sessione assente o scaduta');
+    else alert('Sessione scaduta: ricarica la pagina (Ctrl+Shift+R) e rientra.');
+    return;
+  }
   _aggiornamentoInCorso = true;
   const btn=document.getElementById('btn-aggiorna-globale');
   if(btn){ btn.disabled=true; btn.textContent='↻ Aggiorno…'; }
