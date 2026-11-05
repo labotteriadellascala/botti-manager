@@ -547,7 +547,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Protezione dati catalogo: una risposta vuota dal cloud (es. sessione scaduta) non risemina più i dati di esempio né riscrive prodotti/accessori/famiglie/materiali; refresh solo con sessione valida. Ordini: la ricerca trova anche i codici prodotto; nuovo filtro per intervallo di date su inserimento o consegna.">v3.34 — 03/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: nella sezione degli ordini da pianificare, filtri per colore e per codice prodotto accanto alla ricerca.">v3.35 — 05/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1329,7 +1329,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.34';
+window.APP_VERSION = '3.35';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5702,11 +5702,18 @@ function _pfCleanup(){
 }
 
 
+const _PIANIF_SENZA_COLORE='__senza_colore__';
+window.pianifAzzeraFiltri=function(){
+  ['pianif-cerca','pianif-colore','pianif-codice'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  renderPianificazione();
+};
 function renderPianificazione(){
   const root=document.getElementById('pianif-root'); if(!root) return;
   const key=_pianifKey();
   const ordini=DB.get('ordini')||[];
-  const finitura = o => (o.righe&&o.righe[0]&&o.righe[0].colore) ? ' · '+_esc(o.righe[0].colore) : '';
+  const righeDi = o => (o.righe&&o.righe.length) ? o.righe : [{prodotto:o.prodotto, colore:o.colore}];
+  // tutti i colori dell'ordine, non solo il primo: col filtro la card deve mostrare il colore cercato
+  const finitura = o => { const c=[...new Set(righeDi(o).map(r=>String(r.colore||'').trim()).filter(Boolean))]; return c.length ? ' · '+_esc(c.join(', ')) : ''; };
 
   // ordini di QUESTA settimana, raggruppati per giorno (0=Lun … 5=Sab)
   const perGiorno = [[],[],[],[],[],[]];
@@ -5718,8 +5725,33 @@ function renderPianificazione(){
 
   // serbatoio: SOLO Lav.1 / Lav.2, non già in questa settimana
   const q=((document.getElementById('pianif-cerca')||{}).value||'').trim().toLowerCase();
-  let disp=ordini.filter(o=> _STATI_LAV[o.stato] && _lunKeyOf(o.settimanaLavorazione)!==key );
+  const serbatoio=ordini.filter(o=> _STATI_LAV[o.stato] && _lunKeyOf(o.settimanaLavorazione)!==key );
+  let disp=serbatoio;
   if(q) disp=disp.filter(o=>((o.cliente||'')+' '+(o.num||'')+' '+riepilogoProdotti(o)).toLowerCase().includes(q));
+  // Filtri colore e codice: un ordine con più prodotti passa se ALMENO UNA riga corrisponde.
+  // Le voci si ricavano dal serbatoio; il conteggio tiene conto della ricerca e dell'altro filtro.
+  const coloriDi = o => righeDi(o).map(r=>String(r.colore||'').trim());
+  const codiciDi = o => righeDi(o).map(r=>String(r.prodotto||'').trim()).filter(Boolean);
+  const passaColore = (o,v) => !v || (v===_PIANIF_SENZA_COLORE ? coloriDi(o).includes('') : coloriDi(o).includes(v));
+  const passaCodice = (o,v) => !v || codiciDi(o).includes(v);
+  const ordina = a => [...new Set(a)].sort((x,y)=>x.localeCompare(y,'it',{sensitivity:'base'}));
+  const coloriUsati = ordina(serbatoio.flatMap(coloriDi).filter(Boolean));
+  const codiciUsati = ordina(serbatoio.flatMap(codiciDi));
+  const haSenzaColore = serbatoio.some(o=>coloriDi(o).includes(''));
+  let fColore=(document.getElementById('pianif-colore')||{}).value||'';
+  let fCodice=(document.getElementById('pianif-codice')||{}).value||'';
+  // se l'ultimo ordine con quel colore/codice è uscito dal serbatoio, il filtro si azzera
+  if(fColore && !(fColore===_PIANIF_SENZA_COLORE ? haSenzaColore : coloriUsati.includes(fColore))) fColore='';
+  if(fCodice && !codiciUsati.includes(fCodice)) fCodice='';
+  const nColore = v => disp.filter(o=>passaCodice(o,fCodice)&&passaColore(o,v)).length;
+  const nCodice = v => disp.filter(o=>passaColore(o,fColore)&&passaCodice(o,v)).length;
+  const opzioniColore = `<option value="">Tutti i colori</option>`
+    + coloriUsati.map(c=>`<option value="${_esc(c)}" ${fColore===c?'selected':''}>${_esc(c)} (${nColore(c)})</option>`).join('')
+    + (haSenzaColore?`<option value="${_PIANIF_SENZA_COLORE}" ${fColore===_PIANIF_SENZA_COLORE?'selected':''}>Senza colore (${nColore(_PIANIF_SENZA_COLORE)})</option>`:'');
+  const opzioniCodice = `<option value="">Tutti i codici</option>`
+    + codiciUsati.map(c=>`<option value="${_esc(c)}" ${fCodice===c?'selected':''}>${_esc(c)} (${nCodice(c)})</option>`).join('');
+  disp=disp.filter(o=>passaColore(o,fColore)&&passaCodice(o,fCodice));
+  const filtriAttivi = !!(q||fColore||fCodice);
   disp.sort((a,b)=>String(a.consegna||'').localeCompare(String(b.consegna||'')));
   // Sezione 2 richiesta da Andrea: separo i MAI pianificati da quelli già assegnati a un'ALTRA settimana
   const dispNuovi = disp.filter(o=>!o.settimanaLavorazione);
@@ -5813,9 +5845,14 @@ function renderPianificazione(){
    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px">${colonne}</div>
 
    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Da pianificare — mai assegnati (${dispNuovi.length})</div>
-   <input id="pianif-cerca" placeholder="Cerca per cliente, numero, prodotto…" value="${_esc(q)}" oninput="renderPianificazione()" style="width:100%;max-width:420px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;font-size:13px;box-sizing:border-box">
+   <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+     <input id="pianif-cerca" placeholder="Cerca per cliente, numero, prodotto…" value="${_esc(q)}" oninput="renderPianificazione()" style="flex:1 1 260px;min-width:0;max-width:420px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">
+     <select id="pianif-colore" title="Filtra per colore" onchange="renderPianificazione()" style="flex:1 1 150px;min-width:0;max-width:240px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">${opzioniColore}</select>
+     <select id="pianif-codice" title="Filtra per codice prodotto" onchange="renderPianificazione()" style="flex:1 1 150px;min-width:0;max-width:240px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">${opzioniCodice}</select>
+     ${filtriAttivi?'<button class="btn btn-sm" onclick="pianifAzzeraFiltri()">Azzera filtri</button>':''}
+   </div>
    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
-     ${dispNuovi.length?dispNuovi.slice(0,60).map(cardDisp).join(''):'<div style="color:var(--ink3);font-size:13px;padding:18px">Nessun ordine in Lav. 1 / Lav. 2 senza pianificazione.</div>'}
+     ${dispNuovi.length?dispNuovi.slice(0,60).map(cardDisp).join(''):`<div style="color:var(--ink3);font-size:13px;padding:18px">${filtriAttivi?'Nessun ordine mai assegnato con questi filtri.':'Nessun ordine in Lav. 1 / Lav. 2 senza pianificazione.'}</div>`}
    </div>
    ${dispNuovi.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispNuovi.length-60)+'. Usa la ricerca per restringere.</div>':''}
    ${dispAltre.length?`
