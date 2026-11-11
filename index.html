@@ -59,6 +59,9 @@ button, input, select, textarea { font-family: var(--sans); font-size: 14px; }
 .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
 .page { display: none; }
 .page.active { display: block; }
+/* Vista unificata Produzione: separatore tra pianificazione (sopra) e kanban (sotto) */
+#page-pianificazione.active + #page-produzione.active { margin-top:28px; border-top:2px solid var(--border2); padding-top:20px; }
+.prodsec-h { font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--ink2); margin:0 0 14px; display:flex; align-items:center; gap:8px; }
 
 /* BUTTONS */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--bg); color: var(--ink); cursor: pointer; font-size: 13px; transition: all 0.15s; white-space: nowrap; }
@@ -547,7 +550,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione: nella sezione degli ordini da pianificare, filtri per colore e per codice prodotto accanto alla ricerca.">v3.35 — 05/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Vista Produzione unificata: pianificazione (giorni) sopra e Piano di produzione sotto, in un'unica schermata con le testate di sezione; via dal menu la voce Pianificazione TV; lista 'Da pianificare' ripiegabile (chiusa di default, scelta ricordata).">v3.36 — 11/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -579,10 +582,6 @@ table.tmb-sht .ot{color:#444}
     <div class="nav-item" onclick="nav('produzione',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3-3a1 1 0 000-1.4l-1.6-1.6a1 1 0 00-1.4 0z"/><path d="M5 21L3 3l7.5 7.5L12 7l1.5 3.5L21 3l-2 18-7-3.5z"/></svg>
       Piano produzione
-    </div>
-    <div class="nav-item" onclick="nav('pianificazione',this)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-      Pianificazione TV
     </div>
     <div class="nav-item" onclick="nav('materiali',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
@@ -803,8 +802,12 @@ td.fin-in{color:var(--green);font-weight:500}
   <div id="form-ordine-container"></div>
 </div>
 
+<!-- PIANIFICAZIONE GIORNI (TV) — nella vista unificata "Produzione" sta SOPRA il kanban -->
+<div class="page" id="page-pianificazione"><div class="prodsec-h">📅 Pianificazione produzione (giorni)</div><div id="pianif-root"></div></div>
+
 <!-- PRODUZIONE KANBAN -->
 <div class="page" id="page-produzione">
+  <div class="prodsec-h">🔨 Piano di produzione</div>
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
     <div class="form-group" style="margin:0;min-width:260px;flex:2">
       <label style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--ink3);display:block;margin-bottom:4px">Cerca</label>
@@ -839,7 +842,6 @@ td.fin-in{color:var(--green);font-weight:500}
 </div>
 
 <!-- MATERIALI -->
-<div class="page" id="page-pianificazione"><div id="pianif-root"></div></div>
 <div class="page" id="page-materiali">
   <div class="alert alert-amber" id="mat-alert" style="display:none"></div>
   <div class="card">
@@ -1329,7 +1331,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.35';
+window.APP_VERSION = '3.36';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3305,18 +3307,30 @@ function closeSidebar() {
 }
 
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
+// Vista unificata Produzione: pianificazione (giorni) sopra + kanban sotto, in
+// un'unica schermata. Unica voce di menu "Piano produzione"; 'pianificazione'
+// resta come alias interno (apre la stessa schermata).
+const PAGINE_PRODUZIONE = ['produzione','pianificazione'];
 function nav(page, el) {
   window._paginaCorrente = page;
   closeSidebar();
+  const combinata = PAGINE_PRODUZIONE.includes(page);
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   if(el) el.classList.add('active');
   document.getElementById('page-'+page).classList.add('active');
+  if(combinata){
+    PAGINE_PRODUZIONE.forEach(p=>document.getElementById('page-'+p).classList.add('active'));
+    // unica voce di menu: evidenzia "Piano produzione" anche arrivando dall'alias
+    document.querySelectorAll('.nav-item').forEach(n=>{
+      if((n.getAttribute('onclick')||'').includes("'produzione'")) n.classList.add('active');
+    });
+  }
 
   const titles = {
     'dashboard':'Dashboard','ordini':'Ordini','nuovo-ordine':'Nuovo ordine',
-    'produzione':'Piano di produzione','materiali':'Materiali',
-    'pianificazione':'Pianificazione produzione (giorni)',
+    'produzione':'Produzione — pianificazione e piano','materiali':'Materiali',
+    'pianificazione':'Produzione — pianificazione e piano',
     'prodotti':'Prodotti e distinte base','accessori-listino':'Listino accessori',
     'impostazioni':'Impostazioni','ordini-evento':'Ordini Evento',
     'contatti':'Contatti','lead':'Registro Lead','calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore','ordini-fornitore':'Ordini fornitore','promemoria':'Promemoria',
@@ -3344,8 +3358,15 @@ function nav(page, el) {
   if(page==='dashboard') renderDashboard();
   if(page==='ordini') renderOrdini();
   if(page==='nuovo-ordine') renderFormOrdine(null);
-  if(page==='produzione') renderProduzione();
-  if(page==='pianificazione') renderPianificazione();
+  if(combinata){
+    renderPianificazione();
+    renderProduzione();
+    // si parte sempre dalla cima (pianificazione), il kanban è subito sotto
+    setTimeout(function(){
+      var dest = document.getElementById('page-pianificazione');
+      if(dest) dest.scrollIntoView({block:'start'});
+    }, 0);
+  }
   if(page==='timbrature') renderTimbratureCloud();
   if(page==='materiali') renderMateriali();
   if(page==='prodotti') renderProdotti();
@@ -5458,6 +5479,13 @@ function _pianifLabel(){
 }
 function _esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+// Serbatoio "Da pianificare": aperto/chiuso, scelta ricordata nel browser. Chiuso di
+// default: nella vista unificata quelle card ricompaiono comunque nel kanban sotto.
+function _pianifSerbAperto(){ try{ return localStorage.getItem('pianif_serb_aperto')==='1'; }catch(e){ return false; } }
+window.pianifToggleSerbatoio = function(){
+  try{ localStorage.setItem('pianif_serb_aperto', _pianifSerbAperto()?'0':'1'); }catch(e){}
+  renderPianificazione();
+};
 window.pianifPrev = function(){ _pianifSett.setDate(_pianifSett.getDate()-7); renderPianificazione(); };
 window.pianifNext = function(){ _pianifSett.setDate(_pianifSett.getDate()+7); renderPianificazione(); };
 window.pianifOggi = function(){ const d=new Date(); d.setHours(0,0,0,0); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); _pianifSett=d; renderPianificazione(); };
@@ -5829,6 +5857,7 @@ function renderPianificazione(){
     <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
     <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--ink3);margin-right:2px">Assegna a:</span>${picker(o)}</div></div>`;
 
+  const _serbAperto = _pianifSerbAperto();
   root.innerHTML=`
    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap">
      <div style="display:flex;align-items:center;gap:8px">
@@ -5844,7 +5873,12 @@ function renderPianificazione(){
    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — trascina le card per spostarle e riordinarle (su tablet usa ⠿) · oppure ‹ › e ✕</div>
    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px">${colonne}</div>
 
-   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Da pianificare — mai assegnati (${dispNuovi.length})</div>
+   <div onclick="pianifToggleSerbatoio()" title="${_serbAperto?'Chiudi':'Apri'} la lista degli ordini da assegnare ai giorni" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600;border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:var(--bg2)">
+     <span style="display:inline-block;width:12px">${_serbAperto?'▾':'▸'}</span>
+     Da pianificare — mai assegnati (${dispNuovi.length})${dispAltre.length?` · 📌 in altre settimane (${dispAltre.length})`:''}
+     ${_serbAperto?'':'<span style="font-weight:400;text-transform:none;letter-spacing:0">— clicca per aprire e assegnare i giorni</span>'}
+   </div>
+   <div id="pianif-serbatoio" style="display:${_serbAperto?'':'none'}">
    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
      <input id="pianif-cerca" placeholder="Cerca per cliente, numero, prodotto…" value="${_esc(q)}" oninput="renderPianificazione()" style="flex:1 1 260px;min-width:0;max-width:420px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">
      <select id="pianif-colore" title="Filtra per colore" onchange="renderPianificazione()" style="flex:1 1 150px;min-width:0;max-width:240px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">${opzioniColore}</select>
@@ -5860,7 +5894,8 @@ function renderPianificazione(){
    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;opacity:0.85">
      ${dispAltre.slice(0,60).map(cardDisp).join('')}
    </div>
-   ${dispAltre.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispAltre.length-60)+'. Usa la ricerca per restringere.</div>':''}`:''}`;
+   ${dispAltre.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispAltre.length-60)+'. Usa la ricerca per restringere.</div>':''}`:''}
+   </div>`;
   const ce=document.getElementById('pianif-cerca'); if(ce && q){ ce.focus(); ce.setSelectionRange(ce.value.length,ce.value.length); }
   _pfInitDnD();   // listener unico sul contenitore, sopravvive ai re-render (idempotente)
 }
@@ -11649,8 +11684,7 @@ function _riRenderPaginaCorrente(){
   const p = window._paginaCorrente || 'dashboard';
   if(p==='dashboard') renderDashboard();
   else if(p==='ordini') renderOrdini();
-  else if(p==='produzione') renderProduzione();
-  else if(p==='pianificazione') renderPianificazione();
+  else if(p==='produzione' || p==='pianificazione'){ renderPianificazione(); renderProduzione(); }   // vista unificata: si ridisegnano entrambe
   else if(p==='materiali') renderMateriali();
   else if(p==='prodotti') renderProdotti();
   else if(p==='accessori-listino') renderAccessoriListino();
