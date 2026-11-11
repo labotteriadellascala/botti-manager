@@ -550,7 +550,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Vista Produzione unificata: pianificazione (giorni) sopra e Piano di produzione sotto, in un'unica schermata con le testate di sezione; via dal menu la voce Pianificazione TV; lista 'Da pianificare' ripiegabile (chiusa di default, scelta ricordata).">v3.36 — 11/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione direttamente sulle card del Piano di produzione: via la lista 'Da pianificare'; ogni giorno ha un colore fisso (colonne e card), giorno pianificato in evidenza sulla card (rosso se in settimana passata, con ✕ libera), pulsanti L–S per assegnare il giorno della settimana mostrata sopra.">v3.37 — 11/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1331,7 +1331,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.36';
+window.APP_VERSION = '3.37';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5450,10 +5450,21 @@ function hasMaterialiDisponibili(riga) {
 // ─── PIANIFICAZIONE PER GIORNO ──────────────────────────────────────────────
 // Il campo settimanaLavorazione contiene il GIORNO preciso di lavorazione ('YYYY-MM-DD').
 // La settimana mostrata è quella di _pianifSett (lunedì). Si assegna ogni ordine a un giorno (Lun–Sab).
-// Il "serbatoio" da cui pescare contiene SOLO ordini in Lav. 1 / Lav. 2 non ancora messi in questa settimana.
+// v3.37: niente più "serbatoio" separato — gli ordini si pianificano direttamente dalle card del
+// Piano di produzione (pulsanti giorno L–S sulle card in Lav. 1 / Lav. 2, vedi renderProduzione).
 // Persistenza: salvaOrdineSingolo (stesso meccanismo anti-sovrascrittura).
 const _WDlong = ['Lun','Mar','Mer','Gio','Ven','Sab','Dom'];
 const _WD1    = ['L','M','M','G','V','S'];
+// Colore fisso di ogni giorno della settimana (Lun–Sab): colonna della Pianificazione e
+// card del kanban pianificate quel giorno condividono lo stesso colore.
+const _GIORNO_COLORI = [
+  {bg:'#EAF2FA', bordo:'#5B96C8', testo:'#0d2d47'},   // Lun — blu
+  {bg:'#FBF3D9', bordo:'#D9A93A', testo:'#5C4A00'},   // Mar — giallo
+  {bg:'#EFEAFA', bordo:'#8B7BC8', testo:'#2e2450'},   // Mer — viola
+  {bg:'#E5F3E7', bordo:'#5BA85F', testo:'#163d18'},   // Gio — verde
+  {bg:'#FAE7EC', bordo:'#C96A85', testo:'#541b2c'},   // Ven — rosa
+  {bg:'#E2F2F1', bordo:'#4FA8A2', testo:'#123d3a'},   // Sab — petrolio
+];
 const _MESIpf = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 const _STATI_LAV = { 'In lavorazione 1':1, 'In lavorazione 2':1 };
 const _EVASO_PF  = { 'Completato':1, 'Saldato':1, 'Consegnato':1 };
@@ -5479,19 +5490,15 @@ function _pianifLabel(){
 }
 function _esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// Serbatoio "Da pianificare": aperto/chiuso, scelta ricordata nel browser. Chiuso di
-// default: nella vista unificata quelle card ricompaiono comunque nel kanban sotto.
-function _pianifSerbAperto(){ try{ return localStorage.getItem('pianif_serb_aperto')==='1'; }catch(e){ return false; } }
-window.pianifToggleSerbatoio = function(){
-  try{ localStorage.setItem('pianif_serb_aperto', _pianifSerbAperto()?'0':'1'); }catch(e){}
-  renderPianificazione();
-};
-window.pianifPrev = function(){ _pianifSett.setDate(_pianifSett.getDate()-7); renderPianificazione(); };
-window.pianifNext = function(){ _pianifSett.setDate(_pianifSett.getDate()+7); renderPianificazione(); };
-window.pianifOggi = function(){ const d=new Date(); d.setHours(0,0,0,0); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); _pianifSett=d; renderPianificazione(); };
-window.pianificaSetGiorno = function(id, idx){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; o.settimanaLavorazione=_giornoKey(idx); salvaOrdineSingolo(o); renderPianificazione(); };
-window.pianificaShiftGiorno = function(id, delta){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; let wd=_weekdayOf(o.settimanaLavorazione); if(wd<0) wd=0; wd=Math.max(0,Math.min(5,wd+delta)); o.settimanaLavorazione=_giornoKey(wd); salvaOrdineSingolo(o); renderPianificazione(); };
-window.pianificaRemove = function(id){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; delete o.settimanaLavorazione; delete o.pianifPos; salvaOrdineSingolo(o); renderPianificazione(); };
+// v3.37: nella vista unificata la pianificazione si riflette sulle card del kanban
+// (colore del giorno, pulsanti L–S): ogni cambiamento ridisegna ENTRAMBE le metà.
+function _renderProduzioneUnificata(){ renderPianificazione(); renderProduzione(); }
+window.pianifPrev = function(){ _pianifSett.setDate(_pianifSett.getDate()-7); _renderProduzioneUnificata(); };
+window.pianifNext = function(){ _pianifSett.setDate(_pianifSett.getDate()+7); _renderProduzioneUnificata(); };
+window.pianifOggi = function(){ const d=new Date(); d.setHours(0,0,0,0); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); _pianifSett=d; _renderProduzioneUnificata(); };
+window.pianificaSetGiorno = function(id, idx){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; o.settimanaLavorazione=_giornoKey(idx); salvaOrdineSingolo(o); _renderProduzioneUnificata(); };
+window.pianificaShiftGiorno = function(id, delta){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; let wd=_weekdayOf(o.settimanaLavorazione); if(wd<0) wd=0; wd=Math.max(0,Math.min(5,wd+delta)); o.settimanaLavorazione=_giornoKey(wd); salvaOrdineSingolo(o); _renderProduzioneUnificata(); };
+window.pianificaRemove = function(id){ const o=(DB.get('ordini')||[]).find(x=>x.id===id); if(!o) return; delete o.settimanaLavorazione; delete o.pianifPos; salvaOrdineSingolo(o); _renderProduzioneUnificata(); };
 
 // ─── ATTIVITÀ LIBERE del piano (slegate dagli ordini) ────────────────────────
 // Struttura: {id, testo, giorno:'YYYY-MM-DD', dest:'Stefano'|'Nikolaj'|'Entrambi'|'Andrea', fatta:bool}
@@ -5690,7 +5697,7 @@ function _pfUp(e){
     o.settimanaLavorazione=_giornoKey(dayIdx);
     o.pianifPos=newPos;
     salvaOrdineSingolo(o);                                              // un solo record, con lock anti-sovrascrittura
-    renderPianificazione();
+    _renderProduzioneUnificata();
   } else if(kind==='a'){
     const lista=_attLista(); const a=lista.find(x=>x.id===id); if(!a) return;
     a.giorno=_giornoKey(dayIdx);
@@ -5714,7 +5721,7 @@ function _pfRinumera(dayIdx, seq){
     }
   });
   if(attToccate) DB.set('attivitaPiano', listaAtt);
-  renderPianificazione();
+  _renderProduzioneUnificata();
 }
 
 function _pfCleanup(){
@@ -5730,11 +5737,6 @@ function _pfCleanup(){
 }
 
 
-const _PIANIF_SENZA_COLORE='__senza_colore__';
-window.pianifAzzeraFiltri=function(){
-  ['pianif-cerca','pianif-colore','pianif-codice'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  renderPianificazione();
-};
 function renderPianificazione(){
   const root=document.getElementById('pianif-root'); if(!root) return;
   const key=_pianifKey();
@@ -5750,40 +5752,6 @@ function renderPianificazione(){
   const totSett = perGiorno.reduce((n,a)=>n+a.length,0);
   const evasiSett = perGiorno.reduce((n,a)=>n+a.filter(o=>_EVASO_PF[o.stato]).length,0);
   const pct = totSett?Math.round(evasiSett/totSett*100):0;
-
-  // serbatoio: SOLO Lav.1 / Lav.2, non già in questa settimana
-  const q=((document.getElementById('pianif-cerca')||{}).value||'').trim().toLowerCase();
-  const serbatoio=ordini.filter(o=> _STATI_LAV[o.stato] && _lunKeyOf(o.settimanaLavorazione)!==key );
-  let disp=serbatoio;
-  if(q) disp=disp.filter(o=>((o.cliente||'')+' '+(o.num||'')+' '+riepilogoProdotti(o)).toLowerCase().includes(q));
-  // Filtri colore e codice: un ordine con più prodotti passa se ALMENO UNA riga corrisponde.
-  // Le voci si ricavano dal serbatoio; il conteggio tiene conto della ricerca e dell'altro filtro.
-  const coloriDi = o => righeDi(o).map(r=>String(r.colore||'').trim());
-  const codiciDi = o => righeDi(o).map(r=>String(r.prodotto||'').trim()).filter(Boolean);
-  const passaColore = (o,v) => !v || (v===_PIANIF_SENZA_COLORE ? coloriDi(o).includes('') : coloriDi(o).includes(v));
-  const passaCodice = (o,v) => !v || codiciDi(o).includes(v);
-  const ordina = a => [...new Set(a)].sort((x,y)=>x.localeCompare(y,'it',{sensitivity:'base'}));
-  const coloriUsati = ordina(serbatoio.flatMap(coloriDi).filter(Boolean));
-  const codiciUsati = ordina(serbatoio.flatMap(codiciDi));
-  const haSenzaColore = serbatoio.some(o=>coloriDi(o).includes(''));
-  let fColore=(document.getElementById('pianif-colore')||{}).value||'';
-  let fCodice=(document.getElementById('pianif-codice')||{}).value||'';
-  // se l'ultimo ordine con quel colore/codice è uscito dal serbatoio, il filtro si azzera
-  if(fColore && !(fColore===_PIANIF_SENZA_COLORE ? haSenzaColore : coloriUsati.includes(fColore))) fColore='';
-  if(fCodice && !codiciUsati.includes(fCodice)) fCodice='';
-  const nColore = v => disp.filter(o=>passaCodice(o,fCodice)&&passaColore(o,v)).length;
-  const nCodice = v => disp.filter(o=>passaColore(o,fColore)&&passaCodice(o,v)).length;
-  const opzioniColore = `<option value="">Tutti i colori</option>`
-    + coloriUsati.map(c=>`<option value="${_esc(c)}" ${fColore===c?'selected':''}>${_esc(c)} (${nColore(c)})</option>`).join('')
-    + (haSenzaColore?`<option value="${_PIANIF_SENZA_COLORE}" ${fColore===_PIANIF_SENZA_COLORE?'selected':''}>Senza colore (${nColore(_PIANIF_SENZA_COLORE)})</option>`:'');
-  const opzioniCodice = `<option value="">Tutti i codici</option>`
-    + codiciUsati.map(c=>`<option value="${_esc(c)}" ${fCodice===c?'selected':''}>${_esc(c)} (${nCodice(c)})</option>`).join('');
-  disp=disp.filter(o=>passaColore(o,fColore)&&passaCodice(o,fCodice));
-  const filtriAttivi = !!(q||fColore||fCodice);
-  disp.sort((a,b)=>String(a.consegna||'').localeCompare(String(b.consegna||'')));
-  // Sezione 2 richiesta da Andrea: separo i MAI pianificati da quelli già assegnati a un'ALTRA settimana
-  const dispNuovi = disp.filter(o=>!o.settimanaLavorazione);
-  const dispAltre = disp.filter(o=> o.settimanaLavorazione);
 
   const oggiKey=_dayKeyFromDate((function(){const d=new Date();d.setHours(0,0,0,0);return d;})());
 
@@ -5833,9 +5801,10 @@ function renderPianificazione(){
     const oggi = gk===oggiKey;
     // lista combinata (ordini + attività) ordinata per posizione effettiva → drag & drop libero
     const comb=[ ...lista.map(o=>({t:'o',eff:_effPosOrd(o),v:o})), ...attG.map(a=>({t:'a',eff:_effPosAtt(a),v:a})) ].sort((x,y)=>x.eff-y.eff);
-    colonne += `<div class="pf-col" style="background:${oggi?'#FFFDF5':'var(--bg2)'};border:1px solid ${oggi?'var(--accent2)':'var(--border)'};border-radius:9px;padding:8px;min-height:90px">
+    const gc=_GIORNO_COLORI[i];
+    colonne += `<div class="pf-col" style="background:${oggi?'#FFFDF5':'var(--bg2)'};border:1px solid ${oggi?'var(--accent2)':'var(--border)'};border-top:4px solid ${gc.bordo};border-radius:9px;padding:8px;min-height:90px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px">
-        <div style="font-size:12px;font-weight:700">${_WDlong[i]} <span style="color:var(--ink3);font-weight:400">${d.getDate()}/${d.getMonth()+1}</span></div>
+        <div style="font-size:12px;font-weight:700"><span style="background:${gc.bordo};color:#fff;border-radius:5px;padding:1px 7px">${_WDlong[i]}</span> <span style="color:var(--ink3);font-weight:400">${d.getDate()}/${d.getMonth()+1}</span></div>
         <div style="display:flex;align-items:baseline;gap:6px">
           <div style="font-size:11px;font-family:var(--mono);color:var(--ink3)">${lista.length?ev+'/'+lista.length:''}${attG.length?' · 📌'+attFatte+'/'+attG.length:''}</div>
           ${lista.length?`<button class="btn btn-sm" title="Stampa le schede di lavorazione degli ordini di ${_WDlong[i]}" onclick="printSchedeGiorno(${i})" style="padding:0 6px;font-size:11px;line-height:1.5">🖨</button>`:''}
@@ -5849,15 +5818,6 @@ function renderPianificazione(){
     </div>`;
   }
 
-  // card serbatoio: selettore giorno L M M G V S
-  const picker = o => _WD1.map((L,idx)=>`<button class="btn btn-sm" title="Assegna a ${_WDlong[idx]}" onclick="event.stopPropagation();pianificaSetGiorno('${o.id}',${idx})" style="padding:2px 0;width:26px;font-family:var(--mono)">${L}</button>`).join('');
-  const cardDisp = o => `<div class="pf-card" data-pfkind="o" data-pfid="${o.id}" onclick="showSchedaModal('${o.id}')" title="Clicca per il riepilogo · trascina su un giorno per pianificare" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer">
-    <div style="display:flex;align-items:center;gap:4px"><div style="font-size:11px;font-family:var(--mono);color:var(--ink3);flex:1">${o.num} · ${_esc(o.stato)}${_pfOffAperto(o)?' · <span style="color:#2E6FB2;font-weight:700" title="QR di apertura scansionato in officina, lavorazione in corso">🔧 in officina</span>':''}${o.settimanaLavorazione?' · <span style="color:var(--accent2);font-weight:700">📌 già pianificato '+_giornoShort(o.settimanaLavorazione)+'</span>':''}${o.consegna?' · 📅 '+fmtDate(o.consegna):''}</div><span class="pf-handle" title="Trascina su un giorno">⠿</span></div>
-    <div style="font-weight:600;font-size:13px">${_esc(o.cliente||'—')}</div>
-    <div style="font-size:12px;color:var(--ink2);margin-bottom:6px">${riepilogoProdottiConCodice(o)}${finitura(o)}</div>
-    <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><span style="font-size:11px;color:var(--ink3);margin-right:2px">Assegna a:</span>${picker(o)}</div></div>`;
-
-  const _serbAperto = _pianifSerbAperto();
   root.innerHTML=`
    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap">
      <div style="display:flex;align-items:center;gap:8px">
@@ -5870,33 +5830,8 @@ function renderPianificazione(){
      </div>
      <div style="font-size:13px;color:var(--ink2)">In settimana: <b>${totSett}</b> · Evasi: <b style="color:var(--green)">${evasiSett}</b> · <b>${pct}%</b></div>
    </div>
-   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — trascina le card per spostarle e riordinarle (su tablet usa ⠿) · oppure ‹ › e ✕</div>
-   <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px">${colonne}</div>
-
-   <div onclick="pianifToggleSerbatoio()" title="${_serbAperto?'Chiudi':'Apri'} la lista degli ordini da assegnare ai giorni" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600;border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:var(--bg2)">
-     <span style="display:inline-block;width:12px">${_serbAperto?'▾':'▸'}</span>
-     Da pianificare — mai assegnati (${dispNuovi.length})${dispAltre.length?` · 📌 in altre settimane (${dispAltre.length})`:''}
-     ${_serbAperto?'':'<span style="font-weight:400;text-transform:none;letter-spacing:0">— clicca per aprire e assegnare i giorni</span>'}
-   </div>
-   <div id="pianif-serbatoio" style="display:${_serbAperto?'':'none'}">
-   <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
-     <input id="pianif-cerca" placeholder="Cerca per cliente, numero, prodotto…" value="${_esc(q)}" oninput="renderPianificazione()" style="flex:1 1 260px;min-width:0;max-width:420px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">
-     <select id="pianif-colore" title="Filtra per colore" onchange="renderPianificazione()" style="flex:1 1 150px;min-width:0;max-width:240px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">${opzioniColore}</select>
-     <select id="pianif-codice" title="Filtra per codice prodotto" onchange="renderPianificazione()" style="flex:1 1 150px;min-width:0;max-width:240px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box">${opzioniCodice}</select>
-     ${filtriAttivi?'<button class="btn btn-sm" onclick="pianifAzzeraFiltri()">Azzera filtri</button>':''}
-   </div>
-   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
-     ${dispNuovi.length?dispNuovi.slice(0,60).map(cardDisp).join(''):`<div style="color:var(--ink3);font-size:13px;padding:18px">${filtriAttivi?'Nessun ordine mai assegnato con questi filtri.':'Nessun ordine in Lav. 1 / Lav. 2 senza pianificazione.'}</div>`}
-   </div>
-   ${dispNuovi.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispNuovi.length-60)+'. Usa la ricerca per restringere.</div>':''}
-   ${dispAltre.length?`
-   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin:22px 0 8px;font-weight:600">📌 Pianificati in altre settimane (${dispAltre.length}) <span style="font-weight:400;text-transform:none;letter-spacing:0">— clicca un giorno per spostarli in questa settimana</span></div>
-   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;opacity:0.85">
-     ${dispAltre.slice(0,60).map(cardDisp).join('')}
-   </div>
-   ${dispAltre.length>60?'<div style="font-size:12px;color:var(--ink3);padding:8px">…e altri '+(dispAltre.length-60)+'. Usa la ricerca per restringere.</div>':''}`:''}
-   </div>`;
-  const ce=document.getElementById('pianif-cerca'); if(ce && q){ ce.focus(); ce.setSelectionRange(ce.value.length,ce.value.length); }
+   <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — trascina le card per spostarle e riordinarle (su tablet usa ⠿) · oppure ‹ › e ✕ <span style="font-weight:400;text-transform:none;letter-spacing:0">· i nuovi ordini si pianificano dalle card del Piano di produzione qui sotto (pulsanti L–S)</span></div>
+   <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">${colonne}</div>`;
   _pfInitDnD();   // listener unico sul contenitore, sopravvive ai re-render (idempotente)
 }
 
@@ -6263,6 +6198,11 @@ function renderProduzione() {
 
   const board = document.getElementById('kanban-board');
   board.style.gridTemplateColumns = 'repeat(7,1fr)';
+
+  // v3.37: la pianificazione si gestisce dalle card del kanban. I pulsanti L–S assegnano
+  // un giorno della settimana MOSTRATA nella Pianificazione qui sopra (_pianifSett).
+  const _lunOggiK=(function(){ const d=new Date(); d.setHours(0,0,0,0); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); return _dayKeyFromDate(d); })();
+  const _targetGiorni=_WD1.map((L,i)=>{ const d=new Date(_pianifSett); d.setDate(_pianifSett.getDate()+i); return _WDlong[i]+' '+d.getDate()+'/'+(d.getMonth()+1); });
   board.innerHTML = colonne.map(stato=>{
     const cards = ordini.filter(o=>o.stato===stato && passaFiltri(o)).sort((a,b)=>{
       if (stato === 'Inserito') {
@@ -6308,13 +6248,35 @@ function renderProduzione() {
         const saldo = calcolaSaldo(o);
         const saldoTag = saldo>0 ? `<div style="font-size:10px;color:var(--red);font-family:var(--mono)">Saldo: ${fmt(saldo)} €</div>` : '';
         const coloreTag = (o.righe||[]).some(r=>r.colore) ? `<div style="font-size:10px;color:var(--ink3)">🎨 ${(o.righe||[]).map(r=>r.colore).filter(Boolean).join(', ')}</div>` : '';
-        return `<div class="kcard" onclick="showSchedaModal('${o.id}')">
+        // v3.37: pianificazione sulla card (solo Lav. 1 / Lav. 2) — card colorata col colore
+        // del giorno assegnato, giorno in evidenza, ✕ libera, pulsanti L–S per (ri)assegnare
+        let pianifTag='', kcardStile='';
+        if(_STATI_LAV[stato]){
+          const wdRaw=_weekdayOf(o.settimanaLavorazione), wd=wdRaw===6?5:wdRaw;
+          const lunPian=_lunKeyOf(o.settimanaLavorazione);
+          if(wd>=0){
+            const gc=_GIORNO_COLORI[wd];
+            const settPassata=lunPian<_lunOggiK;
+            kcardStile=` style="border-left:4px solid ${settPassata?'#C85B5B':gc.bordo};background:${settPassata?'#FBEBEB':gc.bg}"`;
+            pianifTag+=`<div style="display:flex;align-items:center;gap:4px;margin-top:5px;flex-wrap:wrap">
+              <span title="${settPassata?'Pianificato in una settimana già passata':'Giorno pianificato'}" style="font-size:10px;font-weight:700;font-family:var(--mono);background:${settPassata?'#C85B5B':gc.bordo};color:#fff;border-radius:10px;padding:2px 8px;white-space:nowrap">📌 ${_giornoShort(o.settimanaLavorazione)}${settPassata?' ⚠ sett. passata':''}</span>
+              <button title="Libera: togli l'ordine dal giorno pianificato" onclick="event.stopPropagation();pianificaRemove('${o.id}')" style="font-size:9.5px;border:1px solid var(--border);background:#fff;color:var(--ink2);border-radius:10px;padding:2px 7px;cursor:pointer">✕ libera</button>
+            </div>`;
+          }
+          const inSettMostrata=lunPian===_pianifKey();
+          pianifTag+=`<div style="display:flex;gap:3px;margin-top:5px;align-items:center">
+            <span style="font-size:10px;color:var(--ink3);cursor:help" title="Pianifica in un giorno della settimana mostrata nella Pianificazione qui sopra (${_pianifLabel()})">📅</span>
+            ${_WD1.map((L,i)=>{ const gc=_GIORNO_COLORI[i]; const sel=inSettMostrata&&i===wd; return `<button title="Pianifica ${_targetGiorni[i]}" onclick="event.stopPropagation();pianificaSetGiorno('${o.id}',${i})" style="flex:1;font-size:9.5px;font-weight:700;font-family:var(--mono);border:1px solid ${gc.bordo};background:${sel?gc.bordo:gc.bg};color:${sel?'#fff':gc.testo};border-radius:5px;padding:2px 0;cursor:pointer">${L}</button>`; }).join('')}
+          </div>`;
+        }
+        return `<div class="kcard"${kcardStile} onclick="showSchedaModal('${o.id}')">
           <div class="kcard-id">${o.num}${o.fuoriStandard?' <span class="badge badge-accent" style="font-size:9px">FS</span>':''}</div>
           <div class="kcard-name">${o.cliente}</div>
           <div class="kcard-model" style="font-size:11px">${riepilogoProdottiConCodice(o)}</div>
           ${coloreTag}
           ${saldoTag}
           <div class="kcard-date ${past?'urgent':urg?'urgent':'ok'}">📅 ${fmtDate(o.consegna)}${past?' ⚠':urg?' ⚠':''}</div>
+          ${pianifTag}
           <div style="display:flex;gap:3px;margin-top:6px;flex-wrap:wrap">
             ${['Inserito','Bloccato','Da sviluppare','In lavorazione 1','In lavorazione 2','Completato','Saldato','Consegnato'].filter(c=>c!==stato).map(c=>{
               const coloriTasto = {
