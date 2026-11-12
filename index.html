@@ -550,7 +550,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Pianificazione direttamente sulle card del Piano di produzione: via la lista 'Da pianificare'; ogni giorno ha un colore fisso (colonne e card), giorno pianificato in evidenza sulla card (rosso se in settimana passata, con ✕ libera), pulsanti L–S per assegnare il giorno della settimana mostrata sopra.">v3.37 — 11/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nella testata della Pianificazione (giorni) compaiono il Valore totale e il Da incassare degli ordini programmati nella settimana mostrata (stessi criteri del kanban: prezzo pieno e saldo residuo).">v3.38 — 12/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1331,7 +1331,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.37';
+window.APP_VERSION = '3.38';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5752,6 +5752,11 @@ function renderPianificazione(){
   const totSett = perGiorno.reduce((n,a)=>n+a.length,0);
   const evasiSett = perGiorno.reduce((n,a)=>n+a.filter(o=>_EVASO_PF[o.stato]).length,0);
   const pct = totSett?Math.round(evasiSett/totSett*100):0;
+  // v3.38: valore economico della settimana pianificata — stessi criteri del kanban:
+  // valore = prezzo pieno degli ordini programmati, da incassare = saldo residuo (mai negativo)
+  const ordiniSett = perGiorno.flat();
+  const valSett = ordiniSett.reduce((s,o)=>s+(o.prezzoTotale||0),0);
+  const incSett = ordiniSett.reduce((s,o)=>s+Math.max(0,calcolaSaldo(o)),0);
 
   const oggiKey=_dayKeyFromDate((function(){const d=new Date();d.setHours(0,0,0,0);return d;})());
 
@@ -5828,7 +5833,7 @@ function renderPianificazione(){
        <button class="btn btn-sm" onclick="stampaMaterialiSettimana()" title="Stampa la lista dei materiali da prelevare per gli ordini pianificati in questa settimana">🖨 Materiali settimana</button>
        <button class="btn btn-sm" onclick="stampaTagliSettimana()" title="Stampa solo i pezzi da tagliare (fabbisogno non coperto dalla giacenza)">✂ Tagli settimana</button>
      </div>
-     <div style="font-size:13px;color:var(--ink2)">In settimana: <b>${totSett}</b> · Evasi: <b style="color:var(--green)">${evasiSett}</b> · <b>${pct}%</b></div>
+     <div style="font-size:13px;color:var(--ink2)">In settimana: <b>${totSett}</b> · Evasi: <b style="color:var(--green)">${evasiSett}</b> · <b>${pct}%</b> · Valore: <b>${fmt(valSett)} €</b> · Da incassare: <b style="color:var(--red)">${fmt(incSett)} €</b></div>
    </div>
    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink3);margin-bottom:8px;font-weight:600">Giorni della settimana — trascina le card per spostarle e riordinarle (su tablet usa ⠿) · oppure ‹ › e ✕ <span style="font-weight:400;text-transform:none;letter-spacing:0">· i nuovi ordini si pianificano dalle card del Piano di produzione qui sotto (pulsanti L–S)</span></div>
    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">${colonne}</div>`;
