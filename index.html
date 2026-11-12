@@ -550,7 +550,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nella testata della Pianificazione (giorni) compaiono il Valore totale e il Da incassare degli ordini programmati nella settimana mostrata (stessi criteri del kanban: prezzo pieno e saldo residuo).">v3.38 — 12/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nel riquadro 'In attesa di caparra' del Registro Lead ogni riga mostra anche il numero del preventivo accettato (come nel riquadro 'Pagati — da convertire in ordine').">v3.39 — 12/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1331,7 +1331,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.38';
+window.APP_VERSION = '3.39';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -9306,9 +9306,13 @@ function disegnaLeadMkt() {
   if (_attesaCaparra.length) {
     const righeCap = _attesaCaparra.map(x => {
       const rem = x.data_prossima_azione ? `${fmtDate(x.data_prossima_azione)}${statoPromemoria(x.data_prossima_azione)==='scaduto'?' ⏰':''}` : '';
+      // numero del preventivo accettato più recente del lead (stessa logica di "Pagati — da convertire")
+      const prevCap = _prevList.filter(p => p.lead_id===x.id && (p.stato==='accettato'||p.stato==='lavorato'))
+                               .sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')))[0];
+      const numCap = prevCap ? _at(prevCap.numero||'') : '';
       return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);flex-wrap:wrap">
         <span style="min-width:82px;font-weight:700;font-size:11px;color:var(--amber)">⏳ CAPARRA</span>
-        <span style="flex:1;min-width:150px;font-size:13px"><b>${_at(x.nome||'—')}</b>${_leadValore(x)?` · € ${_leadValore(x).toLocaleString('it-IT')}`:''}${rem?` · <span style="color:var(--ink3)">sollecito ${rem}</span>`:''}</span>
+        <span style="flex:1;min-width:150px;font-size:13px"><b>${_at(x.nome||'—')}</b>${numCap?` · preventivo ${numCap}`:''}${_leadValore(x)?` · € ${_leadValore(x).toLocaleString('it-IT')}`:''}${rem?` · <span style="color:var(--ink3)">sollecito ${rem}</span>`:''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="leadSollecitoAcconto('${x.id}')">Sollecitato</button>
         <button class="btn btn-sm btn-primary" style="font-size:11px" onclick="leadAccontoVersato('${x.id}')">Acconto versato</button>
         <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="gestisciLead('${x.id}')">Scheda</button>
