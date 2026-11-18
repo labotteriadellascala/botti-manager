@@ -550,7 +550,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nel riquadro 'In attesa di caparra' del Registro Lead ogni riga mostra anche il numero del preventivo accettato (come nel riquadro 'Pagati — da convertire in ordine').">v3.39 — 12/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Piano di produzione: nuovo flag 'Nascondi già programmati' nei filtri — nasconde da Lav. 1 e Lav. 2 gli ordini che hanno già un giorno assegnato.">v3.40 — 17/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -833,6 +833,13 @@ td.fin-in{color:var(--green);font-weight:500}
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;height:38px">
         <input type="checkbox" id="kf-materiali" style="width:auto" onchange="renderProduzione()">
         Solo disponibili
+      </label>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em;color:var(--ink3);display:block;margin-bottom:4px">Pianificazione</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;height:38px" title="Nasconde da Lav. 1 e Lav. 2 gli ordini che hanno già un giorno assegnato (📌)">
+        <input type="checkbox" id="kf-nascondi-pianif" style="width:auto" onchange="renderProduzione()">
+        Nascondi già programmati
       </label>
     </div>
     <button class="btn btn-sm" onclick="resetFiltriKanban()" style="align-self:flex-end;height:38px">✕ Reset</button>
@@ -1331,7 +1338,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.39';
+window.APP_VERSION = '3.40';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5400,6 +5407,7 @@ function resetFiltriKanban() {
   ['kf-cerca','kf-data'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const col=document.getElementById('kf-colore'); if(col) col.value='';
   const mat=document.getElementById('kf-materiali'); if(mat) mat.checked=false;
+  const np=document.getElementById('kf-nascondi-pianif'); if(np) np.checked=false;
   if(window.kfCanaleSel) window.kfCanaleSel.clear();
   const cm=document.getElementById('kf-canale-menu'); if(cm) cm.style.display='none';
   renderProduzione();
@@ -6156,9 +6164,10 @@ function renderProduzione() {
   const fColore  = (document.getElementById('kf-colore')||{}).value||'';
   const fData    = (document.getElementById('kf-data')||{}).value||'';
   const fMat     = (document.getElementById('kf-materiali')||{}).checked||false;
+  const fNoPian  = (document.getElementById('kf-nascondi-pianif')||{}).checked||false;
   const fCanali  = window.kfCanaleSel;
 
-  const attivi = fQ||fColore||fData||fMat||fCanali.size>0;
+  const attivi = fQ||fColore||fData||fMat||fNoPian||fCanali.size>0;
   const badge = document.getElementById('kf-attivi');
   if(badge) {
     badge.style.display = attivi ? 'block' : 'none';
@@ -6169,6 +6178,7 @@ function renderProduzione() {
       if(fCanali.size) tags.push(`Canale: <strong>${[...fCanali].map(c=>c||'(Senza canale)').join(', ')}</strong>`);
       if(fData) tags.push(`Entro: <strong>${fmtDate(fData)}</strong>`);
       if(fMat) tags.push(`<strong>Solo materiali disponibili</strong>`);
+      if(fNoPian) tags.push(`<strong>Nascondi già programmati</strong>`);
       badge.innerHTML = `<div style="font-size:12px;color:var(--ink2);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span style="color:var(--ink3)">Filtri attivi:</span>${tags.map(t=>`<span style="background:var(--accent-bg);color:var(--accent);padding:2px 8px;border-radius:99px;border:1px solid var(--accent)">${t}</span>`).join('')}</div>`;
     }
@@ -6198,6 +6208,9 @@ function renderProduzione() {
       const righe = o.righe||[{prodotto:o.prodotto, accessori:o.accessori||[]}];
       if(!righe.every(r=>hasMaterialiDisponibili(r))) return false;
     }
+    // v3.40: "Nascondi già programmati" — solo in Lav. 1 / Lav. 2 (le uniche colonne dove la
+    // pianificazione compare sulla card); conta qualsiasi giorno assegnato, anche di settimane passate.
+    if(fNoPian && _STATI_LAV[o.stato] && _weekdayOf(o.settimanaLavorazione)>=0) return false;
     return true;
   }
 
