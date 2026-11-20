@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dividi schermo: pulsante ◫ in alto per vedere due pagine insieme (affiancate su PC, impilate su telefono), ognuna con scorrimento indipendente; la destra si sceglie dalla sua testatina, scelta ricordata sul dispositivo.">v3.41 — 20/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dividi schermo: la tendina della metà destra ha le stesse voci, nomi e ordine del menu laterale (quindi 'Lead' si trova subito). Editor preventivi: misure in ordine Altezza, Larghezza, Profondità e campo Diametro rimosso (i valori già salvati non si perdono).">v3.42 — 20/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.41';
+window.APP_VERSION = '3.42';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3431,12 +3431,13 @@ function nav(page, el) {
 // Scelta ricordata per dispositivo (localStorage). Vincolo strutturale: ogni pagina
 // esiste UNA volta nel DOM → le due metà devono mostrare pagine diverse; la vista
 // Produzione (pianificazione + kanban) occupa una metà con le sue sezioni impilate.
+// Stesse voci, stessi nomi e stesso ordine del menu laterale (così "Lead" si trova dove te lo aspetti)
 const _SPLIT_TITOLI = {
-  'dashboard':'Dashboard','ordini':'Ordini','nuovo-ordine':'Nuovo ordine','produzione':'Produzione',
-  'materiali':'Materiali','prodotti':'Prodotti','accessori-listino':'Listino accessori',
-  'impostazioni':'Impostazioni','ordini-evento':'Ordini Evento','contatti':'Contatti','lead':'Registro Lead',
-  'calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore','ordini-fornitore':'Ordini fornitore',
-  'promemoria':'Promemoria','timbrature':'Timbrature','finanze':'Registro Finanziario','mastrini':'Mastrini'
+  'dashboard':'Dashboard','ordini':'Ordini','ordini-evento':'Ordini Evento','contatti':'Contatti',
+  'lead':'Lead','nuovo-ordine':'Nuovo ordine','produzione':'Piano produzione','materiali':'Materiali',
+  'ordini-fornitore':'Ordini fornitore','prodotti':'Prodotti','accessori-listino':'Listino accessori',
+  'impostazioni':'Impostazioni','calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore',
+  'promemoria':'Promemoria','finanze':'Registro Finanziario','mastrini':'Mastrini','timbrature':'Timbrature'
 };
 window._splitPag2 = null;      // pagina della metà destra/bassa (null = schermo intero)
 let _SPLIT_ORDINE = null;      // ordine originale delle pagine nel DOM (per richiuderle al loro posto)
@@ -10360,6 +10361,9 @@ async function apriEditorPreventivo(leadId, prevId, ordineId){
   }
   _prevAllegati = Array.isArray(p.allegati) ? p.allegati.slice() : [];
   const m = p.misure || {};
+  // diametro: campo tolto dall'editor (v3.42) — tengo da parte il valore del preventivo
+  // caricato per intero, così il salvataggio non lo perde (la cache non ha le misure)
+  window._prevDiamCorrente = m.diam || '';
   closeModal();
   const ov=document.createElement('div'); ov.className='pv-ov'; ov.id='pv-ov';
   ov.innerHTML = `
@@ -10396,10 +10400,9 @@ async function apriEditorPreventivo(leadId, prevId, ordineId){
       <div class="card">
         <div class="card-title">Misure</div>
         <div class="form-grid">
+          <div class="form-group"><label>Altezza cm</label><input id="pv-mi-h" inputmode="decimal" value="${_at(m.alt)}"></div>
           <div class="form-group"><label>Larghezza cm</label><input id="pv-mi-l" inputmode="decimal" value="${_at(m.larg)}"></div>
           <div class="form-group"><label>Profondità cm</label><input id="pv-mi-p" inputmode="decimal" value="${_at(m.prof)}"></div>
-          <div class="form-group"><label>Altezza cm</label><input id="pv-mi-h" inputmode="decimal" value="${_at(m.alt)}"></div>
-          <div class="form-group"><label>Diametro cm</label><input id="pv-mi-d" inputmode="decimal" value="${_at(m.diam)}"></div>
           <div class="form-group full"><label>Note misure / finiture</label><textarea id="pv-mi-note" rows="2">${_at(m.note)}</textarea></div>
         </div>
       </div>
@@ -10530,7 +10533,8 @@ async function salvaPreventivo(genera){
     lead_id:_prevLeadId, ordine_id:_prevOrdineId, numero:val('pv-num').trim()||null,
     iva_esposta: (function(){ const e=document.getElementById('pv-iva-esposta'); return e ? e.checked : true; })(),
     righe, imponibile:t.imponibile, sconto_totale:t.sconto, iva_percent:_prevParseNum(val('pv-iva')), totale:t.totale,
-    misure:{larg:val('pv-mi-l'),prof:val('pv-mi-p'),alt:val('pv-mi-h'),diam:val('pv-mi-d'),note:val('pv-mi-note')},
+    // diametro: campo tolto dall'editor (v3.42) — si conserva il valore già salvato sui preventivi vecchi
+    misure:{larg:val('pv-mi-l'),prof:val('pv-mi-p'),alt:val('pv-mi-h'),diam:window._prevDiamCorrente||'',note:val('pv-mi-note')},
     note:val('pv-note').trim()||null, allegati:_prevAllegati,
     cliente_nome:val('pv-cl-nome').trim()||null, cliente_email:val('pv-cl-email').trim()||null, cliente_telefono:val('pv-cl-tel').trim()||null,
     valido_fino:validoFino, token:(cur&&cur.token)?cur.token:_prevToken(),
