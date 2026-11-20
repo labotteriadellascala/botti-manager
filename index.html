@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dividi schermo: la tendina della metà destra ha le stesse voci, nomi e ordine del menu laterale (quindi 'Lead' si trova subito). Editor preventivi: misure in ordine Altezza, Larghezza, Profondità e campo Diametro rimosso (i valori già salvati non si perdono).">v3.42 — 20/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: accanto a '✓ Convertito' ora c'è il collegamento all'ordine nato dalla conversione — pulsante 'Apri ordine' nella scheda e badge cliccabile nella lista. Funziona anche per le conversioni passate (ritrovate dalla nota '⇄ Convertito da ordine evento N').">v3.43 — 20/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.42';
+window.APP_VERSION = '3.43';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -5417,6 +5417,7 @@ function salvaOrdine() {
     if (_ev) {
       _ev.convertito = true;
       _ev.dataConversione = new Date().toISOString().slice(0,10);
+      _ev.ordineId = ordineToccato.id;   // v3.43: aggancio diretto all'ordine nato dalla conversione
       delete _ev.promemoriaData; delete _ev.promemoriaNota; delete _ev.promemoriaDest;
       saveOrdiniEvento(_lev);
     }
@@ -11236,11 +11237,26 @@ function aggiornaTotaliOe() {
   set('oe-tot-tot', f(tot)); set('oe-tot-cap', f(cap)); set('oe-tot-saldo', f(tot-cap));
 }
 
+// v3.43 — Ritrova l'ordine nato dalla conversione di un ordine evento: prima per
+// aggancio diretto (oe.ordineId, salvato dalla v3.43 in poi), poi per la nota
+// "⇄ Convertito da ordine evento N" che la conversione scrive da sempre nella prima
+// riga dell'ordine (così funziona anche per le conversioni passate). Il confronto
+// pretende che dopo il numero ci sia fine testo o a-capo: "…- 1" non acchiappa "…- 11".
+function _oeOrdineConvertito(oe){
+  const ordini = DB.get('ordini')||[];
+  if (oe.ordineId){ const o = ordini.find(x=>x.id===oe.ordineId); if(o) return o; }
+  if (!oe.num) return null;
+  const tag = '⇄ Convertito da ordine evento ' + oe.num;
+  const hit = s => { s=String(s||''); const j=s.indexOf(tag); if(j<0) return false; const dopo=s.charAt(j+tag.length); return dopo===''||dopo==='\n'||dopo==='\r'; };
+  return ordini.find(o => (o.righe||[]).some(r=>hit(r.note)) || hit(o.note)) || null;
+}
+
 function buildOeRows(listaIdx) {
   return listaIdx.map(({o, i})=>{
     const saldo = ((parseFloat(o.totale)||0) - (parseFloat(o.caparra)||0));
+    const _oxc = o.convertito ? _oeOrdineConvertito(o) : null;   // v3.43: badge cliccabile → scheda ordine
     const statoBadge = o.convertito
-      ? `<span class="badge badge-green">✓ Convertito</span>`
+      ? (_oxc ? `<span class="badge badge-green" style="cursor:pointer" title="Apri la scheda dell'ordine ${_esc(_oxc.num||'')} nato da questa conversione" onclick="showSchedaModal('${_oxc.id}')">✓ Convertito ↗</span>` : `<span class="badge badge-green">✓ Convertito</span>`)
       : `<span class="badge badge-gray">Da convertire</span>`;
     return `<tr class="oe-row"
       data-search="${(o.num+' '+o.ragioneSociale+' '+o.canale).toLowerCase()}"
@@ -11497,7 +11513,11 @@ function renderFormOrdineEvento(o, i) {
       <span class="badge badge-accent">${o.canale||'—'}</span>
       <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)">${o.num}</span>
       <button class="btn btn-sm btn-ghost" style="padding:1px 7px;font-size:11px" title="Correggi il numero ordine (es. doppione)" onclick="rinominaNumeroOe(${i})">✎</button>
-      ${o.convertito?`<span class="badge badge-green">✓ Convertito il ${o.dataConversione||''}</span>`:`<span class="badge badge-gray">Da convertire</span>`}
+      ${o.convertito?`<span class="badge badge-green">✓ Convertito il ${o.dataConversione||''}</span>${(function(){
+        const ox=_oeOrdineConvertito(o);   // v3.43: link all'ordine nato dalla conversione
+        return ox?` <button class="btn btn-sm" style="font-size:11px;padding:2px 9px" title="Apri la scheda dell'ordine nato da questa conversione" onclick="showSchedaModal('${ox.id}')">↗ Apri ordine ${_esc(ox.num||'')}${ox.stato?' · '+_esc(ox.stato):''}</button>`
+                 :` <span style="font-size:11px;color:var(--ink3)" title="Nessun ordine con la nota di conversione di questo evento: può essere stato eliminato, o la nota modificata">ordine collegato non trovato</span>`;
+      })()}`:`<span class="badge badge-gray">Da convertire</span>`}
     </div>
     <div class="form-grid">
       <div class="form-group"><label>Ragione sociale / Nome *</label>
