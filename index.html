@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Ordini Evento: accanto a '✓ Convertito' ora c'è il collegamento all'ordine nato dalla conversione — pulsante 'Apri ordine' nella scheda e badge cliccabile nella lista. Funziona anche per le conversioni passate (ritrovate dalla nota '⇄ Convertito da ordine evento N').">v3.43 — 20/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivi dagli Ordini Evento: pulsante '📄 Preventivi' nella scheda e nella lista — il preventivo nasce precompilato coi dati del contatto fiera, resta agganciato all'evento e NON passa dalla sezione Lead.">v3.44 — 20/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.43';
+window.APP_VERSION = '3.44';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -10330,18 +10330,26 @@ const PREV_NOTE_DEFAULT = `Spedizione a carico nostro.
 Per la conferma basta una caparra di €150, il saldo ad avviso di merce pronta nelle seguenti modalità:
 - Bonifico
 - Rate klarna`;
-async function apriEditorPreventivo(leadId, prevId, ordineId){
+async function apriEditorPreventivo(leadId, prevId, ordineId, oeNum){
   _prevCss();
   await caricaPreventivi();
   _prevLeadId = leadId || null;
   _prevOrdineId = ordineId || null;
   _prevEditId = prevId || null;
-  // Prefill anagrafica: da ORDINE oppure da LEAD (e etichetta della sorgente)
+  // v3.44: preventivo da ORDINE EVENTO — il numero evento resta in memoria fino al
+  // salvataggio, dove aggancia il preventivo all'evento (preventivoIds). Gli altri
+  // percorsi lo azzerano (oeNum assente), così non resta appiccicato per sbaglio.
+  window._prevOeNum = oeNum || null;
+  // Prefill anagrafica: da ORDINE, da ORDINE EVENTO oppure da LEAD (e etichetta della sorgente)
   let sorgente = '', prefill = { nome:'', email:'', telefono:'' };
   if (ordineId){
     const ord = (DB.get('ordini')||[]).find(x=>x.id===ordineId) || {};
     prefill = { nome: ord.cliente||'', email: ord.email||ord.mail||'', telefono: ord.tel||ord.telefono||'' };
     sorgente = ord.num ? ('ordine '+ord.num) : 'ordine';
+  } else if (oeNum){
+    const _oe = (getOrdiniEvento()||[]).find(x=>x.num===oeNum) || {};
+    prefill = { nome: _oe.ragioneSociale||'', email: _oe.mail||'', telefono: _oe.telefono||'' };
+    sorgente = 'ordine evento '+oeNum;
   } else {
     const lead = _leadList.find(l => l.id===leadId) || {};
     prefill = { nome: lead.nome||'', email: lead.email||'', telefono: lead.telefono||'' };
@@ -10555,6 +10563,17 @@ async function salvaPreventivo(genera){
     if (error){ alert('Errore inserimento: '+error.message); return; }
     saved=data; _prevEditId=data.id;
   }
+  // v3.44: preventivo nato da un ORDINE EVENTO → aggancio sull'evento (lista preventivoIds)
+  if (window._prevOeNum && saved && saved.id){
+    try{
+      const _lev = getOrdiniEvento();
+      const _ev = _lev.find(x => x.num === window._prevOeNum);
+      if (_ev){
+        if (!Array.isArray(_ev.preventivoIds)) _ev.preventivoIds = [];
+        if (!_ev.preventivoIds.includes(saved.id)){ _ev.preventivoIds.push(saved.id); saveOrdiniEvento(_lev); }
+      }
+    }catch(e){ console.error('Aggancio preventivo → ordine evento:', e); }
+  }
   await caricaPreventivi(true);
   chiudiEditorPreventivo();
   if (genera && saved.token) _prevMostraLink(saved);
@@ -10744,6 +10763,41 @@ async function preventiviOrdine(ordineId){
   }
   showModal('Preventivi ordine ' + _at(ord.num||''), `<div style="max-height:60vh;overflow:auto">${body}</div>`, [
     {label:'+ Nuovo preventivo', action:`closeModal();apriEditorPreventivo(null,null,'${ordineId}')`, primary:true},
+    {label:'Chiudi', action:'closeModal()'}
+  ]);
+}
+
+// ── Preventivi legati a un ORDINE EVENTO (v3.44) ─────────────────────────────
+// Per i contatti presi in fiera che hanno versato la caparra allo stand: il
+// preventivo NON passa dai Lead (lead_id nullo) e l'aggancio vive sull'evento
+// (oe.preventivoIds). I wrapper per indice evitano problemi di apostrofi nei
+// numeri evento dentro gli onclick.
+window.pvOeNuovo = function(i){ const oe=getOrdiniEvento()[i]; if(oe) apriEditorPreventivo(null, null, null, oe.num); };
+window.pvOeApri  = function(i, pid){ const oe=getOrdiniEvento()[i]; apriEditorPreventivo(null, pid, null, oe ? oe.num : null); };
+async function preventiviOrdineEvento(i){
+  const lev = getOrdiniEvento(); const oe = lev[i]; if(!oe) return;
+  await caricaPreventivi(true);
+  // ripulisce gli agganci a preventivi nel frattempo eliminati (così il conteggio resta giusto)
+  const ids0 = Array.isArray(oe.preventivoIds) ? oe.preventivoIds : [];
+  const ids = ids0.filter(id => _prevList.some(p => p.id === id));
+  if (ids.length !== ids0.length){ oe.preventivoIds = ids; saveOrdiniEvento(lev); }
+  const list = _prevList.filter(p => ids.includes(p.id)).sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+  let body = `<div style="font-size:12px;color:var(--ink3);margin-bottom:10px">Preventivi per <b>${_at(oe.ragioneSociale||'—')}</b> (ordine evento <b>${_at(oe.num||'')}</b>). Non compaiono nella sezione Lead; la caparra resta registrata sull'ordine evento.</div>`;
+  if (!list.length){ body += '<div style="color:var(--ink3);font-size:13px">Nessun preventivo per questo contatto. Creane uno con “Nuovo preventivo”.</div>'; }
+  else {
+    body += list.map(p=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);font-size:12px">
+        <span class="text-mono" style="min-width:66px">${_at(p.numero||'—')}</span>
+        <span class="badge ${PREV_STATO_BADGE[p.stato]||'badge-gray'}" style="font-size:10px">${p.stato||'bozza'}</span>
+        <span style="flex:1;text-align:right;font-variant-numeric:tabular-nums">${p.totale!=null?_prevEuro(p.totale):''}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();pvOeApri(${i},'${p.id}')">Apri</button>
+        ${_prevEScaduto(p)?`<button class="btn btn-sm" style="font-size:11px;background:var(--amber-bg);border-color:var(--amber)" title="Riattiva il preventivo scaduto con una nuova data di validità" onclick="riattivaPreventivo('${p.id}')">↺ Riattiva</button>`:''}
+        ${p.token?`<button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="copiaLinkPrev('${p.token}')">Link</button>`:''}
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--ink3)" title="Elimina" onclick="eliminaPreventivo('${p.id}')">🗑</button>
+      </div>`).join('');
+  }
+  showModal('Preventivi — ' + _at(oe.num||''), `<div style="max-height:60vh;overflow:auto">${body}</div>`, [
+    {label:'+ Nuovo preventivo', action:`closeModal();pvOeNuovo(${i})`, primary:true},
     {label:'Chiudi', action:'closeModal()'}
   ]);
 }
@@ -11274,6 +11328,7 @@ function buildOeRows(listaIdx) {
       <td>${o.espo?'<span class="badge badge-purple" style="font-size:10px" title="Venduto dall\'esposizione">🏷 ESPO</span> ':''}${statoBadge}</td>
       <td style="display:flex;gap:4px">
         <button class="btn btn-sm btn-ghost" onclick="editOrdineEvento(${i})">Apri</button>
+        <button class="btn btn-sm btn-ghost" title="Preventivi di questo contatto fiera (non finiscono nei Lead)" onclick="preventiviOrdineEvento(${i})">📄${(o.preventivoIds&&o.preventivoIds.length)?o.preventivoIds.length:''}</button>
         <button class="btn btn-sm btn-ghost" onclick="stampaOrdineEvento(${i})">⬇ PDF</button>
         <button class="btn btn-sm" onclick="convertiInOrdine(${i})" style="background:var(--green-bg);border-color:var(--green);color:var(--green);font-size:11px">⇄</button>
         <button class="btn btn-sm btn-danger" onclick="deleteOrdineEvento(${i})">×</button>
@@ -11513,6 +11568,7 @@ function renderFormOrdineEvento(o, i) {
       <span class="badge badge-accent">${o.canale||'—'}</span>
       <span style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)">${o.num}</span>
       <button class="btn btn-sm btn-ghost" style="padding:1px 7px;font-size:11px" title="Correggi il numero ordine (es. doppione)" onclick="rinominaNumeroOe(${i})">✎</button>
+      <button class="btn btn-sm" style="font-size:11px" title="Preventivi per questo contatto fiera: restano agganciati all'ordine evento e NON finiscono nella sezione Lead" onclick="preventiviOrdineEvento(${i})">📄 Preventivi${(o.preventivoIds&&o.preventivoIds.length)?' ('+o.preventivoIds.length+')':''}</button>
       ${o.convertito?`<span class="badge badge-green">✓ Convertito il ${o.dataConversione||''}</span>${(function(){
         const ox=_oeOrdineConvertito(o);   // v3.43: link all'ordine nato dalla conversione
         return ox?` <button class="btn btn-sm" style="font-size:11px;padding:2px 9px" title="Apri la scheda dell'ordine nato da questa conversione" onclick="showSchedaModal('${ox.id}')">↗ Apri ordine ${_esc(ox.num||'')}${ox.stato?' · '+_esc(ox.stato):''}</button>`
