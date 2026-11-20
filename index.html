@@ -57,6 +57,25 @@ button, input, select, textarea { font-family: var(--sans); font-size: 14px; }
 .topbar-title { font-family: var(--serif); font-size: 17px; font-weight: 600; }
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
 .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+/* ─── Dividi schermo (v3.41): due metà con scorrimento indipendente ─── */
+.content.split-on { display: flex; padding: 0; overflow: hidden; }
+.split-pane { flex: 1 1 50%; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 28px; }
+.split-pane + .split-pane { border-left: 2px solid var(--border2); }
+.split-cap { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 8px; margin: -24px -28px 14px; padding: 6px 14px; background: var(--bg2); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink2); }
+.split-cap select { font-size: 12px; padding: 3px 6px; border: 1px solid var(--border2); border-radius: var(--radius); background: #fff; color: var(--ink); max-width: 200px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.split-cap-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink3); }
+@media (max-width: 768px) {
+  .content.split-on { flex-direction: column; }
+  .split-pane { flex-basis: 50%; padding: 14px; }
+  .split-pane + .split-pane { border-left: none; border-top: 2px solid var(--border2); }
+  .split-cap { margin: -14px -14px 10px; }
+  .split-cap-hint { display: none; }
+}
+@media print {
+  .content.split-on { display: block; overflow: visible; }
+  .split-pane { overflow: visible; padding: 0; border: none !important; }
+  .split-cap { display: none !important; }
+}
 .page { display: none; }
 .page.active { display: block; }
 /* Vista unificata Produzione: separatore tra pianificazione (sopra) e kanban (sotto) */
@@ -511,7 +530,7 @@ table.tmb-sht .ot{color:#444}
 .tmb-sh-sign{display:flex;justify-content:space-between;margin-top:44px;gap:40px}
 .tmb-sh-sign div{flex:1;border-top:1px solid #999;padding-top:5px;font-size:9.5px;color:#666;text-align:center}
 @media print{
-  body.tmb-printing .content>.page{display:none!important}
+  body.tmb-printing .content .page{display:none!important}   /* ".content .page" (non ">"): col dividi schermo le pagine stanno dentro le metà */
   body.tmb-printing #page-timbrature{display:block!important}
   body.tmb-printing #page-timbrature .tmb-screen{display:none!important}
   body.tmb-printing #tmb-printsheets{display:block!important}
@@ -550,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Piano di produzione: nuovo flag 'Nascondi già programmati' nei filtri — nasconde da Lav. 1 e Lav. 2 gli ordini che hanno già un giorno assegnato.">v3.40 — 17/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Dividi schermo: pulsante ◫ in alto per vedere due pagine insieme (affiancate su PC, impilate su telefono), ognuna con scorrimento indipendente; la destra si sceglie dalla sua testatina, scelta ricordata sul dispositivo.">v3.41 — 20/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1338,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.40';
+window.APP_VERSION = '3.41';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3319,6 +3338,15 @@ function closeSidebar() {
 // resta come alias interno (apre la stessa schermata).
 const PAGINE_PRODUZIONE = ['produzione','pianificazione'];
 function nav(page, el) {
+  // v3.41 dividi schermo: se dal menu si sceglie la pagina già aperta nella metà
+  // destra, le due metà si SCAMBIANO (la destra prende la vecchia pagina corrente).
+  let _swapDx = false;
+  if (window._splitPag2 && _splitCollide(page, window._splitPag2)) {
+    const vecchia = window._paginaCorrente || 'dashboard';
+    let nuova = PAGINE_PRODUZIONE.includes(vecchia) ? 'produzione' : vecchia;
+    if (_splitCollide(page, nuova)) nuova = null;   // stessa pagina da entrambi i lati: la destra si chiude
+    window._splitPag2 = nuova; _splitSalva(); _swapDx = !!nuova;
+  }
   window._paginaCorrente = page;
   closeSidebar();
   const combinata = PAGINE_PRODUZIONE.includes(page);
@@ -3388,7 +3416,118 @@ function nav(page, el) {
   if(page==='promemoria') renderPromemoria();
   if(page==='finanze') renderFinanze();
   if(page==='mastrini') renderMastrini();
+
+  // v3.41 dividi schermo: ricompone le due metà (nav ha appena azzerato le classi
+  // active) e, se le metà si sono scambiate, ridisegna anche la destra.
+  if (window._splitPag2) { _splitApplica(); if (_swapDx) _splitRender(window._splitPag2); }
+  else if (document.getElementById('split-sx')) _splitApplica();   // divisione appena chiusa dallo scambio
+  _splitTopbarUI();
 }
+
+// ─── DIVIDI SCHERMO (v3.41) ───────────────────────────────────────────────────
+// Due pagine visibili insieme: affiancate su PC, impilate su telefono (<768px),
+// ognuna con scorrimento indipendente. La metà sinistra/alta è la pagina corrente
+// (si cambia dal menu laterale); la destra/bassa si sceglie dalla sua testatina.
+// Scelta ricordata per dispositivo (localStorage). Vincolo strutturale: ogni pagina
+// esiste UNA volta nel DOM → le due metà devono mostrare pagine diverse; la vista
+// Produzione (pianificazione + kanban) occupa una metà con le sue sezioni impilate.
+const _SPLIT_TITOLI = {
+  'dashboard':'Dashboard','ordini':'Ordini','nuovo-ordine':'Nuovo ordine','produzione':'Produzione',
+  'materiali':'Materiali','prodotti':'Prodotti','accessori-listino':'Listino accessori',
+  'impostazioni':'Impostazioni','ordini-evento':'Ordini Evento','contatti':'Contatti','lead':'Registro Lead',
+  'calcolo-prezzi':'Calcolo prezzi','costificatore':'Costificatore','ordini-fornitore':'Ordini fornitore',
+  'promemoria':'Promemoria','timbrature':'Timbrature','finanze':'Registro Finanziario','mastrini':'Mastrini'
+};
+window._splitPag2 = null;      // pagina della metà destra/bassa (null = schermo intero)
+let _SPLIT_ORDINE = null;      // ordine originale delle pagine nel DOM (per richiuderle al loro posto)
+function _splitPagineDi(p){ return PAGINE_PRODUZIONE.includes(p) ? PAGINE_PRODUZIONE.slice() : [p]; }
+function _splitCollide(a,b){ if(!a||!b) return false; return _splitPagineDi(a).some(x=>_splitPagineDi(b).includes(x)); }
+function _splitSalva(){ try{ localStorage.setItem('split_pagina2', window._splitPag2||''); }catch(e){} }
+function _splitContent(){ return document.querySelector('.main > .content'); }
+// Ridisegna una pagina qualsiasi (stessa mappa di nav, senza toccare topbar/menu)
+function _splitRender(p){
+  if(PAGINE_PRODUZIONE.includes(p)){ renderPianificazione(); renderProduzione(); return; }
+  if(p==='dashboard') renderDashboard();
+  else if(p==='ordini') renderOrdini();
+  else if(p==='nuovo-ordine') renderFormOrdine(null);
+  else if(p==='timbrature') renderTimbratureCloud();
+  else if(p==='materiali') renderMateriali();
+  else if(p==='prodotti') renderProdotti();
+  else if(p==='accessori-listino') renderAccessoriListino();
+  else if(p==='impostazioni') renderImpostazioni();
+  else if(p==='ordini-evento') renderOrdiniEvento();
+  else if(p==='contatti') renderContatti();
+  else if(p==='lead') renderLeadMkt();
+  else if(p==='calcolo-prezzi') initCalcoloPrezzi();
+  else if(p==='costificatore') renderCostificatore();
+  else if(p==='ordini-fornitore') renderOrdiniFornitore();
+  else if(p==='promemoria') renderPromemoria();
+  else if(p==='finanze') renderFinanze();
+  else if(p==='mastrini') renderMastrini();
+}
+function _splitCapDxHtml(){
+  const prim = window._paginaCorrente || 'dashboard';
+  const opz = Object.keys(_SPLIT_TITOLI).filter(p=>!_splitCollide(p, prim))
+    .map(p=>`<option value="${p}" ${p===window._splitPag2?'selected':''}>${_SPLIT_TITOLI[p]}</option>`).join('');
+  return `<div class="split-cap">◨ <select onchange="splitCambiaDx(this.value)" title="Scegli la pagina di questa metà">${opz}</select>
+    <button class="btn btn-sm" onclick="splitChiudi()" title="Chiudi la vista divisa (torna a schermo intero)" style="margin-left:auto;padding:1px 8px">✕</button></div>`;
+}
+// Ricompone il layout: sposta le pagine attive dentro le metà (o le rimette a posto)
+function _splitApplica(){
+  const content = _splitContent(); if(!content) return;
+  if(!_SPLIT_ORDINE) _SPLIT_ORDINE = [...content.querySelectorAll(':scope > .page, .split-pane > .page')].map(x=>x.id);
+  // prima: tutte le pagine tornano nel contenitore, nell'ordine originale
+  _SPLIT_ORDINE.forEach(id=>{ const el=document.getElementById(id); if(el) content.appendChild(el); });
+  let sx=document.getElementById('split-sx'), dx=document.getElementById('split-dx');
+  const prim = window._paginaCorrente || 'dashboard';
+  if(!window._splitPag2){
+    content.classList.remove('split-on');
+    if(sx) sx.remove(); if(dx) dx.remove();
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    _splitPagineDi(prim).forEach(p=>{ const el=document.getElementById('page-'+p); if(el) el.classList.add('active'); });
+    return;
+  }
+  content.classList.add('split-on');
+  if(!sx){ sx=document.createElement('div'); sx.className='split-pane'; sx.id='split-sx'; }
+  if(!dx){ dx=document.createElement('div'); dx.className='split-pane'; dx.id='split-dx'; }
+  content.appendChild(sx); content.appendChild(dx);   // sempre in fondo, sinistra prima
+  sx.innerHTML = `<div class="split-cap">◧ ${_SPLIT_TITOLI[PAGINE_PRODUZIONE.includes(prim)?'produzione':prim]||''} <span class="split-cap-hint">— si cambia dal menu</span></div>`;
+  dx.innerHTML = _splitCapDxHtml();
+  // le pagine entrano nella metà rispettando l'ordine originale del DOM (la coppia
+  // pianificazione+produzione deve restare impilata in quell'ordine, anche per il CSS)
+  const inOrdine = lista => lista.slice().sort((a,b)=>_SPLIT_ORDINE.indexOf('page-'+a)-_SPLIT_ORDINE.indexOf('page-'+b));
+  inOrdine(_splitPagineDi(prim)).forEach(p=>{ const el=document.getElementById('page-'+p); if(el) sx.appendChild(el); });
+  inOrdine(_splitPagineDi(window._splitPag2)).forEach(p=>{ const el=document.getElementById('page-'+p); if(el) dx.appendChild(el); });
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  _splitPagineDi(prim).concat(_splitPagineDi(window._splitPag2))
+    .forEach(p=>{ const el=document.getElementById('page-'+p); if(el) el.classList.add('active'); });
+}
+// Pulsante ◫ in topbar: sempre in fondo alle azioni della pagina
+function _splitTopbarUI(){
+  const ta=document.getElementById('topbar-actions'); if(!ta) return;
+  const old=document.getElementById('btn-split'); if(old) old.remove();
+  const b=document.createElement('button');
+  b.className='btn btn-sm'; b.id='btn-split';
+  b.title = window._splitPag2 ? 'Chiudi la vista divisa (torna a schermo intero)' : 'Dividi lo schermo in due metà: affiancate su PC, impilate su telefono';
+  b.textContent = window._splitPag2 ? '◫ Unisci' : '◫ Dividi';
+  b.onclick = window.splitToggle;
+  ta.appendChild(b);
+}
+window.splitToggle = function(){
+  if(window._splitPag2){ window.splitChiudi(); return; }
+  const prim = window._paginaCorrente || 'dashboard';
+  window._splitPag2 = _splitCollide('ordini', prim) ? 'dashboard' : 'ordini';
+  _splitSalva(); _splitApplica(); _splitRender(window._splitPag2); _splitTopbarUI();
+};
+window.splitCambiaDx = function(p){
+  if(!p || !_SPLIT_TITOLI[p] || _splitCollide(p, window._paginaCorrente||'dashboard')) return;
+  window._splitPag2 = p;
+  _splitSalva(); _splitApplica(); _splitRender(p);
+};
+window.splitChiudi = function(){
+  window._splitPag2 = null;
+  _splitSalva(); _splitApplica(); _splitTopbarUI();
+};
 
 // ─── HELPERS MULTI-PRODOTTO ───────────────────────────────────────────────────
 // Restituisce stringa riepilogativa dei prodotti dell'ordine
@@ -11677,6 +11816,8 @@ function _riRenderPaginaCorrente(){
   else if(p==='contatti') renderContatti();
   else if(p==='timbrature') renderTimbratureCloud();
   // 'nuovo-ordine': volutamente NON ridisegnato, per non perdere ciò che stai scrivendo nel form
+  // v3.41: col dividi schermo attivo si aggiorna anche la seconda metà (stessa eccezione per il form)
+  if(window._splitPag2 && window._splitPag2!=='nuovo-ordine'){ try{ _splitRender(window._splitPag2); }catch(e){} }
 }
 
 // ─── AVVIO PROTETTO DA LOGIN ─────────────────────────────────────────────────
@@ -11701,6 +11842,14 @@ async function avviaApp() {
   renderDashboard();
   const _ta=document.getElementById('topbar-actions');
   if(_ta && !document.getElementById('btn-aggiorna-globale')) _ta.innerHTML += `<button class="btn btn-sm" id="btn-aggiorna-globale" onclick="aggiornaTuttoDalCloud()" title="Rilegge tutti i dati dal cloud senza ricaricare la pagina">↻ Aggiorna</button>`;
+  // v3.41: ripristina la vista divisa se era attiva su questo dispositivo
+  try{
+    const _sp = localStorage.getItem('split_pagina2');
+    if(_sp && _SPLIT_TITOLI[_sp] && !_splitCollide(_sp, window._paginaCorrente||'dashboard')){
+      window._splitPag2 = _sp; _splitApplica(); _splitRender(_sp);
+    }
+  }catch(e){}
+  _splitTopbarUI();
   mostraPromemoriaBackup();        // promemoria backup giornaliero (dopo che i dati sono caricati)
   aggiornaBadgePromemoria();       // badge col numero di promemoria di oggi/scaduti
   mostraAvvisoPromemoria();        // avviso in alto se ci sono promemoria di oggi o scaduti
