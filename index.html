@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Preventivi dagli Ordini Evento: pulsante '📄 Preventivi' nella scheda e nella lista — il preventivo nasce precompilato coi dati del contatto fiera, resta agganciato all'evento e NON passa dalla sezione Lead.">v3.44 — 20/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Rimedio ai clic accidentali sul kanban: pulsante '🕓 Ultime azioni' (in Ordini e Produzione) elenca gli ultimi cambi di stato di tutti gli ordini con '↩ Riporta a…'; dopo ogni cambio di stato compare per 8 secondi un avviso con 'Annulla'.">v3.45 — 24/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.44';
+window.APP_VERSION = '3.45';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3376,8 +3376,8 @@ function nav(page, el) {
   const actions = document.getElementById('topbar-actions');
   actions.innerHTML = '';
   actions.style.display = '';   // il Registro Finanziario (schede ≠ Movimenti) la nasconde: va rimostrata a ogni cambio pagina
-  if(page==='ordini') actions.innerHTML=`<button class="btn btn-primary" onclick="nav('nuovo-ordine',document.querySelector('.nav-item:nth-child(3)'))">+ Nuovo ordine</button>`;
-  if(page==='produzione') actions.innerHTML=``;
+  if(page==='ordini') actions.innerHTML=`<button class="btn btn-primary" onclick="nav('nuovo-ordine',document.querySelector('.nav-item:nth-child(3)'))">+ Nuovo ordine</button> <button class="btn btn-sm" onclick="mostraUltimeAzioni()" title="Ultimi cambi di stato su tutti gli ordini, con ↩ Riporta a… per annullare un clic accidentale">🕓 Ultime azioni</button>`;
+  if(page==='produzione') actions.innerHTML=`<button class="btn btn-sm" onclick="mostraUltimeAzioni()" title="Ultimi cambi di stato su tutti gli ordini, con ↩ Riporta a… per annullare un clic accidentale">🕓 Ultime azioni</button>`;
   if(page==='prodotti') actions.innerHTML=`<button class="btn btn-primary" onclick="showModalNuovoProdotto()">+ Nuovo prodotto</button>`;
 
 
@@ -6492,9 +6492,56 @@ function cambiaStato(id, stato) {
     }
     DB.set('ordini',ordini);              // aggiorna la copia in memoria
     salvaOrdineSingolo(ordini[idx]);      // sincronizza nel cloud SOLO questo ordine
+    // v3.45: avviso con "Annulla" — rimedio immediato ai clic accidentali sul kanban
+    if (precedente && precedente !== stato) _toastUndoStato(ordini[idx], precedente, stato);
   }
   renderProduzione();
   renderPianificazione();  // tiene coerente anche la pagina Pianificazione (giorni) se aperta
+}
+
+// ─── ULTIME AZIONI + ANNULLA CAMBIO STATO (v3.45) ────────────────────────────
+// Rimedio ai clic accidentali sul kanban. "Ultime azioni" elenca gli eventi più
+// recenti di TUTTI gli ordini (dalla cronologia storicoAzioni, attiva dal
+// 06/10/2026) con "↩ Riporta a …" per tornare allo stato precedente.
+// L'annullamento passa da cambiaStato: resta a sua volta in cronologia.
+function mostraUltimeAzioni(){
+  const ordini = DB.get('ordini')||[];
+  const righe = [];
+  ordini.forEach(o => (Array.isArray(o.storicoAzioni)?o.storicoAzioni:[]).forEach(r => righe.push({o, r})));
+  righe.sort((a,b)=>String(b.r.ts||'').localeCompare(String(a.r.ts||'')));
+  const top = righe.slice(0, 20);
+  const f = ts => { const d=new Date(ts); return isNaN(d.getTime())?'—':d.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}); };
+  const body = !top.length
+    ? '<div style="color:var(--ink3);font-size:13px">Nessuna azione registrata (la cronologia è attiva dal 06/10/2026).</div>'
+    : top.map(({o, r}) => {
+        const m = /^Stato → (.+?) \(da (.+)\)$/.exec(r.testo||'');
+        const ripristinabile = m && o.stato === m[1];   // solo se l'ordine è ANCORA nello stato di questa riga
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);font-size:12px;flex-wrap:wrap">
+          <span class="text-mono" style="color:var(--ink3);white-space:nowrap">${f(r.ts)}</span>
+          <span class="text-mono" style="font-weight:600">${_esc(String(o.num||''))}</span>
+          <span style="flex:1;min-width:140px">${_esc(o.cliente||'—')} — ${_esc(r.testo||'')}</span>
+          <span style="color:var(--ink3)">${_esc(_ordLogNome(r.chi))}</span>
+          <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="closeModal();showSchedaModal('${o.id}')">Apri</button>
+          ${ripristinabile?`<button class="btn btn-sm" style="font-size:11px" title="Riporta l'ordine allo stato in cui era prima di questo cambio" onclick="closeModal();cambiaStato('${o.id}','${m[2]}')">↩ Riporta a ${_esc(m[2])}</button>`:''}
+        </div>`;
+      }).join('');
+  showModal('🕓 Ultime azioni sugli ordini', `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:8px">Gli ultimi ${top.length||0} eventi registrati su tutti gli ordini (creazioni e cambi di stato), dal più recente. «↩ Riporta a» annulla un cambio di stato e compare solo se l'ordine è ancora nello stato di quella riga.</div>
+    <div style="max-height:60vh;overflow:auto">${body}</div>`, [ {label:'Chiudi', action:'closeModal()'} ]);
+}
+function _toastUndoStato(o, da, a){
+  try{
+    const vecchio = document.getElementById('undo-stato-toast'); if(vecchio) vecchio.remove();
+    if(window._undoStatoTimer) clearTimeout(window._undoStatoTimer);
+    const t = document.createElement('div');
+    t.id = 'undo-stato-toast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:99995;background:var(--ink);color:#fff;border-radius:10px;padding:9px 12px;font-size:13px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:92vw;flex-wrap:wrap';
+    t.innerHTML = `<span>Ordine <b>${_esc(String(o.num||''))}</b> → ${_esc(a)}</span>
+      <button class="btn btn-sm" style="background:#fff;border-color:#fff;white-space:nowrap" onclick="document.getElementById('undo-stato-toast').remove();cambiaStato('${o.id}','${da}')">↩ Annulla (torna a ${_esc(da)})</button>
+      <button style="background:none;border:none;color:#fff;cursor:pointer;font-size:14px;padding:0 2px" title="Chiudi" onclick="document.getElementById('undo-stato-toast').remove()">✕</button>`;
+    document.body.appendChild(t);
+    window._undoStatoTimer = setTimeout(function(){ const x=document.getElementById('undo-stato-toast'); if(x) x.remove(); }, 8000);
+  }catch(e){}
 }
 
 function showSchedaModal(id) {
