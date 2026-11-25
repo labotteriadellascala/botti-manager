@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="I pulsanti ↻ Aggiorna e ◫ Dividi ora compaiono su TUTTE le schermate: prima sparivano su Registro Finanziario, Mastrini, Lead e schede contatto perché quelle viste riscrivevano la barra in alto. Sul Resoconto del Registro restano visibili (si nascondono solo + Nuovo movimento e Importa).">v3.46 — 25/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nuovo tasto 'Apri' sulle righe della lista Ordini: apre la scheda dell'ordine in finestra senza cambiare pagina — utile soprattutto in vista divisa, dove 'Modifica' porta sulla pagina Nuovo ordine e scombina le due metà.">v3.47 — 25/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.46';
+window.APP_VERSION = '3.47';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -4772,6 +4772,7 @@ function renderOrdini() {
     <td class="text-mono" style="color:${saldo>0?'var(--red)':'var(--green)'}">${saldo>0?fmt(saldo)+' €':'✓'}</td>
     <td>${statusBadge(o.stato)}</td>
     <td style="display:flex;gap:4px">
+      <button class="btn btn-sm btn-ghost" title="Apri la scheda dell'ordine in finestra, senza cambiare pagina" onclick="showSchedaModal('${o.id}')">Apri</button>
       <button class="btn btn-sm btn-ghost" onclick="editOrdine('${o.id}')">Modifica</button>
       <button class="btn btn-sm btn-ghost" title="Duplica ordine" onclick="duplicaOrdine('${o.id}')">⧉</button>
       <button class="btn btn-sm btn-ghost" onclick="printConfermaOrdine('${o.id}')">📋</button>
