@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario, tabella Cassa vs Competenza: le colonne COMPETENZA ora sono al netto dell'IVA (vista economica: l'IVA è una partita di giro), mentre la CASSA resta lorda (denaro che si muove davvero). Intestazioni aggiornate per chiarirlo.">v3.49 — 25/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Import movimenti nel Registro Finanziario: le ENTRATE senza categoria/aliquota nel file arrivano già con mastrino 'INCASSATO' e IVA 22% (modificabili riga per riga). Le uscite restano con IVA da impostare a mano.">v3.50 — 25/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.49';
+window.APP_VERSION = '3.50';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -13563,7 +13563,8 @@ window.finParse = function(){
       <label>NOTE<select id="fi-cNote" onchange="finPreview()">${opt(gNote,'— nessuna —')}</select></label>
     </div>
     <div style="margin-top:8px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="fi-head" ${IMP_HEADER?'checked':''} onchange="finPreview()" style="width:auto"> la prima riga è intestazione</label></div>
-    <div style="margin-top:6px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="fi-carta" ${IMP_CARTA?'checked':''} onchange="finPreview()" style="width:auto"> 💳 estratto conto <b>CARTA DI CREDITO</b>: competenza = data operazione, addebito in conto (cassa) = 1° del mese successivo${IMP_CARTA?' <span style="color:var(--green)">— riconosciuto in automatico</span>':''}</label></div>`;
+    <div style="margin-top:6px"><label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="fi-carta" ${IMP_CARTA?'checked':''} onchange="finPreview()" style="width:auto"> 💳 estratto conto <b>CARTA DI CREDITO</b>: competenza = data operazione, addebito in conto (cassa) = 1° del mese successivo${IMP_CARTA?' <span style="color:var(--green)">— riconosciuto in automatico</span>':''}</label></div>
+    <div style="font-size:12px;color:var(--ink3);margin-top:6px">Le <b>entrate</b> senza categoria/aliquota nel file arrivano già con mastrino «INCASSATO» e IVA 22% (modificabili riga per riga).</div>`;
   finPreview();
 };
 function impDataRows(){ const head=document.getElementById('fi-head'); const h=head?head.checked:IMP_HEADER; return h?IMP_ROWS.slice(1):IMP_ROWS; }
@@ -13575,7 +13576,10 @@ function impMapped(){
   const v=id=>{const el=document.getElementById(id);return el?parseInt(el.value,10):-1;};
   const cD=v('fi-cData'), cA=v('fi-cAmt'), cA2=v('fi-cAmt2'), cDesc=v('fi-cDesc');
   const cTipo=v('fi-cTipo'), cCat=v('fi-cCat'), cAliq=v('fi-cAliq2'), cPag=v('fi-cPag'), cEve=v('fi-cEve'), cNote=v('fi-cNote');
-  const defAliq=null; // IVA non impostata di default: va scelta a mano prima di verificare la riga
+  const defAliq=null; // IVA non impostata di default (per le USCITE): va scelta a mano prima di verificare la riga
+  // v3.50: default per le ENTRATE importate = mastrino 'INCASSATO' + IVA 22%
+  // (solo dove il file non porta già categoria/aliquota; il nome esatto viene dai mastrini)
+  const catIncassato = ((MASTRINI||[]).find(m=>String(m.nome||'').trim().toLowerCase()==='incassato')||{}).nome || 'INCASSATO';
   const cartaEl=document.getElementById('fi-carta'); const carta=cartaEl?cartaEl.checked:false;
   const out=[];
   impDataRows().forEach(r=>{
@@ -13588,9 +13592,14 @@ function impMapped(){
       else if(isFinite(usc)&&Math.abs(usc)>0){ lordo=Math.abs(usc); if(!tipo)tipo='Uscita'; } else return;
     } else { const n=pn(r[cA]); if(!isFinite(n)) return; lordo=Math.abs(n); if(!tipo)tipo=(n<0?'Uscita':'Entrata'); }
     let aliquota=defAliq; if(cAliq>=0){ const a=parseAliq(r[cAliq]); if(isFinite(a)) aliquota=a; }
+    let categoria = cCat>=0?normCat(r[cCat]):'';
+    if(tipo==='Entrata'){            // v3.50: default entrate — INCASSATO + 22%
+      if(!categoria) categoria = catIncassato;
+      if(aliquota==null) aliquota = 0.22;
+    }
     out.push({ data, tipo, lordo,
       descrizione:cDesc>=0?(r[cDesc]||''):'',
-      categoria:cCat>=0?normCat(r[cCat]):'',
+      categoria,
       aliquota,
       pagato:carta?'SI':(cPag>=0?(normPag(r[cPag])||'SI'):'SI'),
       dataSaldo:carta?_finPrimoMeseSucc(data):null,   // carta: cassa al 1° del mese successivo
