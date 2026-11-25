@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="La scheda ordine in finestra (tasto 'Apri' e card del kanban) ora mostra TUTTI i dati come la pagina di modifica: email e CF/P.IVA del cliente, indirizzi di spedizione e fatturazione, pagamenti con versato e saldo, promemoria attivi e cronologia.">v3.48 — 25/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Registro Finanziario, tabella Cassa vs Competenza: le colonne COMPETENZA ora sono al netto dell'IVA (vista economica: l'IVA è una partita di giro), mentre la CASSA resta lorda (denaro che si muove davvero). Intestazioni aggiornate per chiarirlo.">v3.49 — 25/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.48';
+window.APP_VERSION = '3.49';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -13295,7 +13295,9 @@ function renderResoconto(){
     finSpread(m).forEach(q=>{
       yset.add(String(q.y));
       const key=q.y+'-'+q.mi; const o=compMap[key]||(compMap[key]={kE:0,kU:0,kD:0,kC:0});
-      if(m.tipo==='Entrata'){ o.kE+=q.lordo; o.kD+=q.iva; } else { o.kU+=q.lordo; o.kC+=q.iva; }
+      // v3.49: la competenza è la vista ECONOMICA → valori netti (IVA esclusa, è una
+      // partita di giro). La cassa resta lorda: lì si guarda il denaro che si muove davvero.
+      if(m.tipo==='Entrata'){ o.kE+=q.lordo-q.iva; o.kD+=q.iva; } else { o.kU+=q.lordo-q.iva; o.kC+=q.iva; }
     });
   });
   const years = [...yset].filter(Boolean).sort();
@@ -13424,7 +13426,7 @@ function renderResoconto(){
    </div>
    <div class="card" style="padding:0"><div class="table-wrap"><table>
      <thead>
-       <tr><th></th><th colspan="4" style="text-align:center">CASSA (incassato / pagato)</th><th colspan="4" style="text-align:center;border-left:2px solid var(--border2)">COMPETENZA</th></tr>
+       <tr><th></th><th colspan="4" style="text-align:center">CASSA (incassato / pagato, importi lordi)</th><th colspan="4" style="text-align:center;border-left:2px solid var(--border2)">COMPETENZA (valori netti, IVA esclusa)</th></tr>
        <tr><th>Mese</th><th style="text-align:right">Entrate</th><th style="text-align:right">Uscite</th><th style="text-align:right">Saldo</th><th style="text-align:right">IVA netta</th><th style="text-align:right;border-left:2px solid var(--border2)">Entrate</th><th style="text-align:right">Uscite</th><th style="text-align:right">Saldo</th><th style="text-align:right">IVA netta</th></tr>
      </thead>
      <tbody>${cmpRows}</tbody>
