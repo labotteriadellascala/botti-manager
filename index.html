@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Nuovo tasto 'Apri' sulle righe della lista Ordini: apre la scheda dell'ordine in finestra senza cambiare pagina — utile soprattutto in vista divisa, dove 'Modifica' porta sulla pagina Nuovo ordine e scombina le due metà.">v3.47 — 25/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="La scheda ordine in finestra (tasto 'Apri' e card del kanban) ora mostra TUTTI i dati come la pagina di modifica: email e CF/P.IVA del cliente, indirizzi di spedizione e fatturazione, pagamenti con versato e saldo, promemoria attivi e cronologia.">v3.48 — 25/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.47';
+window.APP_VERSION = '3.48';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6596,6 +6596,40 @@ function showSchedaModal(id) {
   // Saldo da incassare
   const saldo = calcolaSaldo(o);
 
+  // v3.48: la scheda mostra TUTTI i dati dell'ordine e del cliente (come la pagina
+  // di modifica): email, CF/P.IVA, indirizzi, pagamenti, promemoria, cronologia.
+  const _indRiga = ind => [ind.via, ind.cap, ind.citta, (ind.provincia||'').toUpperCase()].filter(Boolean).join(', ');
+  const sped = _indRiga(o.indirizzoSpedizione||{});
+  const fatt = _indRiga(o.indirizzoFatturazione||{});
+  const indirizziHtml = (sped || fatt) ? `
+    <div class="scheda-section">
+      <div class="scheda-section-title">Indirizzi</div>
+      <div class="scheda-row"><span class="scheda-key">Spedizione</span><span class="scheda-val">${sped||'—'}</span></div>
+      <div class="scheda-row"><span class="scheda-key">Fatturazione</span><span class="scheda-val">${o.fattUgualeSpedizione!==false ? 'uguale alla spedizione' : (fatt||'—')}</span></div>
+    </div>` : '';
+  const pagam = (o.pagamenti||[]).filter(p=>(p.importo||0)>0);
+  const versato = pagam.reduce((s,p)=>s+(p.importo||0),0);
+  const pagamentiHtml = `
+    <div class="scheda-section">
+      <div class="scheda-section-title">💶 Pagamenti</div>
+      <div class="scheda-row"><span class="scheda-key">Prezzo totale</span><span class="scheda-val" style="font-family:var(--mono)">${fmt(o.prezzoTotale||0)} €</span></div>
+      ${pagam.map(p=>`<div class="scheda-row"><span class="scheda-key">${p.data?fmtDate(p.data):'—'}</span><span class="scheda-val" style="font-family:var(--mono)">${fmt(p.importo)} €${p.metodo?' · '+p.metodo:''}${p.nota?` <span style="font-family:var(--sans,inherit);color:var(--ink2)">· ${p.nota}</span>`:''}</span></div>`).join('')}
+      <div class="scheda-row"><span class="scheda-key">Versato</span><span class="scheda-val" style="font-family:var(--mono);color:var(--green)">${fmt(versato)} €</span></div>
+      <div class="scheda-row"><span class="scheda-key">Saldo</span><span class="scheda-val" style="font-family:var(--mono);color:${saldo>0?'var(--red)':'var(--green)'}">${saldo>0?fmt(saldo)+' €':'✓ saldato'}</span></div>
+    </div>`;
+  const promAtt = (o.promemoria||[]).filter(p=>p.stato!=='fatto' && ((p.data||'').trim() || (p.nota||'').trim()));
+  const promemoriaHtml = promAtt.length ? `
+    <div class="scheda-section">
+      <div class="scheda-section-title">🔔 Promemoria attivi</div>
+      ${promAtt.map(p=>`<div class="scheda-row"><span class="scheda-key">${p.data?fmtDate(p.data):'—'}</span><span class="scheda-val">${p.nota||''}</span></div>`).join('')}
+    </div>` : '';
+  const cron = (o.storicoAzioni||[]).slice(-6).reverse();
+  const cronologiaHtml = cron.length ? `
+    <div class="scheda-section">
+      <div class="scheda-section-title">🕓 Cronologia (ultime ${cron.length})</div>
+      ${cron.map(r=>`<div class="scheda-row"><span class="scheda-key">${fmtDate(r.ts)}</span><span class="scheda-val">${r.testo||''}${r.chi?` <span style="color:var(--ink3);font-size:11px">· ${_ordLogNome(r.chi)}</span>`:''}</span></div>`).join('')}
+    </div>` : '';
+
   // Tasti di spostamento stato (stessi colori delle card)
   const coloriTasto = {
     'Completato':'background:#F4D35E;border-color:#E0BC3A;color:#5C4A00',
@@ -6619,15 +6653,20 @@ function showSchedaModal(id) {
       <div class="scheda-section-title">Cliente</div>
       <div class="scheda-row"><span class="scheda-key">Nome</span><span class="scheda-val">${o.cliente}</span></div>
       ${o.tel?`<div class="scheda-row"><span class="scheda-key">Telefono</span><span class="scheda-val">${o.tel}</span></div>`:''}
+      ${o.email?`<div class="scheda-row"><span class="scheda-key">Email</span><span class="scheda-val">${o.email}</span></div>`:''}
+      ${o.cf?`<div class="scheda-row"><span class="scheda-key">CF / P.IVA</span><span class="scheda-val" style="font-family:var(--mono)">${o.cf}</span></div>`:''}
       <div class="scheda-row"><span class="scheda-key">Canale</span><span class="scheda-val">${o.canale||'—'}</span></div>
       <div class="scheda-row"><span class="scheda-key">Data consegna</span><span class="scheda-val" style="color:${isUrgent(o.consegna)?'var(--red)':'var(--ink)'}">${fmtDate(o.consegna)}${isUrgent(o.consegna)?' ⚠':''}</span></div>
-      <div class="scheda-row"><span class="scheda-key">Saldo da incassare</span><span class="scheda-val" style="color:var(--red);font-family:var(--mono)">${fmt(saldo)} €</span></div>
     </div>
+    ${indirizziHtml}
     ${o.noteOrdine?`<div class="scheda-section" style="background:rgba(255,248,200,0.08);border:1px solid rgba(196,163,90,0.25);border-radius:6px;padding:12px">
       <div class="scheda-section-title" style="color:var(--accent)">📋 Note ordine</div>
       <div style="font-size:13px;color:var(--ink);white-space:pre-line">${o.noteOrdine}</div>
     </div>`:''}
     ${prodottiHtml}
+    ${pagamentiHtml}
+    ${promemoriaHtml}
+    ${cronologiaHtml}
     ${(o.allegati&&o.allegati.length)?`<div class="scheda-section">
       <div class="scheda-section-title">📎 Allegati (${o.allegati.length})</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">${o.allegati.map(a=>{
