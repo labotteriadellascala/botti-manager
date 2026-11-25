@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Rimedio ai clic accidentali sul kanban: pulsante '🕓 Ultime azioni' (in Ordini e Produzione) elenca gli ultimi cambi di stato di tutti gli ordini con '↩ Riporta a…'; dopo ogni cambio di stato compare per 8 secondi un avviso con 'Annulla'.">v3.45 — 24/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="I pulsanti ↻ Aggiorna e ◫ Dividi ora compaiono su TUTTE le schermate: prima sparivano su Registro Finanziario, Mastrini, Lead e schede contatto perché quelle viste riscrivevano la barra in alto. Sul Resoconto del Registro restano visibili (si nascondono solo + Nuovo movimento e Importa).">v3.46 — 25/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.45';
+window.APP_VERSION = '3.46';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -3337,6 +3337,7 @@ function closeSidebar() {
 // un'unica schermata. Unica voce di menu "Piano produzione"; 'pianificazione'
 // resta come alias interno (apre la stessa schermata).
 const PAGINE_PRODUZIONE = ['produzione','pianificazione'];
+const _BTN_AGGIORNA_HTML = `<button class="btn btn-sm" id="btn-aggiorna-globale" onclick="aggiornaTuttoDalCloud()" title="Rilegge tutti i dati dal cloud senza ricaricare la pagina">↻ Aggiorna</button>`;
 function nav(page, el) {
   // v3.41 dividi schermo: se dal menu si sceglie la pagina già aperta nella metà
   // destra, le due metà si SCAMBIANO (la destra prende la vecchia pagina corrente).
@@ -3388,7 +3389,7 @@ function nav(page, el) {
     actions.innerHTML = `<button class="btn btn-primary" onclick="nuovoOrdineEvento()">+ Nuovo ordine evento</button>`;
   }
 
-  actions.innerHTML += `<button class="btn btn-sm" id="btn-aggiorna-globale" onclick="aggiornaTuttoDalCloud()" title="Rilegge tutti i dati dal cloud senza ricaricare la pagina">↻ Aggiorna</button>`;
+  actions.innerHTML += _BTN_AGGIORNA_HTML;
 
   if(page==='dashboard') renderDashboard();
   if(page==='ordini') renderOrdini();
@@ -3529,6 +3530,21 @@ window.splitChiudi = function(){
   window._splitPag2 = null;
   _splitSalva(); _splitApplica(); _splitTopbarUI();
 };
+// v3.46: ↻ Aggiorna e ◫ Dividi devono esserci su OGNI schermata. Diverse viste
+// riscrivono la topbar per conto loro (Registro Finanziario dopo il caricamento dal
+// cloud o il PIN, Mastrini, schede contatto, Lead…) cancellando i pulsanti fissi:
+// questo osservatore li rimette al loro posto appena spariscono, qualunque sia la vista.
+function _topbarPulsantiFissi(){
+  const ta=document.getElementById('topbar-actions'); if(!ta) return;
+  if(!document.getElementById('btn-aggiorna-globale')) ta.insertAdjacentHTML('beforeend', _BTN_AGGIORNA_HTML);
+  const b=document.getElementById('btn-split');
+  if(!b) _splitTopbarUI();
+  else if(ta.lastElementChild!==b) ta.appendChild(b);   // il ◫ sta sempre in fondo
+}
+try{
+  const _taEl=document.getElementById('topbar-actions');
+  if(_taEl) new MutationObserver(_topbarPulsantiFissi).observe(_taEl, {childList:true});
+}catch(e){}
 
 // ─── HELPERS MULTI-PRODOTTO ───────────────────────────────────────────────────
 // Restituisce stringa riepilogativa dei prodotti dell'ordine
@@ -11968,7 +11984,7 @@ async function avviaApp() {
   if(window.caricaFinanzeDaCloud) await window.caricaFinanzeDaCloud();  // registro finanziario dal cloud
   renderDashboard();
   const _ta=document.getElementById('topbar-actions');
-  if(_ta && !document.getElementById('btn-aggiorna-globale')) _ta.innerHTML += `<button class="btn btn-sm" id="btn-aggiorna-globale" onclick="aggiornaTuttoDalCloud()" title="Rilegge tutti i dati dal cloud senza ricaricare la pagina">↻ Aggiorna</button>`;
+  if(_ta && !document.getElementById('btn-aggiorna-globale')) _ta.innerHTML += _BTN_AGGIORNA_HTML;
   // v3.41: ripristina la vista divisa se era attiva su questo dispositivo
   try{
     const _sp = localStorage.getItem('split_pagina2');
@@ -12837,7 +12853,7 @@ window.renderFinanze = function(){
   if(!FIN_LOADED){ const r=document.getElementById('fin-root'); if(r) r.innerHTML='<div style="padding:46px;text-align:center;color:var(--ink3)">Carico dal cloud…</div>'; caricaFinanzeDaCloud().then(()=>renderFinanze()); return; }
   if(!FIN_UNLOCKED){ PENDING='finanze'; renderPinGate('fin-root'); return; }
   const act = document.getElementById('topbar-actions');
-  if(act){ act.style.display=''; act.innerHTML = `<button class="btn btn-primary" onclick="finToggleForm(true)">+ Nuovo movimento</button> <button class="btn btn-sm" onclick="finToggleImport(true)" style="border-color:var(--border2);color:var(--ink2)">⇩ Importa</button>`; }
+  if(act){ act.style.display=''; act.innerHTML = `<button class="btn btn-primary" id="fin-act-nuovo" onclick="finToggleForm(true)">+ Nuovo movimento</button> <button class="btn btn-sm" id="fin-act-import" onclick="finToggleImport(true)" style="border-color:var(--border2);color:var(--ink2)">⇩ Importa</button>`; }
   if(!BUILT) skeleton();
   _finScrollbarInit();
   finTab(TAB);
@@ -12880,8 +12896,9 @@ window.finTab = function(t){
   document.getElementById('fin-t-res').classList.toggle('active', t==='res');
   document.getElementById('fin-mov').style.display = t==='mov'?'':'none';
   document.getElementById('fin-res').style.display = t==='res'?'':'none';
-  const act = document.getElementById('topbar-actions');
-  if(act) act.style.display = t==='mov'?'':'none';
+  // v3.46: si nascondono SOLO i pulsanti del Registro, non tutta la barra
+  // (così ↻ Aggiorna e ◫ Dividi restano disponibili anche sul Resoconto)
+  ['fin-act-nuovo','fin-act-import'].forEach(i=>{ const b=document.getElementById(i); if(b) b.style.display = t==='mov'?'':'none'; });
   if(t==='res') renderResoconto();
 };
 window.finOnCat = function(){
