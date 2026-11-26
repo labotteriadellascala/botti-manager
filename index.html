@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Piano produzione: la lista materiali 📋 di Lav. 1 / Lav. 2 ora segue i filtri e i flag attivi (stampa solo le card visibili) e riporta in testa filtri e commesse incluse.">v3.51 — 26/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Export Excel ordini: una riga per ordine e sotto una riga per ogni prodotto (codice, nome, finitura, incisioni, accessori, fuori standard, note, prezzo listino), raggruppate e filtrabili.">v3.52 — 26/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.51';
+window.APP_VERSION = '3.52';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -4634,16 +4634,6 @@ function _loadSheetJS() {
   });
 }
 
-// Dettaglio prodotti per l'export: ogni riga con nome prodotto + elenco accessori per nome
-function _prodottiPerExport(o) {
-  const righe = o.righe||[];
-  if (!righe.length) return o.prodottoNome||o.prodotto||'';
-  return righe.map(r=>{
-    const acc = (r.accessori||[]).map(a=>a.nome||'').filter(Boolean);
-    return (r.prodottoNome||r.prodotto||'') + (acc.length ? ' [+ '+acc.join(', ')+']' : '');
-  }).join(' | ');
-}
-
 async function esportaOrdiniExcel() {
   const list = _ordiniExportLista||[];
   if (!list.length) { alert('Nessun ordine da esportare con i filtri correnti.'); return; }
@@ -4651,33 +4641,46 @@ async function esportaOrdiniExcel() {
     await _loadSheetJS();
   } catch(e) { alert(e.message); return; }
 
-  const rows = list.map(o=>{
+  // v3.52: una RIGA ORDINE (dati cliente/ordine) + sotto una SOTTO-RIGA per ogni prodotto
+  // con tutti i dettagli della riga. Le sotto-righe ripetono il N° (così si può filtrare/ordinare
+  // per ordine senza perderle) e sono raggruppate (struttura Excel: si chiudono col "−" a sinistra).
+  const intest = ['N°','Tipo','Cliente','Telefono','Email','CF','Via','CAP','Città','Prov.','Stato','Prezzo ordine €','Da saldare €',
+                  'N° prodotti','Pos.','Codice prodotto','Prodotto','Finitura','Incisioni','Accessori','Fuori standard','Note prodotto','Prezzo listino prodotto €'];
+  const aoa = [intest];
+  const livelli = [{}];   // ws['!rows']: livello di raggruppamento per riga (0 = ordine, 1 = prodotto)
+  list.forEach(o=>{
     // Indirizzo di spedizione: struttura nuova con fallback ai campi legacy piatti
     const sped = o.indirizzoSpedizione||{};
-    return {
-      'N°': o.num||'',
-      'Cliente': o.cliente||'',
-      'Telefono': o.tel||'',
-      'Email': o.email||'',
-      'CF': o.cf||'',
-      'Via': sped.via||o.indirizzo||'',
-      'CAP': String(sped.cap||o.cap||''),
-      'Città': sped.citta||o.citta||'',
-      'Prov.': (sped.provincia||'').toUpperCase(),
-      'Prodotti': _prodottiPerExport(o),
-      'Stato': o.stato||'',
-      'Prezzo €': o.prezzoTotale||0,
-      'Da saldare €': calcolaSaldo(o)
-    };
+    // Ordini vecchi mono-prodotto: ricostruisco una riga dai campi piatti (come conferma d'ordine/schede)
+    const righe = (o.righe && o.righe.length) ? o.righe
+      : ((o.prodotto||o.prodottoNome) ? [{prodotto:o.prodotto||'', prodottoNome:o.prodottoNome||'', accessori:o.accessori||[], colore:o.colore||'', incisioni:o.incisioni||'', note:o.note||'', fuoriStandard:o.fuoriStandard||false, prezzoRiga:o.prezzoTotale||0}] : []);
+    aoa.push([
+      o.num||'', 'Ordine', o.cliente||'', o.tel||'', o.email||'', o.cf||'',
+      sped.via||o.indirizzo||'', String(sped.cap||o.cap||''), sped.citta||o.citta||'', (sped.provincia||'').toUpperCase(),
+      o.stato||'', o.prezzoTotale||0, calcolaSaldo(o),
+      righe.length, '', '', '', '', '', '', '', '', ''
+    ]);
+    livelli.push({});
+    righe.forEach((r,i)=>{
+      const acc = (r.accessori||[]).map(a=>a&&a.nome||'').filter(Boolean);
+      aoa.push([
+        o.num||'', 'Prodotto', '', '', '', '', '', '', '', '', '', '', '',
+        '', i+1, r.prodotto||'', r.prodottoNome||r.prodotto||'', r.colore||'', r.incisioni||'',
+        acc.join(', '), r.fuoriStandard ? 'Sì' : '', r.note||'', Number(r.prezzoRiga)||0
+      ]);
+      livelli.push({level:1});
+    });
   });
 
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!rows'] = livelli;
   // Larghezze colonne leggibili
   ws['!cols'] = [
-    {wch:6},{wch:24},{wch:14},{wch:26},{wch:18},
-    {wch:28},{wch:8},{wch:18},{wch:6},
-    {wch:55},{wch:16},{wch:10},{wch:12}
+    {wch:6},{wch:9},{wch:24},{wch:14},{wch:26},{wch:18},
+    {wch:28},{wch:8},{wch:18},{wch:6},{wch:16},{wch:12},{wch:12},
+    {wch:10},{wch:5},{wch:16},{wch:36},{wch:16},{wch:18},{wch:40},{wch:10},{wch:36},{wch:14}
   ];
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:aoa.length-1, c:intest.length-1}}) };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Ordini');
 
