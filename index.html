@@ -569,7 +569,7 @@ table.tmb-sht .ot{color:#444}
     <h1>Botti<br>Manager</h1>
     <p>gestionale produzione</p>
     <!-- Solo numero versione (scelta Andrea 29/08/2026): la descrizione della release va nel title (tooltip), non nel testo. -->
-    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Import movimenti nel Registro Finanziario: le ENTRATE senza categoria/aliquota nel file arrivano già con mastrino 'INCASSATO' e IVA 22% (modificabili riga per riga). Le uscite restano con IVA da impostare a mano.">v3.50 — 25/11/2026</p>
+    <p style="margin-top:6px;font-size:10px;color:rgba(245,240,232,0.35);letter-spacing:0.05em" title="Piano produzione: la lista materiali 📋 di Lav. 1 / Lav. 2 ora segue i filtri e i flag attivi (stampa solo le card visibili) e riporta in testa filtri e commesse incluse.">v3.51 — 26/11/2026</p>
   </div>
   <nav class="nav">
     <div class="nav-section">Principale</div>
@@ -1357,7 +1357,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //   1) questa costante APP_VERSION
 //   2) la riga versione in sidebar (cerca "v2." nell'HTML, ~riga 548)
 //   3) il file version.json nella radice del repo
-window.APP_VERSION = '3.50';
+window.APP_VERSION = '3.51';
 
 // Chiusura ordine dall'officina (da QR scheda): chiama la funzione sicura Supabase chiudi_ordine.
 // Sta in questo blocco perché qui c'è 'sb'. La pagina/bottone sono creati da renderChiusura (altro blocco).
@@ -6371,6 +6371,17 @@ function renderProduzione() {
     if(fNoPian && _STATI_LAV[o.stato] && _weekdayOf(o.settimanaLavorazione)>=0) return false;
     return true;
   }
+  // v3.51: espongo filtro e riepilogo filtri a chi stampa dalla colonna (📋 materiali),
+  // così la lista segue ESATTAMENTE le card visibili. Si aggiorna a ogni render (ogni filtro ri-renderizza).
+  window._kfPassaFiltri = passaFiltri;
+  window._kfFiltriTesto = attivi ? [
+    fQ ? 'Ricerca: '+fQ : '',
+    fColore ? 'Colore: '+fColore : '',
+    fCanali.size ? 'Canale: '+[...fCanali].map(c=>c||'(Senza canale)').join(', ') : '',
+    fData ? 'Entro: '+fmtDate(fData) : '',
+    fMat ? 'Solo materiali disponibili' : '',
+    fNoPian ? 'Nascondi già programmati' : ''
+  ].filter(Boolean) : [];
 
   const board = document.getElementById('kanban-board');
   board.style.gridTemplateColumns = 'repeat(7,1fr)';
@@ -8831,8 +8842,11 @@ async function printSchedeColonna(stato) {
 // Lista materiali da prelevare per una colonna (Lav.1 / Lav.2), aggregata e raggruppata per materia prima
 function stampaMaterialiColonna(stato) {
   const ordini = DB.get('ordini')||[];
-  const lista = ordini.filter(o=>o.stato===stato);
-  if(!lista.length) { alert('Nessun ordine in "'+stato+'" per la lista materiali'); return; }
+  // v3.51: rispetta filtri e flag attivi del kanban (stesse card visibili nella colonna)
+  const filtro = (typeof window._kfPassaFiltri==='function') ? window._kfPassaFiltri : (()=>true);
+  const filtriTesto = window._kfFiltriTesto||[];
+  const lista = ordini.filter(o=>o.stato===stato && filtro(o));
+  if(!lista.length) { alert('Nessun ordine in "'+stato+'" per la lista materiali'+(filtriTesto.length?' con i filtri attivi':'')); return; }
 
   // Fabbisogno aggregato per nome componente (riusa il motore esistente)
   const fabb = calcolaFabbisogno(lista);   // { nomeComponente: quantità }
@@ -8906,9 +8920,13 @@ function stampaMaterialiColonna(stato) {
     .comp-table td{padding:6px 10px;border-bottom:1px solid #eee}
     .comp-table tr:last-child td{border-bottom:1px solid #ddd}
     .footer{margin-top:28px;padding-top:12px;border-top:1px solid #ddd;font-size:11px;color:#8C8578;font-family:monospace;display:flex;justify-content:space-between}
+    .filtri{font-size:12px;background:#FFF6E0;border:1px solid #E8D9A8;padding:6px 10px;margin:-12px 0 10px}
+    .commesse{font-size:11px;color:#5A554C;margin-bottom:20px;line-height:1.5}
   </style></head><body>
   <h1>Materiali da prelevare — ${labelStato}</h1>
   <div class="sub">${lista.length} commesse · raggruppati per materia prima di partenza · quantità totali</div>
+  ${filtriTesto.length ? `<div class="filtri"><strong>Filtri attivi:</strong> ${filtriTesto.map(t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))).join(' · ')}</div>` : ''}
+  <div class="commesse"><strong>Commesse incluse:</strong> ${lista.slice().sort((a,b)=>(parseInt(a.num,10)||0)-(parseInt(b.num,10)||0)).map(o=>o.num+' '+(o.cliente||'')).join(' · ')}</div>
   ${blocchi}
   ${senzaDistintaSection}
   <div class="footer"><span>Botti Manager</span><span>Stampato ${new Date().toLocaleDateString('it-IT')}</span></div>
